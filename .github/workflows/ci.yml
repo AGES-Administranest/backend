@@ -10,6 +10,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# `prisma generate` nao conecta em banco nenhum, mas prisma.config.ts le esta
+# variavel — sem ela o comando falha antes de gerar o client. Vale para todos
+# os jobs: sem o client gerado, o ESLint e o tsc nao enxergam os tipos do Prisma.
+env:
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci?schema=public
+
 jobs:
   lint:
     name: Lint
@@ -24,6 +30,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
       - run: npm run lint
 
       - run: npm run format:check
@@ -31,10 +40,6 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    env:
-      # `prisma generate` nao conecta em banco nenhum, mas prisma.config.ts le
-      # esta variavel — sem ela o comando falha antes de gerar o client.
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci?schema=public
     steps:
       - uses: actions/checkout@v4
 
