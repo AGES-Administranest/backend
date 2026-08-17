@@ -71,12 +71,12 @@ monta a resposta de erro.
 **Por que existem quatro caixas onde poderia haver uma.** Cada uma responde a uma
 pergunta diferente, e é isso que torna revisão de código possível:
 
-| Componente | Responde a | Regra prática |
-| --- | --- | --- |
-| `UsersController` | "Que URL é essa e o que devolvo?" | Se tem `if` de regra de negócio aqui, está no lugar errado |
-| `UsersService` | "O que significa essa operação?" | Único ponto que outro módulo pode chamar |
-| `UsersRepository` | "Como isso vira uma consulta?" | Só fala de dados. Nenhuma regra aqui. Ninguém de fora o injeta |
-| `PrismaService` | "Como falo com o PostgreSQL?" | Nunca injetado direto num Service (ADR-01) |
+| Componente        | Responde a                        | Regra prática                                                  |
+| ----------------- | --------------------------------- | -------------------------------------------------------------- |
+| `UsersController` | "Que URL é essa e o que devolvo?" | Se tem `if` de regra de negócio aqui, está no lugar errado     |
+| `UsersService`    | "O que significa essa operação?"  | Único ponto que outro módulo pode chamar                       |
+| `UsersRepository` | "Como isso vira uma consulta?"    | Só fala de dados. Nenhuma regra aqui. Ninguém de fora o injeta |
+| `PrismaService`   | "Como falo com o PostgreSQL?"     | Nunca injetado direto num Service (ADR-01)                     |
 
 **O detalhe mais importante do diagrama inteiro** está no passo 4: o usuário
 chega no Service **vindo do token**, nunca do corpo da requisição. Se o app

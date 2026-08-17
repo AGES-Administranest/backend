@@ -47,10 +47,10 @@ Hoje as únicas rotas expostas são `GET /` e `/users`.
 
 ## Pré-requisitos
 
-| Ferramenta              | Versão         | Para quê                 |
-| ----------------------- | -------------- | ------------------------ |
-| Node.js                 | 22 LTS         | Tudo                     |
-| npm                     | vem com o Node | Instalar dependências    |
+| Ferramenta              | Versão         | Para quê                                   |
+| ----------------------- | -------------- | ------------------------------------------ |
+| Node.js                 | 22 LTS         | Tudo                                       |
+| npm                     | vem com o Node | Instalar dependências                      |
 | Docker + Docker Compose | recente        | Subir o PostgreSQL local para ambiente dev |
 
 ### Node — use o nvm
@@ -100,9 +100,9 @@ Alguns detalhes que economizam tempo:
 
 **Rodar**
 
-| Script                | O que faz                                  |
-| --------------------- | ------------------------------------------ |
-| `npm run start:dev`   | Modo watch — o que você usa no dia a dia   |
+| Script              | O que faz                                |
+| ------------------- | ---------------------------------------- |
+| `npm run start:dev` | Modo watch — o que você usa no dia a dia |
 
 **Qualidade**
 
@@ -204,12 +204,12 @@ O guia completo, com o checklist de PR, está em **[`docs/swagger.md`](docs/swag
 
 ## Pasta `docs/`
 
-| Onde                                         | O quê                                                                                                                                                                                                                                                                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/swagger.md`](docs/swagger.md)         | Como documentar um endpoint novo, o que o plugin faz sozinho, erros comuns e checklist de PR                                                                                                                                                                                                                        |
-| [`docs/tratamento-de-erros.md`](docs/tratamento-de-erros.md) | Como uma falha vira resposta da API, como lançar um erro novo e o formato único de erro                                                                                                                                                                                             |
-| [`docs/Diagramas C4/`](docs/Diagramas%20C4/) | Diagramas C4 em Mermaid — contexto (nível 1), containers (nível 2) e componentes do módulo `users` (nível 3). Renderizam direto no GitHub e no VS Code                                                                                                                                                              |
-| [`docs/ADRs/`](docs/ADRs/)                   | 11 registros de decisão arquitetural: camada repository, espelho de usuário do Cognito, upload por presigned URL, geração de PDFs, extração assíncrona, contratos da API, tratamento de erros, sincronização offline, identificadores gerados no cliente, estoque como livro de movimentos e isolamento por usuário |
+| Onde                                                         | O quê                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/swagger.md`](docs/swagger.md)                         | Como documentar um endpoint novo, o que o plugin faz sozinho, erros comuns e checklist de PR                                                                                                                                                                                                                        |
+| [`docs/tratamento-de-erros.md`](docs/tratamento-de-erros.md) | Como uma falha vira resposta da API, como lançar um erro novo e o formato único de erro                                                                                                                                                                                                                             |
+| [`docs/Diagramas C4/`](docs/Diagramas%20C4/)                 | Diagramas C4 em Mermaid — contexto (nível 1), containers (nível 2) e componentes do módulo `users` (nível 3). Renderizam direto no GitHub e no VS Code                                                                                                                                                              |
+| [`docs/ADRs/`](docs/ADRs/)                                   | 11 registros de decisão arquitetural: camada repository, espelho de usuário do Cognito, upload por presigned URL, geração de PDFs, extração assíncrona, contratos da API, tratamento de erros, sincronização offline, identificadores gerados no cliente, estoque como livro de movimentos e isolamento por usuário |
 
 ## Git, CI e PRs
 
