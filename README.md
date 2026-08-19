@@ -220,7 +220,8 @@ O CI roda em todo PR e push para essas duas branches:
 | Workflow                                           | O que verifica                                                               |
 | -------------------------------------------------- | ---------------------------------------------------------------------------- |
 | [`ci.yml`](.github/workflows/ci.yml) — job _Lint_  | `npm run lint` e `npm run format:check`                                      |
-| [`ci.yml`](.github/workflows/ci.yml) — job _Build_ | `prisma generate` → `typecheck` → `build` → testes unitários                 |
+| [`ci.yml`](.github/workflows/ci.yml) — job _Build_ | `prisma generate` → `typecheck` → `build`                                    |
+| [`ci.yml`](.github/workflows/ci.yml) — job _Test_  | `prisma generate` → testes unitários (`npm test`)                            |
 | [`pr-lint.yml`](.github/workflows/pr-lint.yml)     | Título do PR em [Conventional Commits](https://www.conventionalcommits.org/) |
 
 **O título do PR vira a mensagem do squash merge**, por isso ele é validado: precisa começar com `feat`, `fix`, `chore`, `refactor`, `docs`, `style`, `test`, `perf`, `build`, `ci` ou `revert`.
