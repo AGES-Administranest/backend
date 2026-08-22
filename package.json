@@ -10,6 +10,11 @@
   },
   "scripts": {
     "build": "nest build",
+    "dev:up": "docker compose up -d",
+    "dev:bootstrap": "docker compose --profile bootstrap run --rm aws-cli /scripts/bootstrap-aws.sh",
+    "dev:token": "docker compose --profile bootstrap run --rm aws-cli /scripts/dev-token.sh",
+    "dev:down": "docker compose down",
+    "dev:reset": "docker compose down -v && docker compose run --rm --no-deps aws-cli -c \"rm -rf /workspace/docker/ministack-data\" && rm -f .aws-local.env",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "start": "nest start",
