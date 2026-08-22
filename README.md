@@ -13,6 +13,7 @@ Este repositório é **só o backend**. O app está em [client-mobile](https://g
 | ORM / migrations    | Prisma 7                    |
 | Banco               | PostgreSQL 16               |
 | Documentação da API | Swagger (`@nestjs/swagger`) |
+| AWS local           | MiniStack (Cognito · S3)    |
 
 ## Índice
 
@@ -21,6 +22,7 @@ Este repositório é **só o backend**. O app está em [client-mobile](https://g
 - [Instalação](#instalação)
 - [Scripts](#scripts)
 - [Banco de dados](#banco-de-dados)
+- [Ambiente local de AWS](#ambiente-local-de-aws)
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Convenções de código](#convenções-de-código)
 - [Documentação da API](#documentação-da-api)
@@ -38,20 +40,21 @@ O projeto está no esboço inicial
 - `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`)
 - Swagger gerado a partir dos DTOs e entities
 - Migration inicial (`prisma/migrations/20260813020259_init/`) — o schema tem apenas o model `User`
+- Ambiente local com **Cognito e S3 emulados** (MiniStack) — infraestrutura pronta, ver [`docs/ambiente-local.md`](docs/ambiente-local.md)
 
 **Ainda não existe** (está desenhado nos documentos, não no código)
 
-Autenticação com Cognito, upload para S3, jobs de extração de NFS-e, endpoints de sincronização offline, geração de relatórios em PDF e a rota `/health`. Veja [`docs/ADRs/`](docs/ADRs/) antes de implementar qualquer um desses.
+O **código** de autenticação com Cognito e de upload para S3 — a infraestrutura local dos dois já está de pé, falta o `AuthGuard` e o presigner no Nest. Além desses: jobs de extração de NFS-e, endpoints de sincronização offline, geração de relatórios em PDF e a rota `/health`. Veja [`docs/ADRs/`](docs/ADRs/) antes de implementar qualquer um deles.
 
 Hoje as únicas rotas expostas são `GET /` e `/users`.
 
 ## Pré-requisitos
 
-| Ferramenta              | Versão         | Para quê                                   |
-| ----------------------- | -------------- | ------------------------------------------ |
-| Node.js                 | 22 LTS         | Tudo                                       |
-| npm                     | vem com o Node | Instalar dependências                      |
-| Docker + Docker Compose | recente        | Subir o PostgreSQL local para ambiente dev |
+| Ferramenta              | Versão         | Para quê                               |
+| ----------------------- | -------------- | -------------------------------------- |
+| Node.js                 | 22 LTS         | Tudo                                   |
+| npm                     | vem com o Node | Instalar dependências                  |
+| Docker + Docker Compose | Compose **v2** | Subir o PostgreSQL e o emulador de AWS |
 
 ### Node — use o nvm
 
@@ -68,6 +71,10 @@ nvm use
 
 `nvm use` sem argumento lê o `.nvmrc` sozinho sempre que você estiver nesta pasta.
 
+### Docker Compose v2
+
+Os scripts de ambiente usam `docker compose` (subcomando, sem hífen) e a flag `--profile`, que só existem no Compose v2. Confira com `docker compose version`; se o seu responder só ao `docker-compose` com hífen, atualize antes de continuar.
+
 ## Instalação
 
 ```sh
@@ -78,7 +85,8 @@ nvm use                 # Node 22
 npm install
 cp .env.example .env    # DATABASE_URL e PORT
 
-docker compose up -d    # sobe o PostgreSQL na porta 5432
+npm run dev:up          # sobe PostgreSQL (5432) e MiniStack (4566)
+npm run dev:bootstrap   # cria user pool, bucket e usuário de teste no MiniStack
 npx prisma migrate dev  # aplica as migrations e gera o Prisma Client
 
 npm run start:dev       # API em modo watch
@@ -92,7 +100,9 @@ Alguns detalhes que economizam tempo:
 
 **O `.env` é gitignored.** Ele nunca vai para o repositório; o que se versiona é o `.env.example`. Variáveis novas entram nos dois lugares.
 
-**O Compose sobe só o banco.** O [`docker-compose.yml`](./docker-compose.yml) tem um único serviço, `postgres:16-alpine` (banco `backend`, usuário e senha `postgres`, volume nomeado para os dados persistirem). A API roda direto na sua máquina, não em container — é o que permite o watch mode e o debugger funcionarem sem configuração extra.
+**A API roda na sua máquina, o resto em container.** O [`docker-compose.yml`](./docker-compose.yml) sobe o `postgres:16-alpine` (banco `backend`, usuário e senha `postgres`) e o `ministack` (Cognito e S3 emulados na porta 4566). A API fica fora do Docker — é o que permite o watch mode e o debugger funcionarem sem configuração extra.
+
+**O `dev:bootstrap` só precisa rodar uma vez.** Ele cria o user pool, o app client, o bucket e o usuário de teste dentro do emulador, e grava os IDs gerados em `.aws-local.env` (gitignored, separado do seu `.env`). O estado sobrevive ao `dev:down`; nos dias seguintes basta `npm run dev:up`. Tudo explicado em [`docs/ambiente-local.md`](docs/ambiente-local.md).
 
 **Swagger não sobe em produção.** As rotas `/docs` e `/docs-json` só são registradas quando `NODE_ENV !== 'production'` (ver [`src/main.ts`](./src/main.ts)).
 
@@ -103,6 +113,16 @@ Alguns detalhes que economizam tempo:
 | Script              | O que faz                                |
 | ------------------- | ---------------------------------------- |
 | `npm run start:dev` | Modo watch — o que você usa no dia a dia |
+
+**Ambiente local**
+
+| Script                  | O que faz                                                           |
+| ----------------------- | ------------------------------------------------------------------- |
+| `npm run dev:up`        | Sobe PostgreSQL e MiniStack                                         |
+| `npm run dev:bootstrap` | Cria os recursos AWS no emulador (idempotente)                      |
+| `npm run dev:token`     | Imprime um `IdToken` do usuário de teste                            |
+| `npm run dev:down`      | Derruba os containers, preservando o estado                         |
+| `npm run dev:reset`     | Derruba e apaga tudo: volumes, estado do emulador e o `.env` gerado |
 
 **Qualidade**
 
@@ -135,6 +155,19 @@ O acesso é via Prisma 7 com o adapter `@prisma/adapter-pg`, encapsulado no [`Pr
 | `npx prisma studio`                    | Abrir a UI para inspecionar os dados                       |
 
 **Migrations são versionadas e ninguém altera o schema na mão.** Mudança de banco entra como arquivo em `prisma/migrations/`, revisada no PR como qualquer outro código.
+
+## Ambiente local de AWS
+
+Autenticação (ADR-02) e upload de arquivos (ADR-03) dependem de Cognito e S3. Em vez de compartilhar credenciais reais, o time roda os dois em cima do [MiniStack](https://ministack.org): um container que responde o protocolo da AWS em `localhost:4566`.
+
+Não existe pacote do MiniStack para instalar. Você usa o AWS SDK normal (`@aws-sdk/client-*`, TypeScript nativo) e aponta o `endpoint` dele para o emulador — **a única diferença entre local e produção é essa string**.
+
+```sh
+npm run dev:up && npm run dev:bootstrap   # uma vez
+npm run dev:token                          # sempre que precisar de um Bearer
+```
+
+O guia completo — o que o bootstrap cria, os dois arquivos de variáveis, como apontar o app mobile e o que fazer quando a porta 4566 está ocupada — está em **[`docs/ambiente-local.md`](docs/ambiente-local.md)**. As decisões e os achados dos testes estão no [ADR-12](docs/ADRs/ADR-12-emulacao-local-cognito.md).
 
 ## Estrutura do projeto
 
@@ -204,12 +237,13 @@ O guia completo, com o checklist de PR, está em **[`docs/swagger.md`](docs/swag
 
 ## Pasta `docs/`
 
-| Onde                                                         | O quê                                                                                                                                                                                                                                                                                                               |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/swagger.md`](docs/swagger.md)                         | Como documentar um endpoint novo, o que o plugin faz sozinho, erros comuns e checklist de PR                                                                                                                                                                                                                        |
-| [`docs/tratamento-de-erros.md`](docs/tratamento-de-erros.md) | Como uma falha vira resposta da API, como lançar um erro novo e o formato único de erro                                                                                                                                                                                                                             |
-| [`docs/Diagramas C4/`](docs/Diagramas%20C4/)                 | Diagramas C4 em Mermaid — contexto (nível 1), containers (nível 2) e componentes do módulo `users` (nível 3). Renderizam direto no GitHub e no VS Code                                                                                                                                                              |
-| [`docs/ADRs/`](docs/ADRs/)                                   | 11 registros de decisão arquitetural: camada repository, espelho de usuário do Cognito, upload por presigned URL, geração de PDFs, extração assíncrona, contratos da API, tratamento de erros, sincronização offline, identificadores gerados no cliente, estoque como livro de movimentos e isolamento por usuário |
+| Onde                                                         | O quê                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`docs/swagger.md`](docs/swagger.md)                         | Como documentar um endpoint novo, o que o plugin faz sozinho, erros comuns e checklist de PR                                                                                                                                                                                                                                               |
+| [`docs/tratamento-de-erros.md`](docs/tratamento-de-erros.md) | Como uma falha vira resposta da API, como lançar um erro novo e o formato único de erro                                                                                                                                                                                                                                                    |
+| [`docs/Diagramas C4/`](docs/Diagramas%20C4/)                 | Diagramas C4 em Mermaid — contexto (nível 1), containers (nível 2) e componentes do módulo `users` (nível 3). Renderizam direto no GitHub e no VS Code                                                                                                                                                                                     |
+| [`docs/ambiente-local.md`](docs/ambiente-local.md)           | Como subir Cognito e S3 emulados na sua máquina, pegar token, resetar o estado e apontar o app mobile                                                                                                                                                                                                                                      |
+| [`docs/ADRs/`](docs/ADRs/)                                   | 12 registros de decisão arquitetural: camada repository, espelho de usuário do Cognito, upload por presigned URL, geração de PDFs, extração assíncrona, contratos da API, tratamento de erros, sincronização offline, identificadores gerados no cliente, estoque como livro de movimentos, isolamento por usuário e emulação local de AWS |
 
 ## Git, CI e PRs
 
