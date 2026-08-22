@@ -56,3 +56,7 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+
+# Ambiente AWS local (MiniStack) — gerados, nunca versionados
+.aws-local.env
+/docker/ministack-data
