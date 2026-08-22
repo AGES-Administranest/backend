@@ -20,8 +20,8 @@ jobs:
           # Configura a URL com o token de autenticação
           # Troque a URL abaixo pela URL do seu projeto no GitLab (sem o https://)
           GITLAB_REPO="tools.ages.pucrs.br/2026-2/2jk-4jk/administranest-gest-o-veterin-ria/backend.git"
-          
+
           git remote add gitlab "https://oauth2:${{ secrets.GITLAB_TOKEN }}@$GITLAB_REPO"
-          
+
           # Envia a branch atual para o GitLab
           git push gitlab ${{ github.ref_name }}
