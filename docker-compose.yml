@@ -11,5 +11,49 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # Emulador de AWS (Cognito + S3) — ver docs/ADRs/ADR-12.
+  ministack:
+    image: ministackorg/ministack:latest
+    restart: unless-stopped
+    ports:
+      - '${MINISTACK_PORT:-4566}:4566'
+    environment:
+      MINISTACK_REGION: us-east-1
+      LOG_LEVEL: INFO
+      PERSIST_STATE: '1'
+      S3_PERSIST: '1'
+    volumes:
+      - ./docker/ministack-data/state:/tmp/ministack-state
+      - ./docker/ministack-data/s3:/tmp/ministack-data/s3
+    # A imagem já define um healthcheck próprio em /_ministack/health; é ele
+    # que o `depends_on: service_healthy` do aws-cli espera.
+
+  # Só existe para rodar os scripts de bootstrap. Não sobe no `docker compose up`.
+  aws-cli:
+    image: amazon/aws-cli:latest
+    profiles: [bootstrap]
+    entrypoint: /bin/bash
+    depends_on:
+      ministack:
+        condition: service_healthy
+    environment:
+      AWS_ENDPOINT_URL: http://ministack:4566
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      # URL que a API e o app usam a partir do host (fora da rede do Compose).
+      HOST_ENDPOINT_URL: http://localhost:${MINISTACK_PORT:-4566}
+      # Nomes dos recursos que o bootstrap cria. Ficam aqui, e não dentro dos
+      # scripts, para que bootstrap-aws.sh e dev-token.sh leiam o MESMO valor.
+      # Destes, só o S3_BUCKET chega na API — ver docs/ambiente-local.md.
+      COGNITO_POOL_NAME: ${COGNITO_POOL_NAME:-administranest-local}
+      COGNITO_CLIENT_NAME: ${COGNITO_CLIENT_NAME:-administranest-mobile}
+      S3_BUCKET: ${S3_BUCKET:-administranest-local}
+      DEV_EMAIL: ${DEV_EMAIL:-dev@administranest.local}
+      DEV_PASSWORD: ${DEV_PASSWORD:-Dev@12345}
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./:/workspace
+
 volumes:
   postgres_data:
