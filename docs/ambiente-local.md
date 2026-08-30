@@ -13,6 +13,7 @@ O projeto depende de dois serviços AWS: **Cognito** para autenticação ([ADR-0
 - [Resetar](#resetar)
 - [Apontando o app mobile para cá](#apontando-o-app-mobile-para-cá)
 - [Problemas comuns](#problemas-comuns)
+- [Explorando na mão](#explorando-na-mão)
 
 ## O que é o MiniStack
 
@@ -187,6 +188,10 @@ O app autentica **direto no Cognito** e manda o token para a API (ADR-02). Como 
 | Celular físico   | `http://<IP-da-sua-LAN>:4566` | `http://<IP-da-sua-LAN>:3000` |
 
 O `10.0.2.2` é um endereço especial do emulador do Android que aponta para o host. Para celular físico, descubra seu IP com `ip addr | grep 'inet 192'` e garanta que celular e computador estão no mesmo Wi-Fi.
+
+## Explorando na mão
+
+Para conhecer o Cognito antes de escrever código — ver o pool, criar um usuário, logar e abrir o token —, siga o roteiro passo a passo em **[`cognito-na-pratica.md`](cognito-na-pratica.md)**.
 
 ## Problemas comuns
 
