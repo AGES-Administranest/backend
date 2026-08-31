@@ -4,3 +4,4 @@ coverage/
 generated/
 package-lock.json
 prisma/migrations/
+*.md
