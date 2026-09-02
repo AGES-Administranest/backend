@@ -1,5 +1,10 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
+//
+// Traduzido de "Administranest -intermediaria.sql" (dbdiagram.io). Os
+// comentários /// abaixo vêm dos COMMENT ON do SQL original — documentam
+// decisões de modelagem, mas não são persistidos no banco (Prisma não
+// suporta COMMENT ON nativamente).
 
 generator client {
   provider = "prisma-client-js"
@@ -9,10 +14,574 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ClientType {
+  INDIVIDUAL
+  CLINIC
+
+  @@map("client_type_enum")
+}
+
+enum TaxIdType {
+  CPF
+  CNPJ
+
+  @@map("tax_id_type_enum")
+}
+
+enum Weekday {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+
+  @@map("weekday_enum")
+}
+
+enum PaymentMethod {
+  CARD
+  BANK_SLIP
+  PIX
+  OTHER
+
+  @@map("payment_method_enum")
+}
+
+enum Species {
+  CANINE
+  FELINE
+  OTHER
+
+  @@map("species_enum")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELED
+
+  @@map("appointment_status_enum")
+}
+
+enum EntryNature {
+  INCOME
+  EXPENSE
+
+  @@map("entry_nature_enum")
+}
+
+enum EntryScope {
+  PROFESSIONAL
+  PERSONAL
+
+  @@map("entry_scope_enum")
+}
+
+enum EntryStatus {
+  PENDING
+  SETTLED
+  CANCELED
+
+  @@map("entry_status_enum")
+}
+
+enum EntrySource {
+  APPOINTMENT
+  SERVICE_INVOICE
+  PURCHASE_INVOICE
+  TRIP
+  MANUAL
+
+  @@map("entry_source_enum")
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  LOSS
+  EXPIRED
+
+  @@map("stock_movement_type_enum")
+}
+
+enum StockMovementSource {
+  PURCHASE
+  APPOINTMENT
+  MANUAL
+
+  @@map("stock_movement_source_enum")
+}
+
+enum ReportStatus {
+  PENDING
+  DONE
+  FAILED
+
+  @@map("report_status_enum")
+}
+
+enum MeasurementUnit {
+  UNIT
+  AMPOULE
+  VIAL
+  BOX
+  ML
+  MG
+  TABLET
+  OTHER
+
+  @@map("measurement_unit_enum")
+}
+
+/// Identidade e dona de todos os dados. Sem papel de admin: o sistema é de
+/// uso individual pelo profissional, sem confirmação de necessidade de
+/// suporte multiusuário.
 model User {
-  id        String   @id @default(uuid())
+  id         String     @id @default(uuid()) @db.Uuid
+  cognitoSub String     @unique @map("cognito_sub")
+  email      String     @unique
+  name       String
+  crmv       String?
+  /// CPF ou CNPJ — aparece nas notas que o profissional recebe
+  taxId      String?    @map("tax_id")
+  taxIdType  TaxIdType? @map("tax_id_type")
+  birthDate  DateTime?  @map("birth_date") @db.Date
+  photoUrl   String?    @map("photo_url")
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime?  @map("deleted_at") @db.Timestamptz(6)
+
+  clients             Client[]
+  appointments        Appointment[]
+  trips               Trip[]
+  suppliers           Supplier[]
+  items               Item[]
+  stockMovements      StockMovement[]
+  equipments          Equipment[]
+  serviceInvoices     ServiceInvoice[]
+  purchaseInvoices    PurchaseInvoice[]
+  financialCategories FinancialCategory[]
+  financialEntries    FinancialEntry[]
+  pricingSettings     PricingSettings?
+  reports             Report[]
+
+  @@map("user")
+}
+
+/// Quem paga, não necessariamente quem é atendido. CLINIC na maioria dos
+/// casos, INDIVIDUAL quando faturado diretamente ao tutor do animal.
+model Client {
+  id                     String         @id @default(uuid()) @db.Uuid
+  userId                 String         @map("user_id") @db.Uuid
+  type                   ClientType
+  name                   String
+  taxId                  String?        @map("tax_id")
+  taxIdType              TaxIdType?     @map("tax_id_type")
+  /// responsável — o veterinário da clínica, quando type=CLINIC
+  contactName            String?        @map("contact_name")
+  email                  String?
+  phone                  String?
+  addressLine            String?        @map("address_line")
+  city                   String?
+  state                  String?
+  /// dias da semana em que o profissional atende nessa clínica
+  serviceDays            Weekday[]      @map("service_days")
+  /// previsão de dias até o recebimento
+  paymentTermsDays       Int?           @map("payment_terms_days")
+  preferredPaymentMethod PaymentMethod? @map("preferred_payment_method")
+  active                 Boolean        @default(true)
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime?      @map("deleted_at") @db.Timestamptz(6)
+
+  user            User             @relation(fields: [userId], references: [id])
+  appointments    Appointment[]
+  serviceInvoices ServiceInvoice[]
+
+  @@index([userId, active])
+  @@map("client")
+}
+
+/// Entidade central. O paciente é um retrato do momento, não um cadastro de
+/// animal. Apenas starts_at é obrigatório, para permitir um lançamento
+/// mínimo. Faturado = existe um financial_entry com source=APPOINTMENT.
+model Appointment {
+  id              String            @id @default(uuid()) @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  clientId        String?           @map("client_id") @db.Uuid
+  /// texto livre — sem catálogo próprio de procedimentos
+  procedureName   String?           @map("procedure_name")
+  startsAt        DateTime          @map("starts_at") @db.Timestamptz(6)
+  endsAt          DateTime?         @map("ends_at") @db.Timestamptz(6)
+  /// quando difere do endereço do cliente
+  location        String?
+  /// digitado manualmente — sem tabela de preços
+  amount          Decimal?          @db.Decimal(14, 2)
+  patientName     String?           @map("patient_name")
+  /// texto livre; relevante quando o cliente faturado é a clínica, não o tutor
+  ownerName       String?           @map("owner_name")
+  /// PENDENTE de validação com a stakeholder — dado administrativo ou clínico?
+  species         Species?
+  /// PENDENTE de validação com a stakeholder — dado administrativo ou clínico?
+  patientAgeYears Int?              @map("patient_age_years")
+  /// PENDENTE de validação com a stakeholder — dado administrativo ou clínico?
+  weightKg        Decimal?          @map("weight_kg") @db.Decimal(6, 3)
+  /// anotações administrativas livres
+  notes           String?
+  status          AppointmentStatus @default(SCHEDULED)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?         @map("deleted_at") @db.Timestamptz(6)
+
+  user           User            @relation(fields: [userId], references: [id])
+  client         Client?         @relation(fields: [clientId], references: [id])
+  trips          Trip[]
+  stockMovements StockMovement[]
+  financialEntry FinancialEntry?
+
+  @@index([userId, startsAt])
+  @@index([userId, status, startsAt])
+  @@index([userId, clientId])
+  @@index([patientName])
+  @@map("appointment")
+}
+
+/// Sem cadastro de veículo nem rateio entre múltiplos atendimentos: o custo
+/// é lançado diretamente por deslocamento.
+model Trip {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  appointmentId String?   @map("appointment_id") @db.Uuid
+  occurredOn    DateTime  @map("occurred_on") @db.Date
+  distanceKm    Decimal?  @map("distance_km") @db.Decimal(10, 2)
+  cost          Decimal?  @db.Decimal(14, 2)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user           User            @relation(fields: [userId], references: [id])
+  appointment    Appointment?    @relation(fields: [appointmentId], references: [id])
+  financialEntry FinancialEntry?
+
+  @@index([userId, occurredOn])
+  @@map("trip")
+}
+
+model Supplier {
+  id        String     @id @default(uuid()) @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
   name      String
-  email     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  taxId     String?    @map("tax_id")
+  taxIdType TaxIdType? @map("tax_id_type")
+  contact   String?
+  email     String?
+  phone     String?
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime?  @map("deleted_at") @db.Timestamptz(6)
+
+  user             User              @relation(fields: [userId], references: [id])
+  items            Item[]
+  equipments       Equipment[]
+  purchaseInvoices PurchaseInvoice[]
+
+  @@index([userId, active])
+  @@map("supplier")
+}
+
+model Item {
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @map("user_id") @db.Uuid
+  /// fornecedor preferencial/padrão
+  supplierId      String?         @map("supplier_id") @db.Uuid
+  unit            MeasurementUnit
+  name            String
+  /// sugestão de custo para um lote novo
+  defaultUnitCost Decimal?        @map("default_unit_cost") @db.Decimal(14, 4)
+  minimumStock    Decimal?        @map("minimum_stock") @db.Decimal(14, 3)
+  /// CACHE derivado de stock_movement
+  currentQuantity Decimal         @default(0) @map("current_quantity") @db.Decimal(14, 3)
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(6)
+
+  user                 User                  @relation(fields: [userId], references: [id])
+  supplier             Supplier?             @relation(fields: [supplierId], references: [id])
+  lots                 ItemLot[]
+  stockMovements       StockMovement[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
+
+  @@index([userId, name])
+  @@index([userId, active])
+  @@map("item")
+}
+
+/// Mantido: única forma de saber qual remessa está vencendo. Sem
+/// usuario_id — herdado através de item_id.
+model ItemLot {
+  id              String    @id @default(uuid()) @db.Uuid
+  itemId          String    @map("item_id") @db.Uuid
+  lotNumber       String?   @map("lot_number")
+  expirationDate  DateTime? @map("expiration_date") @db.Date
+  /// custo real deste lote — base do cálculo de margem
+  unitCost        Decimal   @map("unit_cost") @db.Decimal(14, 4)
+  /// CACHE
+  currentQuantity Decimal   @default(0) @map("current_quantity") @db.Decimal(14, 3)
+  receivedOn      DateTime  @map("received_on") @db.Date
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  item                 Item                  @relation(fields: [itemId], references: [id])
+  stockMovements       StockMovement[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
+
+  @@index([itemId, expirationDate])
+  @@map("item_lot")
+}
+
+/// Mantido: dá histórico e rastreabilidade ao estoque. NÃO gera um
+/// financial_entry: o dinheiro já saiu no momento da compra.
+model StockMovement {
+  id                    String              @id @default(uuid()) @db.Uuid
+  userId                String              @map("user_id") @db.Uuid
+  itemId                String              @map("item_id") @db.Uuid
+  lotId                 String?             @map("lot_id") @db.Uuid
+  type                  StockMovementType
+  source                StockMovementSource
+  /// sempre positiva — o sinal vem do type
+  quantity              Decimal             @db.Decimal(14, 3)
+  /// retrato do custo do lote no momento da movimentação
+  unitCost              Decimal             @map("unit_cost") @db.Decimal(14, 4)
+  occurredAt            DateTime            @map("occurred_at") @db.Timestamptz(6)
+  appointmentId         String?             @map("appointment_id") @db.Uuid
+  purchaseInvoiceLineId String?             @map("purchase_invoice_line_id") @db.Uuid
+  notes                 String?
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt             DateTime?           @map("deleted_at") @db.Timestamptz(6)
+
+  user                User                 @relation(fields: [userId], references: [id])
+  item                Item                 @relation(fields: [itemId], references: [id])
+  lot                 ItemLot?             @relation(fields: [lotId], references: [id])
+  appointment         Appointment?         @relation(fields: [appointmentId], references: [id])
+  purchaseInvoiceLine PurchaseInvoiceLine? @relation(fields: [purchaseInvoiceLineId], references: [id])
+
+  @@index([userId, occurredAt])
+  @@index([itemId, occurredAt])
+  @@index([appointmentId])
+  @@index([lotId])
+  @@map("stock_movement")
+}
+
+/// A depreciação NÃO é armazenada — é calculada sob demanda em relatórios.
+model Equipment {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  supplierId      String?   @map("supplier_id") @db.Uuid
+  name            String
+  purchaseValue   Decimal   @map("purchase_value") @db.Decimal(14, 2)
+  salvageValue    Decimal   @default(0) @map("salvage_value") @db.Decimal(14, 2)
+  acquisitionDate DateTime  @map("acquisition_date") @db.Date
+  usefulLifeYears Int       @map("useful_life_years")
+  /// calibração, garantia
+  notes           String?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user     User      @relation(fields: [userId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([userId, active])
+  @@map("equipment")
+}
+
+/// Nota de receita emitida FORA do app. O relatório de faturamento mensal
+/// soma amount por mês, sem precisar de tabela de agrupamento com os
+/// atendimentos.
+model ServiceInvoice {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  clientId      String?   @map("client_id") @db.Uuid
+  number        String?
+  issueDate     DateTime? @map("issue_date") @db.Date
+  amount        Decimal?  @db.Decimal(14, 2)
+  description   String?
+  /// URL de armazenamento — PDF ou foto
+  fileUrl       String    @map("file_url")
+  fileMimeType  String?   @map("file_mime_type")
+  /// garante idempotência no reprocessamento
+  fileHash      String?   @unique @map("file_hash")
+  /// retorno bruto do OCR — usado quando a extração falha parcialmente
+  rawExtraction Json?     @map("raw_extraction")
+  /// NULL = dado ainda exatamente como saiu do OCR, não conferido
+  reviewedAt    DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user           User            @relation(fields: [userId], references: [id])
+  client         Client?         @relation(fields: [clientId], references: [id])
+  financialEntry FinancialEntry?
+
+  @@index([userId, issueDate])
+  @@index([userId, number])
+  @@map("service_invoice")
+}
+
+model PurchaseInvoice {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  supplierId    String?   @map("supplier_id") @db.Uuid
+  number        String?
+  issueDate     DateTime? @map("issue_date") @db.Date
+  totalAmount   Decimal?  @map("total_amount") @db.Decimal(14, 2)
+  /// URL de armazenamento — PDF ou foto
+  fileUrl       String    @map("file_url")
+  fileMimeType  String?   @map("file_mime_type")
+  fileHash      String?   @unique @map("file_hash")
+  rawExtraction Json?     @map("raw_extraction")
+  reviewedAt    DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user           User                  @relation(fields: [userId], references: [id])
+  supplier       Supplier?             @relation(fields: [supplierId], references: [id])
+  lines          PurchaseInvoiceLine[]
+  financialEntry FinancialEntry?
+
+  @@index([userId, issueDate])
+  @@map("purchase_invoice")
+}
+
+/// item_id é opcional: o OCR pode trazer uma linha que não bate com o
+/// cadastro.
+model PurchaseInvoiceLine {
+  id                String  @id @default(uuid()) @db.Uuid
+  purchaseInvoiceId String  @map("purchase_invoice_id") @db.Uuid
+  itemId            String? @map("item_id") @db.Uuid
+  /// o lote criado por esta compra
+  lotId             String? @map("lot_id") @db.Uuid
+  /// texto exatamente como veio na nota, mesmo sem correspondência com um
+  /// item cadastrado
+  description       String
+  quantity          Decimal @db.Decimal(14, 3)
+  unitCost          Decimal @map("unit_cost") @db.Decimal(14, 4)
+
+  purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
+  item            Item?           @relation(fields: [itemId], references: [id])
+  lot             ItemLot?        @relation(fields: [lotId], references: [id])
+  stockMovements  StockMovement[]
+
+  @@index([purchaseInvoiceId])
+  @@map("purchase_invoice_line")
+}
+
+/// Mantido como tabela (não enum): permite categorias personalizadas além
+/// das padrão do sistema, valor real mesmo sem estar escrito no Termo.
+model FinancialCategory {
+  id           String      @id @default(uuid()) @db.Uuid
+  /// NULL = categoria padrão do sistema
+  userId       String?     @map("user_id") @db.Uuid
+  name         String
+  nature       EntryNature
+  /// só preenche o padrão do lançamento
+  defaultScope EntryScope  @map("default_scope")
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user    User?            @relation(fields: [userId], references: [id])
+  entries FinancialEntry[]
+
+  @@unique([userId, name])
+  @@map("financial_category")
+}
+
+/// Livro-caixa único. Visão de caixa = filtra por settlement_date. Visão
+/// de competência = accrual_date. A receber/a pagar = status PENDING. A
+/// depreciação de equipamentos NÃO é lançada aqui de propósito — é
+/// calculada em relatórios. Lançamentos recorrentes (aluguel, etc.) são
+/// criados manualmente todo mês.
+model FinancialEntry {
+  id                String      @id @default(uuid()) @db.Uuid
+  userId            String      @map("user_id") @db.Uuid
+  nature            EntryNature
+  /// vem por padrão da categoria, editável por lançamento
+  scope             EntryScope
+  categoryId        String      @map("category_id") @db.Uuid
+  description       String
+  /// sempre positivo — o sinal vem do nature
+  amount            Decimal     @db.Decimal(14, 2)
+  /// quando o fato ocorreu (regime de competência)
+  accrualDate       DateTime    @map("accrual_date") @db.Timestamptz(6)
+  /// previsão; deriva de client.payment_terms_days quando aplicável
+  dueDate           DateTime?   @map("due_date") @db.Date
+  /// quando o dinheiro de fato mudou de mão. NULL = ainda em aberto
+  settlementDate    DateTime?   @map("settlement_date") @db.Date
+  status            EntryStatus @default(PENDING)
+  source            EntrySource
+  appointmentId     String?     @unique @map("appointment_id") @db.Uuid
+  serviceInvoiceId  String?     @unique @map("service_invoice_id") @db.Uuid
+  purchaseInvoiceId String?     @unique @map("purchase_invoice_id") @db.Uuid
+  tripId            String?     @unique @map("trip_id") @db.Uuid
+  notes             String?
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime?   @map("deleted_at") @db.Timestamptz(6)
+
+  user            User              @relation(fields: [userId], references: [id])
+  category        FinancialCategory @relation(fields: [categoryId], references: [id])
+  appointment     Appointment?      @relation(fields: [appointmentId], references: [id])
+  serviceInvoice  ServiceInvoice?   @relation(fields: [serviceInvoiceId], references: [id])
+  purchaseInvoice PurchaseInvoice?  @relation(fields: [purchaseInvoiceId], references: [id])
+  trip            Trip?             @relation(fields: [tripId], references: [id])
+
+  @@index([userId, settlementDate])
+  @@index([userId, accrualDate])
+  @@index([userId, status, dueDate])
+  @@index([userId, scope, accrualDate])
+  @@index([userId, categoryId])
+  @@map("financial_entry")
+}
+
+/// Calculadora de hora trabalhada. Custos fixos e depreciação são
+/// calculados, não armazenados aqui.
+model PricingSettings {
+  userId               String   @id @map("user_id") @db.Uuid
+  /// meta de renda mensal — cobre o conceito de pró-labore + margem do
+  /// levantamento de requisitos
+  monthlyIncomeGoal    Decimal? @map("monthly_income_goal") @db.Decimal(14, 2)
+  weeklyHours          Decimal? @map("weekly_hours") @db.Decimal(6, 2)
+  safetyMarginPct      Decimal? @map("safety_margin_pct") @db.Decimal(6, 2)
+  transportCostMonthly Decimal? @map("transport_cost_monthly") @db.Decimal(14, 2)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("pricing_settings")
+}
+
+model Report {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @map("user_id") @db.Uuid
+  kind        String
+  periodStart DateTime?    @map("period_start") @db.Date
+  periodEnd   DateTime?    @map("period_end") @db.Date
+  filters     Json?
+  /// URL de armazenamento
+  fileUrl     String?      @map("file_url")
+  status      ReportStatus @default(PENDING)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("report")
 }

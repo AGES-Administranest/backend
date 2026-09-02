@@ -7,4 +7,8 @@ export class CreateUserDto {
 
   @IsEmail()
   email!: string;
+
+  /** Identificador do usuário no Cognito (`sub` do token) */
+  @IsString()
+  cognitoSub!: string;
 }
