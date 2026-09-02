@@ -30,7 +30,10 @@ export class UsersService {
 
   async create(dto: CreateUserDto) {
     try {
-      return await this.usersRepository.create(dto);
+      return await this.usersRepository.create({
+        ...dto,
+        updatedAt: new Date(),
+      });
     } catch (error) {
       if (error instanceof UniqueConstraintError)
         throw this.emailJaCadastrado();
