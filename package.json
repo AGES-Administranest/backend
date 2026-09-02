@@ -11,6 +11,7 @@
   "scripts": {
     "build": "nest build",
     "dev:up": "docker compose up -d",
+    "dev:setup": "docker compose up -d --wait && npm run dev:bootstrap && npx prisma migrate dev",
     "dev:bootstrap": "docker compose --profile bootstrap run --rm aws-cli /scripts/bootstrap-aws.sh",
     "dev:token": "docker compose --profile bootstrap run --rm aws-cli /scripts/dev-token.sh",
     "dev:down": "docker compose down",
