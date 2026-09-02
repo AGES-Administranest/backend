@@ -45,16 +45,17 @@ nvm use
 npm ci
 cp .env.example .env
 
-npm run dev:up          # sobe postgres + ministack
-npm run dev:bootstrap    # cria user pool, app client, bucket e usuário de teste
-npx prisma migrate dev   # aplica as migrations
+npm run dev:setup        # sobe containers, cria os recursos AWS e aplica as migrations
 npm run start:dev        # API em http://localhost:3000
 ```
 
-O `dev:bootstrap` só precisa rodar **uma vez** — o estado do emulador fica em `docker/ministack-data/` e sobrevive ao `dev:down`. Nos dias seguintes, `npm run dev:up` e pronto.
+`dev:setup` é o atalho: espera Postgres e MiniStack subirem (`docker compose up -d --wait`), roda o bootstrap e aplica as migrations — os três passos abaixo, um atrás do outro. Só precisa rodar **uma vez**; o estado do emulador fica em `docker/ministack-data/` e sobrevive ao `dev:down`. Nos dias seguintes, `npm run dev:up` e pronto.
+
+Se algum passo falhar isoladamente (ex.: as migrations, porque o schema mudou), rode-o sozinho em vez de repetir o `dev:setup` inteiro:
 
 | Script                  | O que faz                                                               |
 | ----------------------- | ----------------------------------------------------------------------- |
+| `npm run dev:setup`     | `dev:up` + `dev:bootstrap` + `prisma migrate dev`, em sequência         |
 | `npm run dev:up`        | Sobe os containers (Postgres e MiniStack) em background                 |
 | `npm run dev:bootstrap` | Cria os recursos AWS. Idempotente — rodar de novo não quebra            |
 | `npm run dev:token`     | Imprime um `IdToken` novo do usuário de teste                           |
