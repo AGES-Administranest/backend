@@ -24,6 +24,10 @@ export const ERROR_CODES = [
   'USUARIO_NAO_ENCONTRADO',
   'USUARIO_EMAIL_JA_CADASTRADO',
 
+  // stock-movements
+  'ESTOQUE_QUANTIDADE_INVALIDA',
+  'ESTOQUE_MOTIVO_AJUSTE_INVALIDO',
+
   // seu módulo entra aqui
 ] as const;
 
