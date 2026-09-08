@@ -27,9 +27,19 @@ export class UsersRepository {
     return runQuery(() => this.prisma.user.findUnique({ where: { id } }));
   }
 
-  findByCognitoSub(cognitoSub: string): Promise<User | null> {
+  /**
+   * Updates the mirror addressed by its Cognito `sub`.
+   *
+   * Addressing by `cognitoSub` rather than reading the row first and updating
+   * by `id` keeps it a single statement: a read-then-write would raise a bare
+   * `P2025` if the row disappeared in between, and that escapes as a 500.
+   */
+  updateByCognitoSub(
+    cognitoSub: string,
+    data: Prisma.UserUpdateInput,
+  ): Promise<User> {
     return runQuery(() =>
-      this.prisma.user.findUnique({ where: { cognitoSub } }),
+      this.prisma.user.update({ where: { cognitoSub }, data }),
     );
   }
 

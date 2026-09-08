@@ -86,10 +86,21 @@ export class UsersService {
         },
       );
     } catch (error) {
-      // The e-mail already belongs to ANOTHER cognitoSub: either two Cognito
-      // accounts share it, or it was changed there and the old mirror was left
-      // behind. Both need a human, not a retry.
-      if (error instanceof UniqueConstraintError) throw this.emailTaken();
+      // Only an `email` collision means what `emailTaken()` says: the address
+      // already belongs to ANOTHER cognitoSub, so either two Cognito accounts
+      // share it or it was changed there and the old mirror was left behind —
+      // both need a human, not a retry.
+      //
+      // `user` also has a unique index on `cognito_sub`, and the upsert can
+      // still lose a race against a simultaneous login and fail on it. That is
+      // the retryable path, and reporting it as "e-mail already registered"
+      // would send the app to a human for something it should just try again.
+      if (
+        error instanceof UniqueConstraintError &&
+        error.fields.some(field => field.includes('email'))
+      ) {
+        throw this.emailTaken();
+      }
       throw error;
     }
   }
@@ -102,15 +113,18 @@ export class UsersService {
    * version for as long as the two texts are versioned together.
    */
   async acceptTerms(cognitoSub: string, termsVersion: string) {
-    const user = await this.usersRepository.findByCognitoSub(cognitoSub);
-    if (!user) throw this.notProvisioned();
-
     const acceptedAt = new Date();
-    return this.usersRepository.update(user.id, {
-      termsAcceptedAt: acceptedAt,
-      privacyAcceptedAt: acceptedAt,
-      termsVersion,
-    });
+
+    try {
+      return await this.usersRepository.updateByCognitoSub(cognitoSub, {
+        termsAcceptedAt: acceptedAt,
+        privacyAcceptedAt: acceptedAt,
+        termsVersion,
+      });
+    } catch (error) {
+      if (error instanceof RecordNotFoundError) throw this.notProvisioned();
+      throw error;
+    }
   }
 
   async remove(id: string) {

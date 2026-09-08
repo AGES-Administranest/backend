@@ -96,10 +96,20 @@ else
     --user-pool-id "${POOL_ID}" \
     --username "${DEV_EMAIL}" \
     --user-attributes "Name=email,Value=${DEV_EMAIL}" Name=email_verified,Value=true \
-    "Name=name,Value=${DEV_NAME}" \
     --message-action SUPPRESS >/dev/null
   echo "    criado: ${DEV_EMAIL}"
 fi
+
+# Outside the if/else on purpose: anyone who ran the bootstrap before this
+# change has the user without the `name` attribute, and the creation branch will
+# never run for them again. Without this their local token would carry no `name`
+# claim and provisioning would take the fallback path — exactly the divergence
+# from production this was meant to remove.
+aws cognito-idp admin-update-user-attributes \
+  --user-pool-id "${POOL_ID}" \
+  --username "${DEV_EMAIL}" \
+  --user-attributes "Name=name,Value=${DEV_NAME}" >/dev/null
+echo "    atributo name: ${DEV_NAME}"
 
 # `--permanent` evita o desafio NEW_PASSWORD_REQUIRED no primeiro login.
 aws cognito-idp admin-set-user-password \

@@ -2,7 +2,10 @@ import { User } from '@prisma/client';
 
 import { UsersRepository } from './users.repository';
 import { UsersService } from './users.service';
-import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
+import {
+  RecordNotFoundError,
+  UniqueConstraintError,
+} from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 /**
@@ -93,6 +96,22 @@ describe('UsersService — provisioning from Cognito', () => {
     });
     await expect(conflict).rejects.toBeInstanceOf(DomainError);
   });
+
+  it('does not report a cognito_sub collision as an e-mail conflict', async () => {
+    // Two simultaneous logins for a brand-new sub can make the upsert lose the
+    // race and fail on `cognito_sub`. That is the retryable path: turning it
+    // into 409 USUARIO_EMAIL_JA_CADASTRADO would send the app to a human for
+    // something it should simply try again.
+    const failing = {
+      upsertByCognitoSub: () =>
+        Promise.reject(new UniqueConstraintError(['cognito_sub'])),
+    };
+    const isolated = new UsersService(failing as unknown as UsersRepository);
+
+    await expect(isolated.provisionFromCognito(claims)).rejects.toBeInstanceOf(
+      UniqueConstraintError,
+    );
+  });
 });
 
 describe('UsersService — terms consent', () => {
@@ -128,6 +147,23 @@ describe('UsersService — terms consent', () => {
       code: 'USUARIO_NAO_PROVISIONADO',
     });
   });
+
+  it('answers 404 and not 500 when the row vanishes mid-write', async () => {
+    // The repository raises RecordNotFoundError from the update itself. Left
+    // uncaught it would reach AllExceptionsFilter as an unknown error and come
+    // out as 500 ERRO_INTERNO, hiding a case the endpoint documents as 404.
+    const vanishing = {
+      updateByCognitoSub: () => Promise.reject(new RecordNotFoundError()),
+    };
+    const isolated = new UsersService(vanishing as unknown as UsersRepository);
+
+    await expect(
+      isolated.acceptTerms('sub-123', '2026-09-01'),
+    ).rejects.toMatchObject({
+      kind: 'NOT_FOUND',
+      code: 'USUARIO_NAO_PROVISIONADO',
+    });
+  });
 });
 
 /**
@@ -143,10 +179,16 @@ class FakeUsersRepository {
     return this.users.size;
   }
 
-  findByCognitoSub(cognitoSub: string): Promise<User | null> {
-    return Promise.resolve(
-      [...this.users.values()].find(u => u.cognitoSub === cognitoSub) ?? null,
+  updateByCognitoSub(
+    cognitoSub: string,
+    data: Record<string, unknown>,
+  ): Promise<User> {
+    const existing = [...this.users.values()].find(
+      u => u.cognitoSub === cognitoSub,
     );
+    if (!existing) return Promise.reject(new RecordNotFoundError());
+
+    return this.update(existing.id, data);
   }
 
   upsertByCognitoSub(
