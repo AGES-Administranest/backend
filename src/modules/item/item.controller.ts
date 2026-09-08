@@ -1,15 +1,27 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
-  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+
 import { CreateItemDto } from './dto/create-item.dto';
+import { DeleteItemDto } from './dto/delete-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { ItemEntity } from './entities/item.entity';
 import { ItemService } from './item.service';
@@ -22,7 +34,13 @@ export class ItemController {
   @Post()
   @ApiOperation({ summary: 'Cria um novo item de estoque' })
   @ApiCreatedResponse({ type: ItemEntity })
-  @ApiConflictResponse({ description: 'Item já cadastrado' })
+  @ApiBadRequestResponse({ description: 'Payload inválido' })
+  @ApiConflictResponse({
+    description: 'Já existe um item com esse nome e essa unidade de medida',
+  })
+  @ApiUnprocessableEntityResponse({
+    description: 'userId ou supplierId não correspondem a um registro existente',
+  })
   create(@Body() dto: CreateItemDto) {
     return this.itemService.create(dto);
   }
@@ -39,25 +57,29 @@ export class ItemController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ItemEntity })
   @ApiNotFoundResponse({ description: 'Item não encontrado' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.itemService.findOne(id);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Atualiza um item' })
+  @ApiOperation({ summary: 'Atualiza parcialmente um item' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ItemEntity })
+  @ApiBadRequestResponse({ description: 'Payload inválido' })
   @ApiNotFoundResponse({ description: 'Item não encontrado' })
-  update(@Param('id') id: string, @Body() dto: UpdateItemDto) {
+  @ApiConflictResponse({
+    description: 'Já existe um item com esse nome e essa unidade de medida',
+  })
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateItemDto) {
     return this.itemService.update(id, dto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Inativa um item (soft delete)' })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiNoContentResponse()
+  @ApiOkResponse({ type: DeleteItemDto })
   @ApiNotFoundResponse({ description: 'Item não encontrado' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.itemService.remove(id);
   }
 }

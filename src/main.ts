@@ -28,6 +28,7 @@ async function bootstrap() {
       .setDescription('Documentação da API do projeto AGES')
       .setVersion('1.0')
       .addTag('users', 'Gerenciamento de usuários')
+      .addTag('item', 'Estoque de insumos e medicamentos')
       .build();
 
     SwaggerModule.setup('docs', app, () =>

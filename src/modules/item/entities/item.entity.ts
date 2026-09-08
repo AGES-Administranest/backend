@@ -1,37 +1,32 @@
-import { Item, MeasurementUnit, Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { ApiProperty } from '@nestjs/swagger';
+import { ItemCategory, MeasurementUnit, Prisma } from '@prisma/client';
 
-export class ItemEntity implements Item {
-  /** Identificador único do item */
+export class ItemEntity {
   id!: string;
 
-  /** Identificador do fornecedor, se houver */
   supplierId!: string | null;
 
-  /** Unidade de medida do item */
+  category!: ItemCategory;
+
   unit!: MeasurementUnit;
 
-  /** Nome do item */
   name!: string;
 
-  /** Custo unitário padrão */
+  @ApiProperty({ type: String, nullable: true, example: '12.5000' })
   defaultUnitCost!: Prisma.Decimal | null;
 
   /** Estoque mínimo */
+  @ApiProperty({ type: String, nullable: true, example: '10.000' })
   minimumStock!: Prisma.Decimal | null;
 
-  /** Quantidade atual em estoque */
+  @ApiProperty({ type: String, example: '0.000' })
   currentQuantity!: Prisma.Decimal;
 
-  /** Indica se o item está ativo */
   active!: boolean;
 
-  /** Data de criação */
   createdAt!: Date;
 
-  /** Data da última atualização */
   updatedAt!: Date;
 
-  /** Data de inativação (soft delete) */
   deletedAt!: Date | null;
 }

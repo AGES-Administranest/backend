@@ -1,31 +1,54 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/prisma';
+import { Item, MeasurementUnit, Prisma } from '@prisma/client';
+
+import { runQuery } from '../../infra/prisma/prisma-errors';
+import { PrismaService } from '../../infra/prisma/prisma.service';
 
 @Injectable()
 export class ItemRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(data: Prisma.ItemCreateInput) {
-    return this.prisma.item.create({ data });
+  findMany(where: Prisma.ItemWhereInput = { active: true }): Promise<Item[]> {
+    return runQuery(() => this.prisma.item.findMany({ where }));
   }
 
-  findAll(where: Prisma.ItemWhereInput = { active: true }) {
-    return this.prisma.item.findMany({ where });
+  findById(id: string): Promise<Item | null> {
+    return runQuery(() => this.prisma.item.findUnique({ where: { id } }));
   }
 
-  findOne(id: string) {
-    return this.prisma.item.findUnique({ where: { id } });
+  findByPresentation(
+    userId: string,
+    name: string,
+    unit: MeasurementUnit,
+    excludeId?: string,
+  ): Promise<Item | null> {
+    return runQuery(() =>
+      this.prisma.item.findFirst({
+        where: {
+          userId,
+          name,
+          unit,
+          active: true,
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+        },
+      }),
+    );
   }
 
-  update(id: string, data: Prisma.ItemUpdateInput) {
-    return this.prisma.item.update({ where: { id }, data });
+  create(data: Prisma.ItemUncheckedCreateInput): Promise<Item> {
+    return runQuery(() => this.prisma.item.create({ data }));
   }
 
-  softDelete(id: string) {
-    return this.prisma.item.update({
-      where: { id },
-      data: { active: false, deletedAt: new Date() },
-    });
+  update(id: string, data: Prisma.ItemUncheckedUpdateInput): Promise<Item> {
+    return runQuery(() => this.prisma.item.update({ where: { id }, data }));
+  }
+
+  softDelete(id: string): Promise<Item> {
+    return runQuery(() =>
+      this.prisma.item.update({
+        where: { id },
+        data: { active: false, deletedAt: new Date() },
+      }),
+    );
   }
 }

@@ -24,6 +24,11 @@ export const ERROR_CODES = [
   'USUARIO_NAO_ENCONTRADO',
   'USUARIO_EMAIL_JA_CADASTRADO',
 
+  // item
+  'ITEM_NAO_ENCONTRADO',
+  'ITEM_PRESENTACAO_DUPLICADA',
+  'ITEM_REFERENCIA_INVALIDA',
+
   // seu módulo entra aqui
 ] as const;
 
