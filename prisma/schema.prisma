@@ -1,10 +1,10 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 //
-// Traduzido de "Administranest -intermediaria.sql" (dbdiagram.io). Os
-// comentários /// abaixo vêm dos COMMENT ON do SQL original — documentam
-// decisões de modelagem, mas não são persistidos no banco (Prisma não
-// suporta COMMENT ON nativamente).
+// Translated from "Administranest -intermediaria.sql" (dbdiagram.io). The ///
+// comments below come from the COMMENT ON statements of the original SQL — they
+// document modeling decisions, but are not persisted in the database (Prisma
+// does not support COMMENT ON natively).
 
 generator client {
   provider = "prisma-client-js"
@@ -97,12 +97,12 @@ enum EntrySource {
   @@map("entry_source_enum")
 }
 
-/// Direção da movimentação. Convenção de sinal (ver docs/data-dictionary.md):
-/// quantity é SEMPRE positiva; o sinal no cálculo de saldo vem exclusivamente
-/// do type — INBOUND soma, OUTBOUND subtrai. Vale para todos os source,
-/// inclusive MANUAL_ADJUSTMENT (um ajuste que aumenta o estoque é INBOUND,
-/// um que reduz é OUTBOUND) e CORRECTION_REVERSAL (type oposto ao do registro
-/// que está sendo estornado).
+/// Movement direction. Sign convention (see docs/data-dictionary.md):
+/// quantity is ALWAYS positive; the sign in the balance calculation comes
+/// exclusively from type — INBOUND adds, OUTBOUND subtracts. This applies to
+/// every source, including MANUAL_ADJUSTMENT (an adjustment that increases stock
+/// is INBOUND, one that decreases it is OUTBOUND) and CORRECTION_REVERSAL (type
+/// opposite to that of the record being reversed).
 enum StockMovementType {
   INBOUND
   OUTBOUND
@@ -159,16 +159,15 @@ enum MeasurementUnit {
   @@map("measurement_unit_enum")
 }
 
-/// Identidade e dona de todos os dados. Sem papel de admin: o sistema é de
-/// uso individual pelo profissional, sem confirmação de necessidade de
-/// suporte multiusuário.
+/// Identity and owner of all data. No admin role: the system is for individual
+/// use by the professional, with no confirmed need for multi-user support.
 model User {
   id         String     @id @default(uuid()) @db.Uuid
   cognitoSub String     @unique @map("cognito_sub")
   email      String     @unique
   name       String
   crmv       String?
-  /// CPF ou CNPJ — aparece nas notas que o profissional recebe
+  /// CPF or CNPJ — appears on the invoices the professional receives
   taxId      String?    @map("tax_id")
   taxIdType  TaxIdType? @map("tax_id_type")
   birthDate  DateTime?  @map("birth_date") @db.Date
@@ -195,8 +194,8 @@ model User {
   @@map("user")
 }
 
-/// Quem paga, não necessariamente quem é atendido. CLINIC na maioria dos
-/// casos, INDIVIDUAL quando faturado diretamente ao tutor do animal.
+/// Who pays, not necessarily who is treated. CLINIC in most cases, INDIVIDUAL
+/// when billed directly to the animal's owner.
 model Client {
   id                     String         @id @default(uuid()) @db.Uuid
   userId                 String         @map("user_id") @db.Uuid
@@ -204,16 +203,16 @@ model Client {
   name                   String
   taxId                  String?        @map("tax_id")
   taxIdType              TaxIdType?     @map("tax_id_type")
-  /// responsável — o veterinário da clínica, quando type=CLINIC
+  /// contact person — the clinic's veterinarian, when type=CLINIC
   contactName            String?        @map("contact_name")
   email                  String?
   phone                  String?
   addressLine            String?        @map("address_line")
   city                   String?
   state                  String?
-  /// dias da semana em que o profissional atende nessa clínica
+  /// days of the week the professional works at this clinic
   serviceDays            Weekday[]      @map("service_days")
-  /// previsão de dias até o recebimento
+  /// estimated number of days until payment is received
   paymentTermsDays       Int?           @map("payment_terms_days")
   preferredPaymentMethod PaymentMethod? @map("preferred_payment_method")
   active                 Boolean        @default(true)
@@ -229,31 +228,31 @@ model Client {
   @@map("client")
 }
 
-/// Entidade central. O paciente é um retrato do momento, não um cadastro de
-/// animal. Apenas starts_at é obrigatório, para permitir um lançamento
-/// mínimo. Faturado = existe um financial_entry com source=APPOINTMENT.
+/// Central entity. The patient is a snapshot in time, not an animal record.
+/// Only starts_at is required, to allow a minimal entry. Billed = there is a
+/// financial_entry with source=APPOINTMENT.
 model Appointment {
   id              String            @id @default(uuid()) @db.Uuid
   userId          String            @map("user_id") @db.Uuid
   clientId        String?           @map("client_id") @db.Uuid
-  /// texto livre — sem catálogo próprio de procedimentos
+  /// free text — no dedicated procedure catalog
   procedureName   String?           @map("procedure_name")
   startsAt        DateTime          @map("starts_at") @db.Timestamptz(6)
   endsAt          DateTime?         @map("ends_at") @db.Timestamptz(6)
-  /// quando difere do endereço do cliente
+  /// when it differs from the client's address
   location        String?
-  /// digitado manualmente — sem tabela de preços
+  /// entered manually — no price table
   amount          Decimal?          @db.Decimal(14, 2)
   patientName     String?           @map("patient_name")
-  /// texto livre; relevante quando o cliente faturado é a clínica, não o tutor
+  /// free text; relevant when the billed client is the clinic, not the owner
   ownerName       String?           @map("owner_name")
-  /// PENDENTE de validação com a stakeholder — dado administrativo ou clínico?
+  /// PENDING validation with the stakeholder — administrative or clinical data?
   species         Species?
-  /// PENDENTE de validação com a stakeholder — dado administrativo ou clínico?
+  /// PENDING validation with the stakeholder — administrative or clinical data?
   patientAgeYears Int?              @map("patient_age_years")
-  /// PENDENTE de validação com a stakeholder — dado administrativo ou clínico?
+  /// PENDING validation with the stakeholder — administrative or clinical data?
   weightKg        Decimal?          @map("weight_kg") @db.Decimal(6, 3)
-  /// anotações administrativas livres
+  /// free-form administrative notes
   notes           String?
   status          AppointmentStatus @default(SCHEDULED)
   createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -273,8 +272,8 @@ model Appointment {
   @@map("appointment")
 }
 
-/// Sem cadastro de veículo nem rateio entre múltiplos atendimentos: o custo
-/// é lançado diretamente por deslocamento.
+/// No vehicle record and no cost split across multiple appointments: the cost
+/// is recorded directly per trip.
 model Trip {
   id            String    @id @default(uuid()) @db.Uuid
   userId        String    @map("user_id") @db.Uuid
@@ -322,20 +321,21 @@ model Supplier {
 model Item {
   id              String          @id @default(uuid()) @db.Uuid
   userId          String          @map("user_id") @db.Uuid
-  /// fornecedor preferencial/padrão
+  /// preferred/default supplier
   supplierId      String?         @map("supplier_id") @db.Uuid
   unit            MeasurementUnit
   name            String
-  /// sugestão de custo para um lote novo
+  /// suggested cost for a new lot
   defaultUnitCost Decimal?        @map("default_unit_cost") @db.Decimal(14, 4)
   minimumStock    Decimal?        @map("minimum_stock") @db.Decimal(14, 3)
-  /// CACHE derivado de stock_movement (soma das movimentações, sinal pelo type).
+  /// CACHE derived from stock_movement (sum of movements, sign from type).
   currentQuantity Decimal         @default(0) @map("current_quantity") @db.Decimal(14, 3)
-  /// US10: sinaliza que o item precisa de ajuste manual de estoque. Ligado quando
-  /// uma movimentação (tipicamente um CORRECTION_REVERSAL) deixa currentQuantity < 0;
-  /// desligado quando o usuário registra o ajuste que reconcilia o saldo.
-  /// Persistido porque é estado de workflow do usuário, não um puro derivado do saldo
-  /// (o item continua "a ajustar" mesmo depois de outra entrada zerar o negativo).
+  /// US10: flags that the item needs a manual stock adjustment. Turned on when
+  /// a movement (typically a CORRECTION_REVERSAL) leaves currentQuantity < 0;
+  /// turned off when the user records the adjustment that reconciles the balance.
+  /// Persisted because it is user workflow state, not a pure derivative of the
+  /// balance (the item stays "to be adjusted" even after another inbound brings
+  /// the negative back to zero).
   needsAdjustment Boolean         @default(false) @map("needs_adjustment")
   active          Boolean         @default(true)
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -354,14 +354,14 @@ model Item {
   @@map("item")
 }
 
-/// Mantido: única forma de saber qual remessa está vencendo. Sem
-/// usuario_id — herdado através de item_id.
+/// Kept: the only way to know which batch is expiring. No user_id — inherited
+/// through item_id.
 model ItemLot {
   id              String    @id @default(uuid()) @db.Uuid
   itemId          String    @map("item_id") @db.Uuid
   lotNumber       String?   @map("lot_number")
   expirationDate  DateTime? @map("expiration_date") @db.Date
-  /// custo real deste lote — base do cálculo de margem
+  /// actual cost of this lot — basis for the margin calculation
   unitCost        Decimal   @map("unit_cost") @db.Decimal(14, 4)
   /// CACHE
   currentQuantity Decimal   @default(0) @map("current_quantity") @db.Decimal(14, 3)
@@ -377,18 +377,18 @@ model ItemLot {
   @@map("item_lot")
 }
 
-/// Mantido: dá histórico e rastreabilidade ao estoque.
-/// Append-only: registros nunca são editados — por isso só há createdAt, sem updatedAt.
-/// Contrato de correção:
-///   - CORRECTION_REVERSAL: usado quando a movimentação errada já afetou o saldo
-///     e/ou já foi vista pelo usuário. Cria-se uma nova movimentação de sinal oposto
-///     (mesmos item/lote/quantidade) para anular o efeito, preservando o histórico.
-///     A movimentação original permanece com deletedAt = null.
-///   - deletedAt (soft delete): usado apenas para erro capturado antes de qualquer
-///     efeito relevante (ex.: lançamento criado e desfeito na mesma operação, sem
-///     relatório/consulta no meio). Não gera movimentação de estorno.
-/// Regra: nunca os dois no mesmo registro. Escolha pelo estado, não pela preferência.
-/// NÃO gera financial_entry: o dinheiro já saiu no momento da compra.
+/// Kept: provides history and traceability for stock.
+/// Append-only: records are never edited — hence only createdAt, no updatedAt.
+/// Correction contract:
+///   - CORRECTION_REVERSAL: used when the wrong movement already affected the
+///     balance and/or was already seen by the user. A new movement with the
+///     opposite sign (same item/lot/quantity) is created to cancel the effect,
+///     preserving history. The original movement keeps deletedAt = null.
+///   - deletedAt (soft delete): used only for an error caught before any
+///     relevant effect (e.g. an entry created and undone in the same operation,
+///     with no report/query in between). Does not generate a reversal movement.
+/// Rule: never both on the same record. Choose by state, not by preference.
+/// Does NOT generate a financial_entry: the money already left at purchase time.
 model StockMovement {
   id                    String              @id @default(uuid()) @db.Uuid
   userId                String              @map("user_id") @db.Uuid
@@ -396,22 +396,22 @@ model StockMovement {
   lotId                 String?             @map("lot_id") @db.Uuid
   type                  StockMovementType
   source                StockMovementSource
-  /// preenchido apenas quando source = MANUAL_ADJUSTMENT: motivo do ajuste.
-  /// Responde ao "porquê", nunca à direção — esta vem sempre de type.
+  /// filled in only when source = MANUAL_ADJUSTMENT: reason for the adjustment.
+  /// Answers the "why", never the direction — the direction always comes from type.
   adjustmentReason      AdjustmentReason?   @map("adjustment_reason")
-  /// SEMPRE positiva (nunca 0, nunca negativa). O sinal no cálculo de saldo
-  /// vem exclusivamente de type. Ver docs/data-dictionary.md.
+  /// ALWAYS positive (never 0, never negative). The sign in the balance
+  /// calculation comes exclusively from type. See docs/data-dictionary.md.
   quantity              Decimal             @db.Decimal(14, 3)
-  /// retrato do custo do lote no momento da movimentação
+  /// snapshot of the lot cost at the time of the movement
   unitCost              Decimal             @map("unit_cost") @db.Decimal(14, 4)
   occurredAt            DateTime            @map("occurred_at") @db.Timestamptz(6)
-  /// origem APPOINTMENT: consumo no atendimento
+  /// source APPOINTMENT: consumption during the appointment
   appointmentId         String?             @map("appointment_id") @db.Uuid
-  /// origem ORDER_IMPORT: entrada gerada ao receber um pedido de compra
+  /// source ORDER_IMPORT: inbound generated when receiving a purchase order
   purchaseOrderId       String?             @map("purchase_order_id") @db.Uuid
-  /// origem quando a entrada veio de uma linha de nota fiscal (OCR)
+  /// source when the inbound came from an invoice line (OCR)
   purchaseInvoiceLineId String?             @map("purchase_invoice_line_id") @db.Uuid
-  /// fornecedor da entrada quando não há nota de compra (ex.: source = MANUAL_PURCHASE)
+  /// supplier of the inbound when there is no purchase invoice (e.g. source = MANUAL_PURCHASE)
   supplierId            String?             @map("supplier_id") @db.Uuid
   notes                 String?
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -436,7 +436,7 @@ model StockMovement {
   @@map("stock_movement")
 }
 
-/// A depreciação NÃO é armazenada — é calculada sob demanda em relatórios.
+/// Depreciation is NOT stored — it is calculated on demand in reports.
 model Equipment {
   id              String    @id @default(uuid()) @db.Uuid
   userId          String    @map("user_id") @db.Uuid
@@ -446,7 +446,7 @@ model Equipment {
   salvageValue    Decimal   @default(0) @map("salvage_value") @db.Decimal(14, 2)
   acquisitionDate DateTime  @map("acquisition_date") @db.Date
   usefulLifeYears Int       @map("useful_life_years")
-  /// calibração, garantia
+  /// calibration, warranty
   notes           String?
   active          Boolean   @default(true)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -460,9 +460,8 @@ model Equipment {
   @@map("equipment")
 }
 
-/// Nota de receita emitida FORA do app. O relatório de faturamento mensal
-/// soma amount por mês, sem precisar de tabela de agrupamento com os
-/// atendimentos.
+/// Revenue invoice issued OUTSIDE the app. The monthly billing report sums
+/// amount by month, with no need for a grouping table linking to appointments.
 model ServiceInvoice {
   id            String    @id @default(uuid()) @db.Uuid
   userId        String    @map("user_id") @db.Uuid
@@ -471,14 +470,14 @@ model ServiceInvoice {
   issueDate     DateTime? @map("issue_date") @db.Date
   amount        Decimal?  @db.Decimal(14, 2)
   description   String?
-  /// URL de armazenamento — PDF ou foto
+  /// storage URL — PDF or photo
   fileUrl       String    @map("file_url")
   fileMimeType  String?   @map("file_mime_type")
-  /// garante idempotência no reprocessamento
+  /// ensures idempotency on reprocessing
   fileHash      String?   @unique @map("file_hash")
-  /// retorno bruto do OCR — usado quando a extração falha parcialmente
+  /// raw OCR output — used when extraction partially fails
   rawExtraction Json?     @map("raw_extraction")
-  /// NULL = dado ainda exatamente como saiu do OCR, não conferido
+  /// NULL = data still exactly as it came out of the OCR, not reviewed
   reviewedAt    DateTime? @map("reviewed_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -493,9 +492,9 @@ model ServiceInvoice {
   @@map("service_invoice")
 }
 
-/// Pedido de compra feito a um fornecedor. Ao ser recebido (status = RECEIVED)
-/// gera as entradas de estoque correspondentes (stock_movement.source = ORDER_IMPORT).
-/// Distinto de purchase_invoice, que é o documento fiscal digitalizado por OCR.
+/// Purchase order placed with a supplier. When received (status = RECEIVED) it
+/// generates the corresponding stock inbounds (stock_movement.source = ORDER_IMPORT).
+/// Distinct from purchase_invoice, which is the fiscal document digitized via OCR.
 model PurchaseOrder {
   id           String              @id @default(uuid()) @db.Uuid
   userId       String              @map("user_id") @db.Uuid
@@ -527,7 +526,7 @@ model PurchaseInvoice {
   number        String?
   issueDate     DateTime? @map("issue_date") @db.Date
   totalAmount   Decimal?  @map("total_amount") @db.Decimal(14, 2)
-  /// URL de armazenamento — PDF ou foto
+  /// storage URL — PDF or photo
   fileUrl       String    @map("file_url")
   fileMimeType  String?   @map("file_mime_type")
   fileHash      String?   @unique @map("file_hash")
@@ -546,16 +545,16 @@ model PurchaseInvoice {
   @@map("purchase_invoice")
 }
 
-/// item_id é opcional: o OCR pode trazer uma linha que não bate com o
-/// cadastro.
+/// item_id is optional: the OCR may return a line that does not match any
+/// registered item.
 model PurchaseInvoiceLine {
   id                String  @id @default(uuid()) @db.Uuid
   purchaseInvoiceId String  @map("purchase_invoice_id") @db.Uuid
   itemId            String? @map("item_id") @db.Uuid
-  /// o lote criado por esta compra
+  /// the lot created by this purchase
   lotId             String? @map("lot_id") @db.Uuid
-  /// texto exatamente como veio na nota, mesmo sem correspondência com um
-  /// item cadastrado
+  /// text exactly as it came on the invoice, even without a match to a
+  /// registered item
   description       String
   quantity          Decimal @db.Decimal(14, 3)
   unitCost          Decimal @map("unit_cost") @db.Decimal(14, 4)
@@ -569,15 +568,15 @@ model PurchaseInvoiceLine {
   @@map("purchase_invoice_line")
 }
 
-/// Mantido como tabela (não enum): permite categorias personalizadas além
-/// das padrão do sistema, valor real mesmo sem estar escrito no Termo.
+/// Kept as a table (not an enum): allows custom categories beyond the system
+/// defaults — real value even though it is not written in the Terms.
 model FinancialCategory {
   id           String      @id @default(uuid()) @db.Uuid
-  /// NULL = categoria padrão do sistema
+  /// NULL = system default category
   userId       String?     @map("user_id") @db.Uuid
   name         String
   nature       EntryNature
-  /// só preenche o padrão do lançamento
+  /// only fills in the entry's default
   defaultScope EntryScope  @map("default_scope")
   active       Boolean     @default(true)
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -590,26 +589,25 @@ model FinancialCategory {
   @@map("financial_category")
 }
 
-/// Livro-caixa único. Visão de caixa = filtra por settlement_date. Visão
-/// de competência = accrual_date. A receber/a pagar = status PENDING. A
-/// depreciação de equipamentos NÃO é lançada aqui de propósito — é
-/// calculada em relatórios. Lançamentos recorrentes (aluguel, etc.) são
-/// criados manualmente todo mês.
+/// Single cash book. Cash view = filter by settlement_date. Accrual view =
+/// accrual_date. Receivables/payables = status PENDING. Equipment depreciation
+/// is deliberately NOT recorded here — it is calculated in reports. Recurring
+/// entries (rent, etc.) are created manually every month.
 model FinancialEntry {
   id                String      @id @default(uuid()) @db.Uuid
   userId            String      @map("user_id") @db.Uuid
   nature            EntryNature
-  /// vem por padrão da categoria, editável por lançamento
+  /// defaults from the category, editable per entry
   scope             EntryScope
   categoryId        String      @map("category_id") @db.Uuid
   description       String
-  /// sempre positivo — o sinal vem do nature
+  /// always positive — the sign comes from nature
   amount            Decimal     @db.Decimal(14, 2)
-  /// quando o fato ocorreu (regime de competência)
+  /// when the fact occurred (accrual basis)
   accrualDate       DateTime    @map("accrual_date") @db.Timestamptz(6)
-  /// previsão; deriva de client.payment_terms_days quando aplicável
+  /// forecast; derived from client.payment_terms_days when applicable
   dueDate           DateTime?   @map("due_date") @db.Date
-  /// quando o dinheiro de fato mudou de mão. NULL = ainda em aberto
+  /// when the money actually changed hands. NULL = still open
   settlementDate    DateTime?   @map("settlement_date") @db.Date
   status            EntryStatus @default(PENDING)
   source            EntrySource
@@ -637,12 +635,12 @@ model FinancialEntry {
   @@map("financial_entry")
 }
 
-/// Calculadora de hora trabalhada. Custos fixos e depreciação são
-/// calculados, não armazenados aqui.
+/// Billable-hour calculator. Fixed costs and depreciation are calculated, not
+/// stored here.
 model PricingSettings {
   userId               String   @id @map("user_id") @db.Uuid
-  /// meta de renda mensal — cobre o conceito de pró-labore + margem do
-  /// levantamento de requisitos
+  /// monthly income goal — covers the owner's draw + margin concept from the
+  /// requirements gathering
   monthlyIncomeGoal    Decimal? @map("monthly_income_goal") @db.Decimal(14, 2)
   weeklyHours          Decimal? @map("weekly_hours") @db.Decimal(6, 2)
   safetyMarginPct      Decimal? @map("safety_margin_pct") @db.Decimal(6, 2)
@@ -661,7 +659,7 @@ model Report {
   periodStart DateTime?    @map("period_start") @db.Date
   periodEnd   DateTime?    @map("period_end") @db.Date
   filters     Json?
-  /// URL de armazenamento
+  /// storage URL
   fileUrl     String?      @map("file_url")
   status      ReportStatus @default(PENDING)
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)

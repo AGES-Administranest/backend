@@ -1,81 +1,82 @@
-# Dicionário de dados
+# Data dictionary
 
-Complemento aos doc-comments (`///`) do `prisma/schema.prisma`. Aqui ficam as
-convenções que atravessam mais de uma coluna ou tabela.
+Supplement to the doc-comments (`///`) in `prisma/schema.prisma`. This is where
+conventions that span more than one column or table live.
 
-## Estoque — `stock_movement`
+## Stock — `stock_movement`
 
-`stock_movement` é o livro-razão do estoque: **append-only**, uma linha por
-evento. `item.current_quantity` e `item_lot.current_quantity` são caches da soma
-dessas linhas.
+`stock_movement` is the stock ledger: **append-only**, one row per event.
+`item.current_quantity` and `item_lot.current_quantity` are caches of the sum of
+those rows.
 
-### Convenção de sinal
+### Sign convention
 
-| Regra | Valor |
+| Rule | Value |
 |---|---|
-| `quantity` | **Sempre positiva.** Nunca `0`, nunca negativa. `NUMERIC(14,3)`. |
-| Direção | Vem **exclusivamente** de `type`. |
-| `type = INBOUND` | Soma em `current_quantity`. |
-| `type = OUTBOUND` | Subtrai de `current_quantity`. |
+| `quantity` | **Always positive.** Never `0`, never negative. `NUMERIC(14,3)`. |
+| Direction | Comes **exclusively** from `type`. |
+| `type = INBOUND` | Adds to `current_quantity`. |
+| `type = OUTBOUND` | Subtracts from `current_quantity`. |
 
-O cálculo de saldo é sempre:
+The balance is always computed as:
 
 ```sql
 SUM(CASE type WHEN 'INBOUND' THEN quantity ELSE -quantity END)
 ```
 
-Isso vale para **todas** as origens, sem exceção:
+This holds for **every** source, without exception:
 
-- **Ajuste que aumenta o estoque** (ex.: contagem achou mais do que o sistema):
-  `type = INBOUND`, `source = MANUAL_ADJUSTMENT`.
-- **Ajuste que reduz o estoque** (perda, quebra, vencimento):
-  `type = OUTBOUND`, `source = MANUAL_ADJUSTMENT`, `adjustment_reason` preenchido.
-- **Estorno** (`source = CORRECTION_REVERSAL`): `type` é o **oposto** do registro
-  sendo corrigido, mesma `quantity`. Um estorno de uma entrada é uma saída.
+- **Adjustment that increases stock** (e.g. a count found more than the system
+  had): `type = INBOUND`, `source = MANUAL_ADJUSTMENT`.
+- **Adjustment that decreases stock** (loss, breakage, expiration):
+  `type = OUTBOUND`, `source = MANUAL_ADJUSTMENT`, `adjustment_reason` filled in.
+- **Reversal** (`source = CORRECTION_REVERSAL`): `type` is the **opposite** of the
+  record being corrected, same `quantity`. A reversal of an inbound is an outbound.
 
-Não existe `adjustment_in` / `adjustment_out` nem coluna de sinal: `type` já
-carrega a direção para qualquer movimento. `adjustment_reason` responde só ao
-*porquê*, nunca à direção.
+There is no `adjustment_in` / `adjustment_out` and no sign column: `type` already
+carries the direction for any movement. `adjustment_reason` only answers the
+*why*, never the direction.
 
-### Origem (`source`) × colunas de vínculo
+### Source (`source`) × link columns
 
-| `source` | Significado | Coluna de vínculo esperada |
+| `source` | Meaning | Expected link column |
 |---|---|---|
-| `MANUAL_PURCHASE` | Entrada digitada à mão, sem nota fiscal | `supplier_id` (opcional) |
-| `ORDER_IMPORT` | Entrada gerada ao receber um pedido de compra | `purchase_order_id` |
-| `APPOINTMENT` | Consumo de material em atendimento | `appointment_id` |
-| `MANUAL_ADJUSTMENT` | Reconciliação manual de saldo | `adjustment_reason` |
-| `CORRECTION_REVERSAL` | Estorno de um lançamento errado | — (referencia o original via `notes`) |
+| `MANUAL_PURCHASE` | Manually entered inbound, no invoice | `supplier_id` (optional) |
+| `ORDER_IMPORT` | Inbound generated when receiving a purchase order | `purchase_order_id` |
+| `APPOINTMENT` | Material consumed during an appointment | `appointment_id` |
+| `MANUAL_ADJUSTMENT` | Manual balance reconciliation | `adjustment_reason` |
+| `CORRECTION_REVERSAL` | Reversal of an incorrect entry | — (references the original via `notes`) |
 
-Entrada vinda de OCR de nota fiscal usa `purchase_invoice_line_id` (origem
-registrada conforme o fluxo que a criou).
+Inbound coming from invoice OCR uses `purchase_invoice_line_id` (source recorded
+according to the flow that created it).
 
 ### `adjustment_reason` (`adjustment_reason_enum`)
 
-`LOSS` · `EXPIRATION` · `BREAKAGE` · `OTHER`. Preenchido **apenas** quando
-`source = MANUAL_ADJUSTMENT`. `NULL` em qualquer outra origem. Regra de aplicação
-— não expressável no Prisma, validar no serviço.
+`LOSS` · `EXPIRATION` · `BREAKAGE` · `OTHER`. Filled in **only** when
+`source = MANUAL_ADJUSTMENT`. `NULL` for any other source. Application rule —
+not expressible in Prisma, validate in the service.
 
-### Correção: `deleted_at` vs `CORRECTION_REVERSAL`
+### Correction: `deleted_at` vs `CORRECTION_REVERSAL`
 
-Ver doc-comment do model `StockMovement`. Resumo: `deleted_at` (soft delete) só
-para erro pego antes de qualquer efeito; `CORRECTION_REVERSAL` para erro que já
-afetou saldo ou já foi visto. Nunca os dois no mesmo registro.
+See the doc-comment of the `StockMovement` model. Summary: `deleted_at` (soft
+delete) only for an error caught before any effect; `CORRECTION_REVERSAL` for an
+error that already affected a balance or was already seen. Never both on the same
+record.
 
 ### `item.needs_adjustment`
 
-Booleano persistido, `default false`. Sinalizador da **US10**: liga quando uma
-movimentação (tipicamente um `CORRECTION_REVERSAL`) deixa `current_quantity < 0`;
-desliga quando o usuário registra o ajuste que reconcilia o saldo. É persistido
-porque é estado de workflow — o item continua "a ajustar" mesmo que outra entrada
-zere o negativo depois.
+Persisted boolean, `default false`. **US10** flag: turns on when a movement
+(typically a `CORRECTION_REVERSAL`) leaves `current_quantity < 0`; turns off when
+the user records the adjustment that reconciles the balance. It is persisted
+because it is workflow state — the item stays "to be adjusted" even if another
+inbound later brings the negative back to zero.
 
-## Compras — `purchase_order`
+## Purchasing — `purchase_order`
 
-Pedido de compra a um fornecedor. Ao ser recebido (`status = RECEIVED`,
-`received_at` preenchido) gera as entradas de estoque correspondentes
-(`stock_movement.source = ORDER_IMPORT`). É diferente de `purchase_invoice`, que
-é o documento fiscal digitalizado por OCR.
+Purchase order to a supplier. When received (`status = RECEIVED`, `received_at`
+filled in) it generates the corresponding stock inbounds
+(`stock_movement.source = ORDER_IMPORT`). It is different from `purchase_invoice`,
+which is the fiscal document digitized via OCR.
 
-`status` (`purchase_order_status_enum`): `DRAFT` → `PLACED` → `RECEIVED`, ou
-`CANCELLED` a partir de `DRAFT`/`PLACED`.
+`status` (`purchase_order_status_enum`): `DRAFT` → `PLACED` → `RECEIVED`, or
+`CANCELLED` from `DRAFT`/`PLACED`.
