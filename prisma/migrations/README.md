@@ -1,42 +1,42 @@
 # Migrations
 
-Fluxo padrão do Prisma Migrate (`npx prisma migrate dev` / `deploy`). O Prisma
-aplica apenas `migration.sql` (o "up"); ele **não** tem comando de rollback.
+Standard Prisma Migrate flow (`npx prisma migrate dev` / `deploy`). Prisma
+applies only `migration.sql` (the "up"); it does **not** have a rollback command.
 
 ## `down.sql`
 
-Convenção do time: toda migration que altera schema carrega um `down.sql` ao lado
-do `migration.sql`, com o SQL que desfaz exatamente aquela migration. Ele serve
-para:
+Team convention: every schema-changing migration carries a `down.sql` next to
+`migration.sql`, containing the SQL that undoes exactly that migration. It is
+used to:
 
-- revisar o impacto da migration lendo a reversão;
-- reverter à mão em incidente (`psql < down.sql`);
-- provar em revisão que a mudança é reversível.
+- review the migration's impact by reading its reversal;
+- roll back by hand during an incident (`psql < down.sql`);
+- prove in review that the change is reversible.
 
-Gerado com:
+Generated with:
 
 ```bash
 npx prisma migrate diff \
   --from-schema prisma/schema.prisma \
-  --to-schema <schema-do-estado-anterior>.prisma \
+  --to-schema <previous-state-schema>.prisma \
   --script > prisma/migrations/<mig>/down.sql
 ```
 
-## Testar up + down antes de abrir PR
+## Test up + down before opening a PR
 
-Contra um banco descartável (não o de dev):
+Against a throwaway database (not the dev one):
 
 ```bash
 D=backend_migtest
 docker exec backend-postgres-1 psql -U postgres -c "DROP DATABASE IF EXISTS $D"
 docker exec backend-postgres-1 psql -U postgres -c "CREATE DATABASE $D"
 
-# aplica todas as migrations até a nova
+# apply every migration up to the new one
 for m in prisma/migrations/*/migration.sql; do
   docker exec -i backend-postgres-1 psql -U postgres -d $D -v ON_ERROR_STOP=1 -q < "$m"
 done
 
-# reverte a última e reaplica
+# revert the last one and reapply it
 docker exec -i backend-postgres-1 psql -U postgres -d $D -v ON_ERROR_STOP=1 -q \
   < prisma/migrations/<mig>/down.sql
 docker exec -i backend-postgres-1 psql -U postgres -d $D -v ON_ERROR_STOP=1 -q \
@@ -45,4 +45,4 @@ docker exec -i backend-postgres-1 psql -U postgres -d $D -v ON_ERROR_STOP=1 -q \
 docker exec backend-postgres-1 psql -U postgres -c "DROP DATABASE $D"
 ```
 
-`ON_ERROR_STOP=1` faz o teste falhar no primeiro erro.
+`ON_ERROR_STOP=1` makes the test fail on the first error.

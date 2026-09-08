@@ -8,52 +8,42 @@ import {
 import { DomainError } from '../../../shared/errors/domain-error';
 
 /**
- * Regras puras do livro-razão de estoque (`stock_movement`).
+ * Pure rules for the stock ledger (`stock_movement`).
  *
- * Sem Nest, sem Prisma Client, sem HTTP: só a aritmética e as invariantes que o
- * dicionário de dados descreve (ver `docs/data-dictionary.md`). O service de
- * estoque, quando existir, chama estas funções; os testes cobrem elas
- * diretamente.
- *
- * Toda a aritmética usa `Prisma.Decimal` (decimal.js), nunca `number`: as
- * quantidades são `NUMERIC(14,3)` no banco e somá-las como float binário
- * produziria resíduos (ex.: `0.1 + 0.2 - 0.3 !== 0`) que ligariam o
- * `needs_adjustment` da US10 por engano.
- *
- * Convenção de sinal (a regra que todo cálculo de saldo depende):
- * - `quantity` é SEMPRE positiva (nunca 0, nunca negativa);
- * - a direção vem EXCLUSIVAMENTE de `type`: INBOUND soma, OUTBOUND subtrai;
- * - vale para toda origem, inclusive ajuste e estorno.
- */
+ * No Nest, no Prisma Client, no HTTP: just the arithmetic and the invariants
+ * that the data dictionary describes (see `docs/data-dictionary.md`). The stock
+ * service, once it exists, calls these functions; the tests cover them
+ * directly.
+**/
 
 export type Decimal = Prisma.Decimal;
 
-/** Aceito onde uma quantidade/saldo entra: o `Decimal` do banco, ou algo conversível. */
+/** Accepted wherever a quantity/balance comes in: the DB `Decimal`, or something convertible. */
 export type DecimalInput = Prisma.Decimal | number | string;
 
 const toDecimal = (value: DecimalInput): Decimal =>
   value instanceof Prisma.Decimal ? value : new Prisma.Decimal(value);
 
-/** O mínimo que uma movimentação precisa ter para entrar no cálculo de saldo. */
+/** The minimum a movement needs in order to take part in the balance calculation. */
 export interface MovementLike {
   type: StockMovementType;
-  /** magnitude positiva — o sinal vem do `type`, nunca daqui */
+  /** positive magnitude — the sign comes from `type`, never from here */
   quantity: DecimalInput;
-  /** movimentações com soft delete não contam no saldo */
+  /** soft-deleted movements do not count towards the balance */
   deletedAt?: Date | null;
 }
 
-/** Forma completa validada por {@link assertValidMovement}. */
+/** Complete shape validated by {@link assertValidMovement}. */
 export interface MovementShape extends MovementLike {
   source: StockMovementSource;
   adjustmentReason?: AdjustmentReason | null;
 }
 
 /**
- * `quantity` com o sinal do `type`. É a única forma correta de transformar uma
- * linha de `stock_movement` num número somável.
+ * `quantity` with the sign of `type`. This is the only correct way to turn a
+ * `stock_movement` row into a summable number.
  *
- * @throws DomainError se `quantity` não for estritamente positiva.
+ * @throws DomainError if `quantity` is not strictly positive.
  */
 export function signedQuantity(movement: MovementLike): Decimal {
   const quantity = assertPositiveQuantity(movement.quantity);
@@ -63,8 +53,8 @@ export function signedQuantity(movement: MovementLike): Decimal {
 }
 
 /**
- * Saldo resultante de uma lista de movimentações. Ignora as que têm
- * `deletedAt` preenchido (soft delete).
+ * Balance resulting from a list of movements. Ignores those with `deletedAt`
+ * set (soft delete).
  */
 export function stockBalance(movements: readonly MovementLike[]): Decimal {
   return movements
@@ -73,8 +63,8 @@ export function stockBalance(movements: readonly MovementLike[]): Decimal {
 }
 
 /**
- * O `type` de um estorno (`source = CORRECTION_REVERSAL`): sempre o oposto do
- * registro que está sendo corrigido, com a mesma `quantity`.
+ * The `type` of a reversal (`source = CORRECTION_REVERSAL`): always the opposite
+ * of the record being corrected, with the same `quantity`.
  */
 export function reversalType(original: StockMovementType): StockMovementType {
   return original === StockMovementType.INBOUND
@@ -83,8 +73,8 @@ export function reversalType(original: StockMovementType): StockMovementType {
 }
 
 /**
- * Traduz uma correção de saldo (delta assinado) para a forma canônica:
- * `quantity` positiva + `type`. Um delta exatamente zero não gera movimentação.
+ * Translates a balance correction (signed delta) into the canonical shape:
+ * positive `quantity` + `type`. A delta of exactly zero produces no movement.
  */
 export function movementForDelta(
   delta: DecimalInput,
@@ -97,20 +87,20 @@ export function movementForDelta(
 }
 
 /**
- * US10: um saldo negativo é o gatilho para marcar o item como "precisa de
- * ajuste". O flag em si (`item.needs_adjustment`) é persistido — ele continua
- * ligado mesmo que uma entrada posterior zere o negativo, até o usuário
- * registrar o ajuste. Esta função é só a condição de disparo.
+ * US10: a negative balance is the trigger to mark the item as "needs
+ * adjustment". The flag itself (`item.needs_adjustment`) is persisted — it stays
+ * on even if a later inbound clears the negative, until the user records the
+ * adjustment. This function is just the trigger condition.
  */
 export function balanceRequiresAdjustment(balance: DecimalInput): boolean {
   return toDecimal(balance).isNegative();
 }
 
 /**
- * Invariante que o Prisma não expressa: `adjustmentReason` existe se e somente
- * se `source = MANUAL_ADJUSTMENT`.
+ * Invariant that Prisma does not express: `adjustmentReason` exists if and only
+ * if `source = MANUAL_ADJUSTMENT`.
  *
- * @throws DomainError com kind `INVALID_INPUT`.
+ * @throws DomainError with kind `INVALID_INPUT`.
  */
 export function assertValidMovement(movement: MovementShape): void {
   assertPositiveQuantity(movement.quantity);
@@ -122,26 +112,26 @@ export function assertValidMovement(movement: MovementShape): void {
   if (isAdjustment && !hasReason) {
     throw new DomainError(
       'INVALID_INPUT',
-      'ESTOQUE_MOTIVO_AJUSTE_INVALIDO',
-      'Ajuste manual de estoque exige um motivo (adjustmentReason)',
+      'STOCK_REASON_AJUSTMENT_INVALID',
+      'A manual stock adjustment requires a reason (adjustmentReason)',
       { source: movement.source },
     );
   }
   if (!isAdjustment && hasReason) {
     throw new DomainError(
       'INVALID_INPUT',
-      'ESTOQUE_MOTIVO_AJUSTE_INVALIDO',
-      'adjustmentReason só é válido quando source = MANUAL_ADJUSTMENT',
+      'STOCK_REASON_AJUSTMENT_INVALID',
+      'adjustmentReason is only valid when source = MANUAL_ADJUSTMENT',
       { source: movement.source },
     );
   }
 }
 
 /**
- * Normaliza e valida uma quantidade de movimentação.
+ * Normalizes and validates a movement quantity.
  *
- * @returns a quantidade como `Decimal`.
- * @throws DomainError se não for um número finito > 0.
+ * @returns the quantity as a `Decimal`.
+ * @throws DomainError if it is not a finite number > 0.
  */
 export function assertPositiveQuantity(quantity: DecimalInput): Decimal {
   let d: Decimal;
@@ -153,8 +143,8 @@ export function assertPositiveQuantity(quantity: DecimalInput): Decimal {
   if (!d.isFinite() || d.isNaN() || d.lessThanOrEqualTo(0)) {
     throw new DomainError(
       'INVALID_INPUT',
-      'ESTOQUE_QUANTIDADE_INVALIDA',
-      'quantity de uma movimentação de estoque deve ser positiva',
+      'STOCK_QUANTITY_INVALID',
+      'the quantity of a stock movement must be positive',
       { quantity: String(quantity) },
     );
   }

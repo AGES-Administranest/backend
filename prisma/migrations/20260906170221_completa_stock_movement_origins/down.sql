@@ -1,17 +1,18 @@
--- Reversão manual da migration 20260906170221_completa_stock_movement_origins.
--- Prisma Migrate não executa este arquivo automaticamente; ver
--- prisma/migrations/README.md para o procedimento de teste (up + down).
+-- Manual reversal of migration 20260906170221_completa_stock_movement_origins.
+-- Prisma Migrate does not run this file automatically; see
+-- prisma/migrations/README.md for the test procedure (up + down).
 --
--- Restaura os enums antigos de stock_movement e remove purchase_order,
--- item.needs_adjustment e as colunas/índices/FKs novos.
+-- Restores the old stock_movement enums and drops purchase_order,
+-- item.needs_adjustment and the new columns/indexes/FKs.
 --
--- A reversão é PARCIALMENTE LOSSY:
---   - type: usa adjustment_reason para restaurar LOSS/EXPIRED/ADJUSTMENT;
---     o resto vira IN/OUT conforme INBOUND/OUTBOUND.
---   - source: ORDER_IMPORT e CORRECTION_REVERSAL não existiam antes e caem
---     em MANUAL. MANUAL_PURCHASE volta a PURCHASE, MANUAL_ADJUSTMENT a MANUAL.
+-- The reversal is PARTIALLY LOSSY:
+--   - type: uses adjustment_reason to restore LOSS/EXPIRED/ADJUSTMENT;
+--     everything else becomes IN/OUT according to INBOUND/OUTBOUND.
+--   - source: ORDER_IMPORT and CORRECTION_REVERSAL did not exist before and
+--     collapse into MANUAL. MANUAL_PURCHASE goes back to PURCHASE,
+--     MANUAL_ADJUSTMENT to MANUAL.
 
--- AlterEnum: type (usa adjustment_reason antes de a coluna ser removida)
+-- AlterEnum: type (uses adjustment_reason before the column is removed)
 BEGIN;
 CREATE TYPE "stock_movement_type_enum_new" AS ENUM ('IN', 'OUT', 'ADJUSTMENT', 'LOSS', 'EXPIRED');
 ALTER TABLE "stock_movement" ALTER COLUMN "type" TYPE "stock_movement_type_enum_new" USING (

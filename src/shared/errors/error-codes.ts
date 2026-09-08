@@ -25,8 +25,8 @@ export const ERROR_CODES = [
   'USUARIO_EMAIL_JA_CADASTRADO',
 
   // stock-movements
-  'ESTOQUE_QUANTIDADE_INVALIDA',
-  'ESTOQUE_MOTIVO_AJUSTE_INVALIDO',
+  'STOCK_QUANTITY_INVALID',
+  'STOCK_REASON_AJUSTMENT_INVALID',
 
   // seu módulo entra aqui
 ] as const;

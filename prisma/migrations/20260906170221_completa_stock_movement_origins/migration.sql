@@ -1,27 +1,27 @@
--- Completa as origens de stock_movement (US10 / rastreabilidade de estoque).
+-- Completes the stock_movement origins (US10 / stock traceability).
 --
--- - Enums de direção e de origem redesenhados: type passa a ser apenas
---   INBOUND/OUTBOUND (direção); source ganha MANUAL_PURCHASE, ORDER_IMPORT e
+-- - Direction and origin enums redesigned: type is now just INBOUND/OUTBOUND
+--   (direction); source gains MANUAL_PURCHASE, ORDER_IMPORT and
 --   CORRECTION_REVERSAL.
--- - Novo enum de motivo: adjustment_reason_enum (LOSS/EXPIRATION/BREAKAGE/OTHER).
--- - stock_movement: novas colunas adjustment_reason, purchase_order_id e
---   supplier_id, todas indexadas; FKs para purchase_order e supplier.
--- - Índice que faltava em stock_movement.purchase_invoice_line_id.
--- - Nova tabela purchase_order + enum purchase_order_status_enum.
--- - item.needs_adjustment (bool, default false) — sinalizador da US10.
+-- - New reason enum: adjustment_reason_enum (LOSS/EXPIRATION/BREAKAGE/OTHER).
+-- - stock_movement: new columns adjustment_reason, purchase_order_id and
+--   supplier_id, all indexed; FKs to purchase_order and supplier.
+-- - Missing index on stock_movement.purchase_invoice_line_id.
+-- - New table purchase_order + enum purchase_order_status_enum.
+-- - item.needs_adjustment (bool, default false) — US10 flag.
 --
--- Convenção de sinal: quantity é SEMPRE positiva; a direção vem de type.
--- Reversão de "up" disponível em ./down.sql (ver prisma/migrations/README.md).
+-- Sign convention: quantity is ALWAYS positive; the direction comes from type.
+-- "up" reversal available in ./down.sql (see prisma/migrations/README.md).
 --
--- Backfill: as linhas existentes de stock_movement são remapeadas para os novos
--- enums antes da troca de tipo (o CASE no ALTER ... USING), e o motivo do ajuste
--- é preservado a partir do type antigo. Mapeamento assumido:
+-- Backfill: existing stock_movement rows are remapped to the new enums before
+-- the type swap (the CASE in ALTER ... USING), and the adjustment reason is
+-- preserved from the old type. Assumed mapping:
 --   type:   IN -> INBOUND | OUT -> OUTBOUND | ADJUSTMENT/LOSS/EXPIRED -> OUTBOUND
 --   source: PURCHASE -> MANUAL_PURCHASE | APPOINTMENT -> APPOINTMENT
 --           MANUAL -> MANUAL_ADJUSTMENT
 --   adjustment_reason: LOSS -> LOSS | EXPIRED -> EXPIRATION | ADJUSTMENT -> OTHER
--- ADJUSTMENT era ambíguo (podia ser entrada); revisar manualmente se houver
--- dados de produção com esse valor.
+-- ADJUSTMENT was ambiguous (could be an inbound); review manually if there is
+-- production data with that value.
 
 -- CreateEnum
 CREATE TYPE "adjustment_reason_enum" AS ENUM ('LOSS', 'EXPIRATION', 'BREAKAGE', 'OTHER');
@@ -34,7 +34,7 @@ ALTER TABLE "stock_movement" ADD COLUMN     "adjustment_reason" "adjustment_reas
 ADD COLUMN     "purchase_order_id" UUID,
 ADD COLUMN     "supplier_id" UUID;
 
--- Backfill adjustment_reason a partir do type antigo, antes de trocá-lo.
+-- Backfill adjustment_reason from the old type, before swapping it.
 UPDATE "stock_movement"
 SET "adjustment_reason" = CASE "type"::text
     WHEN 'LOSS' THEN 'LOSS'::"adjustment_reason_enum"
@@ -43,7 +43,7 @@ SET "adjustment_reason" = CASE "type"::text
   END
 WHERE "type"::text IN ('LOSS', 'EXPIRED', 'ADJUSTMENT');
 
--- Onde havia motivo mas o source não era o de ajuste, alinhar antes da troca.
+-- Where a reason was set but source was not the adjustment one, align before the swap.
 UPDATE "stock_movement"
 SET "source" = 'MANUAL'
 WHERE "adjustment_reason" IS NOT NULL AND "source"::text <> 'MANUAL';
