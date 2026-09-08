@@ -28,6 +28,15 @@ export class UserEntity implements User {
   /** URL da foto de perfil */
   photoUrl!: string | null;
 
+  /** When the terms of use were accepted. Null = not accepted yet */
+  termsAcceptedAt!: Date | null;
+
+  /** When the privacy policy was accepted. Null = not accepted yet */
+  privacyAcceptedAt!: Date | null;
+
+  /** Version of the terms text that was accepted */
+  termsVersion!: string | null;
+
   /** Data de criação do registro */
   createdAt!: Date;
 

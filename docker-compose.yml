@@ -51,6 +51,7 @@ services:
       S3_BUCKET: ${S3_BUCKET:-administranest-local}
       DEV_EMAIL: ${DEV_EMAIL:-dev@administranest.local}
       DEV_PASSWORD: ${DEV_PASSWORD:-Dev@12345}
+      DEV_NAME: ${DEV_NAME:-Dev Local}
     volumes:
       - ./scripts:/scripts:ro
       - ./:/workspace

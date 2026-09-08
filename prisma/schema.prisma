@@ -150,6 +150,16 @@ model User {
   taxIdType  TaxIdType? @map("tax_id_type")
   birthDate  DateTime?  @map("birth_date") @db.Date
   photoUrl   String?    @map("photo_url")
+
+  /// Consent to the terms of use and the privacy policy (US34, subtask 1).
+  /// Date and version, never a boolean: when the text changes we need to know
+  /// who accepted which one. Null = not accepted yet.
+  /// Only the terms carry a version — the policy is accepted in the same act,
+  /// and gets a version column of its own once the two texts diverge.
+  termsAcceptedAt   DateTime? @map("terms_accepted_at") @db.Timestamptz(6)
+  privacyAcceptedAt DateTime? @map("privacy_accepted_at") @db.Timestamptz(6)
+  termsVersion      String?   @map("terms_version")
+
   createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt  DateTime?  @map("deleted_at") @db.Timestamptz(6)

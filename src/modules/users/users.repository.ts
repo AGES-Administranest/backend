@@ -27,6 +27,30 @@ export class UsersRepository {
     return runQuery(() => this.prisma.user.findUnique({ where: { id } }));
   }
 
+  findByCognitoSub(cognitoSub: string): Promise<User | null> {
+    return runQuery(() =>
+      this.prisma.user.findUnique({ where: { cognitoSub } }),
+    );
+  }
+
+  /**
+   * Creates the mirror of the Cognito user, or updates the existing one.
+   *
+   * An `upsert` and not a `create` because the app calls this on every login:
+   * idempotency belongs to the database, in a single statement, rather than to
+   * a `findFirst` followed by a `create` — which would lose the race against
+   * two simultaneous logins.
+   */
+  upsertByCognitoSub(
+    cognitoSub: string,
+    create: Prisma.UserCreateInput,
+    update: Prisma.UserUpdateInput,
+  ): Promise<User> {
+    return runQuery(() =>
+      this.prisma.user.upsert({ where: { cognitoSub }, create, update }),
+    );
+  }
+
   create(data: Prisma.UserCreateInput): Promise<User> {
     return runQuery(() => this.prisma.user.create({ data }));
   }

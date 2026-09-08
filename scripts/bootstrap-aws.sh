@@ -18,6 +18,11 @@ CLIENT_NAME="${COGNITO_CLIENT_NAME:?defina COGNITO_CLIENT_NAME}"
 BUCKET="${S3_BUCKET:?defina S3_BUCKET (vem do seu .env)}"
 DEV_EMAIL="${DEV_EMAIL:?defina DEV_EMAIL}"
 DEV_PASSWORD="${DEV_PASSWORD:?defina DEV_PASSWORD}"
+# The app sends the `name` claim on SignUp, and mirror provisioning uses it
+# (POST /auth/session). Without it here the test user would be the only one in
+# the system with no name, and local runs would exercise a path that does not
+# exist in production. Defaulted so an older compose file still works.
+DEV_NAME="${DEV_NAME:-Dev Local}"
 
 ENV_FILE='/workspace/.aws-local.env'
 HOST_ENDPOINT_URL="${HOST_ENDPOINT_URL:-http://localhost:4566}"
@@ -91,6 +96,7 @@ else
     --user-pool-id "${POOL_ID}" \
     --username "${DEV_EMAIL}" \
     --user-attributes "Name=email,Value=${DEV_EMAIL}" Name=email_verified,Value=true \
+    "Name=name,Value=${DEV_NAME}" \
     --message-action SUPPRESS >/dev/null
   echo "    criado: ${DEV_EMAIL}"
 fi
