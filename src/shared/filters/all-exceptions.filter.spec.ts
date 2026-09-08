@@ -21,7 +21,7 @@ describe('AllExceptionsFilter', () => {
       }),
     }) as unknown as ArgumentsHost;
 
-  const corpoDaResposta = () => json.mock.calls[0][0];
+  const responseBody = () => json.mock.calls[0][0];
 
   beforeEach(() => {
     json = jest.fn<void, [Record<string, unknown>]>();
@@ -32,23 +32,23 @@ describe('AllExceptionsFilter', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('usa o status que corresponde à natureza do erro de domínio', () => {
+  it('uses the status matching the domain error kind', () => {
     filter.catch(
-      new DomainError('NOT_FOUND', 'USUARIO_NAO_ENCONTRADO', 'não encontrado', {
+      new DomainError('NOT_FOUND', 'USUARIO_NAO_ENCONTRADO', 'not found', {
         id: 'abc',
       }),
       host(),
     );
 
     expect(status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND);
-    expect(corpoDaResposta()).toMatchObject({
+    expect(responseBody()).toMatchObject({
       code: 'USUARIO_NAO_ENCONTRADO',
       details: { id: 'abc' },
       path: '/users/abc',
     });
   });
 
-  it('devolve erro de validação no mesmo formato dos demais', () => {
+  it('returns a validation error in the same shape as every other one', () => {
     filter.catch(
       new BadRequestException({
         message: ['email must be an email'],
@@ -59,20 +59,20 @@ describe('AllExceptionsFilter', () => {
     );
 
     expect(status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
-    expect(corpoDaResposta()).toMatchObject({
+    expect(responseBody()).toMatchObject({
       code: 'VALIDACAO_INVALIDA',
-      details: { campos: ['email must be an email'] },
+      details: { fields: ['email must be an email'] },
     });
   });
 
-  it('não deixa detalhe interno vazar num erro inesperado', () => {
+  it('does not leak internal detail on an unexpected error', () => {
     filter.catch(new Error('connect ECONNREFUSED 10.0.0.1:5432'), host());
 
     expect(status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-    expect(corpoDaResposta()).toMatchObject({
+    expect(responseBody()).toMatchObject({
       code: 'ERRO_INTERNO',
-      message: 'Erro interno do servidor',
+      message: 'Internal server error',
     });
-    expect(JSON.stringify(corpoDaResposta())).not.toContain('ECONNREFUSED');
+    expect(JSON.stringify(responseBody())).not.toContain('ECONNREFUSED');
   });
 });

@@ -13,15 +13,15 @@ import { DomainError, ErrorKind } from '../errors/domain-error';
 import { ErrorCode } from '../errors/error-codes';
 
 /**
- * O único lugar do sistema que monta uma resposta de erro (ADR-07).
+ * The only place in the system that builds an error response (ADR-07).
  *
- * O NestJS embrulha todo handler num try/catch invisível: qualquer `throw` em
- * qualquer camada cai aqui. `@Catch()` sem argumento significa "pega tudo",
- * então nenhum erro escapa para o app no formato errado.
+ * NestJS wraps every handler in an invisible try/catch: any `throw` in any
+ * layer lands here. `@Catch()` with no argument means "catch everything", so no
+ * error escapes to the app in the wrong shape.
  */
 
-/** A natureza da falha decide o status. Um lugar só, para o sistema inteiro. */
-const STATUS_POR_KIND: Record<ErrorKind, number> = {
+/** The nature of the failure decides the status. One place, for the whole system. */
+const STATUS_BY_KIND: Record<ErrorKind, number> = {
   NOT_FOUND: HttpStatus.NOT_FOUND,
   CONFLICT: HttpStatus.CONFLICT,
   INVALID_INPUT: HttpStatus.BAD_REQUEST,
@@ -30,15 +30,15 @@ const STATUS_POR_KIND: Record<ErrorKind, number> = {
   FORBIDDEN: HttpStatus.FORBIDDEN,
 };
 
-/** Erros que o próprio NestJS lança (rota inexistente, guard, ParseUUIDPipe…). */
-const CODIGO_POR_STATUS: Record<number, ErrorCode> = {
+/** Errors NestJS itself throws (unknown route, guard, ParseUUIDPipe…). */
+const CODE_BY_STATUS: Record<number, ErrorCode> = {
   [HttpStatus.BAD_REQUEST]: 'REQUISICAO_INVALIDA',
   [HttpStatus.UNAUTHORIZED]: 'NAO_AUTENTICADO',
   [HttpStatus.FORBIDDEN]: 'SEM_PERMISSAO',
   [HttpStatus.NOT_FOUND]: 'ROTA_NAO_ENCONTRADA',
 };
 
-interface ErroTraduzido {
+interface TranslatedError {
   statusCode: number;
   code: ErrorCode;
   message: string;
@@ -54,99 +54,100 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const response = ctx.getResponse<Response>();
 
-    const erro = this.traduzir(exception);
-    this.registrar(exception, request, erro);
+    const error = this.translate(exception);
+    this.record(exception, request, error);
 
-    response.status(erro.statusCode).json({
-      ...erro,
+    response.status(error.statusCode).json({
+      ...error,
       path: request.url,
       timestamp: new Date().toISOString(),
     });
   }
 
-  /** Transforma qualquer coisa que alguém lançou no nosso formato único. */
-  private traduzir(exception: unknown): ErroTraduzido {
+  /** Turns whatever anyone threw into our single shape. */
+  private translate(exception: unknown): TranslatedError {
     if (exception instanceof DomainError) {
       return {
-        statusCode: STATUS_POR_KIND[exception.kind],
+        statusCode: STATUS_BY_KIND[exception.kind],
         code: exception.code,
         message: exception.message,
         details: exception.details,
       };
     }
 
-    // Chegou aqui cru: alguém usou o Prisma fora de um repository, ou o código
-    // do erro não está mapeado em prisma-errors.ts. É bug nosso, não do cliente.
-    if (isPrismaKnownError(exception)) return this.erroInterno();
+    // Arrived raw: someone used Prisma outside a repository, or the error's
+    // code is not mapped in prisma-errors.ts. Our bug, not the client's.
+    if (isPrismaKnownError(exception)) return this.internalError();
 
-    if (exception instanceof HttpException) return this.traduzirHttp(exception);
+    if (exception instanceof HttpException)
+      return this.translateHttp(exception);
 
-    return this.erroInterno();
+    return this.internalError();
   }
 
   /**
-   * Exceções do próprio NestJS. O caso mais comum é o `ValidationPipe`, que
-   * devolve a lista de campos inválidos em `message` — o ADR-07 pede que erro
-   * de validação saia no mesmo formato dos demais.
+   * NestJS's own exceptions. The common case is the `ValidationPipe`, which
+   * returns the list of invalid fields in `message` — ADR-07 requires a
+   * validation error to come out in the same shape as every other one.
    */
-  private traduzirHttp(exception: HttpException): ErroTraduzido {
+  private translateHttp(exception: HttpException): TranslatedError {
     const statusCode = exception.getStatus();
-    const corpo = exception.getResponse();
-    const mensagens =
-      typeof corpo === 'object' && corpo !== null && 'message' in corpo
-        ? corpo.message
+    const body = exception.getResponse();
+    const messages =
+      typeof body === 'object' && body !== null && 'message' in body
+        ? body.message
         : undefined;
 
-    if (Array.isArray(mensagens)) {
+    if (Array.isArray(messages)) {
       return {
         statusCode,
         code: 'VALIDACAO_INVALIDA',
-        message: 'Requisição inválida',
-        details: { campos: mensagens.map((campo: unknown) => String(campo)) },
+        message: 'Invalid request',
+        details: { fields: messages.map((field: unknown) => String(field)) },
       };
     }
 
     return {
       statusCode,
-      code: CODIGO_POR_STATUS[statusCode] ?? 'ERRO_HTTP',
-      message: typeof mensagens === 'string' ? mensagens : exception.message,
+      code: CODE_BY_STATUS[statusCode] ?? 'ERRO_HTTP',
+      message: typeof messages === 'string' ? messages : exception.message,
     };
   }
 
-  /** Nada do que está dentro do erro sobe: só o log sabe o que aconteceu. */
-  private erroInterno(): ErroTraduzido {
+  /** Nothing inside the error goes up: only the log knows what happened. */
+  private internalError(): TranslatedError {
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       code: 'ERRO_INTERNO',
-      message: 'Erro interno do servidor',
+      message: 'Internal server error',
     };
   }
 
-  private registrar(
+  private record(
     exception: unknown,
     request: Request,
-    erro: ErroTraduzido,
+    error: TranslatedError,
   ): void {
-    const rota = `${request.method} ${request.url}`;
+    const route = `${request.method} ${request.url}`;
 
-    // 4xx é erro de quem chamou (basta uma linha); 5xx é problema nosso.
-    if (erro.statusCode < 500) {
-      this.logger.warn(`${rota} → ${erro.statusCode} ${erro.code}`);
+    // 4xx is the caller's fault (one line is enough); 5xx is our problem.
+    if (error.statusCode < 500) {
+      this.logger.warn(`${route} → ${error.statusCode} ${error.code}`);
       return;
     }
 
     if (isPrismaKnownError(exception)) {
       this.logger.error(
-        `${rota} → erro ${exception.code} do Prisma chegou até o filtro. ` +
-          'Alguém consultou o banco fora de um repository, ou falta mapear ' +
-          'esse código em infra/prisma/prisma-errors.ts (ADR-01).',
+        `${route} → Prisma error ${exception.code} reached the filter. ` +
+          'Someone queried the database outside a repository, or that code is ' +
+          'not mapped in infra/prisma/prisma-errors.ts (ADR-01).',
         exception.stack,
       );
       return;
     }
 
     this.logger.error(
-      `${rota} → ${erro.statusCode} ${erro.code}`,
+      `${route} → ${error.statusCode} ${error.code}`,
       exception instanceof Error ? exception.stack : String(exception),
     );
   }

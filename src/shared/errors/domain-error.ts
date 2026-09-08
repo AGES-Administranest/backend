@@ -1,17 +1,17 @@
 import { ErrorCode } from './error-codes';
 
 /**
- * O erro que as regras de negócio lançam (ADR-07).
+ * The error business rules throw (ADR-07).
  *
- * Ele não sabe nada de HTTP: quem transforma isso em status e em JSON é o
- * `AllExceptionsFilter`. O Service só diz o que aconteceu e o quanto isso é
- * grave; a tradução para a resposta acontece num lugar só.
+ * It knows nothing about HTTP: turning this into a status and a JSON body is
+ * `AllExceptionsFilter`'s job. The service only says what happened and how bad
+ * it is; the translation into a response happens in exactly one place.
  */
 
 /**
- * A natureza da falha. Lista curta e fechada de propósito: é ela que o filtro
- * usa para escolher o status HTTP, então cada valor novo aqui é uma decisão
- * de time, não de quem está escrevendo o endpoint.
+ * The nature of the failure. A short, closed list on purpose: it is what the
+ * filter uses to pick the HTTP status, so each new value here is a team
+ * decision, not a decision by whoever is writing an endpoint.
  */
 export type ErrorKind =
   | 'NOT_FOUND'
@@ -23,13 +23,13 @@ export type ErrorKind =
 
 export class DomainError extends Error {
   /**
-   * @param kind  A natureza da falha — define o status HTTP.
-   * @param code  Código do catálogo em `error-codes.ts`. É o que o app usa
-   *              para decidir o que fazer, então precisa estar declarado lá
-   *              antes de ser usado aqui.
-   * @param message  Texto para humanos. Pode mudar a qualquer momento — o app
-   *              não depende dele. Nunca inclua detalhe interno aqui.
-   * @param details  Dados extras úteis para quem chamou (qual id, qual campo).
+   * @param kind  The nature of the failure — decides the HTTP status.
+   * @param code  A code from the catalog in `error-codes.ts`. It is what the
+   *              app uses to decide what to do, so it has to be declared there
+   *              before it can be used here.
+   * @param message  Text for humans. It can change at any time — the app does
+   *              not depend on it. Never put internal detail here.
+   * @param details  Extra data useful to the caller (which id, which field).
    */
   constructor(
     readonly kind: ErrorKind,
