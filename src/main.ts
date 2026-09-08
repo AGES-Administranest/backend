@@ -23,14 +23,6 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const isProduction = config.get<string>('NODE_ENV') === 'production';
 
-  // CORS exists for browsers only: the React Native app sends no Origin header
-  // and is unaffected either way. What needs it is the Expo web build, which
-  // runs on its own localhost port and would otherwise fail every preflight.
-  //
-  // Production defaults to no CORS at all rather than to a wildcard — for a
-  // native-only client that is the correct posture, and the day a web client
-  // ships, its origin goes in CORS_ORIGINS deliberately. Credentials stay off:
-  // the app authenticates with a Bearer token, never with cookies.
   const corsOrigins = (config.get<string>('CORS_ORIGINS') ?? '')
     .split(',')
     .map(origin => origin.trim())
