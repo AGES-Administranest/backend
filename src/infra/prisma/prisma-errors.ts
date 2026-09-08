@@ -68,13 +68,44 @@ function translate(error: Prisma.PrismaClientKnownRequestError): Error {
   }
 }
 
-/** `meta.target` arrives as a string, an array or undefined, depending on the database. */
+/**
+ * Which fields the violated constraint covers.
+ *
+ * Two shapes exist, and only one of them is documented in the obvious place.
+ * The classic query engine fills `meta.target`. A driver adapter — this project
+ * uses `@prisma/adapter-pg` — leaves `target` undefined and nests the Postgres
+ * error under `meta.driverAdapterError.cause.constraint` instead. Reading only
+ * `target` therefore returned an empty list for every error in this project,
+ * quietly: nothing crashes, the caller just cannot tell which field collided.
+ */
 function metaFields(error: Prisma.PrismaClientKnownRequestError): string[] {
-  const target: unknown = error.meta?.target;
+  const meta = asRecord(error.meta);
+
+  const target: unknown = meta?.target;
   if (Array.isArray(target))
     return target.map((field: unknown) => String(field));
   if (typeof target === 'string') return [target];
+
+  const constraint = asRecord(
+    asRecord(asRecord(meta?.driverAdapterError)?.cause)?.constraint,
+  );
+
+  const fields: unknown = constraint?.fields;
+  if (Array.isArray(fields))
+    return fields.map((field: unknown) => String(field));
+
+  // Some constraints come back named rather than described (`user_email_key`).
+  // The name still says which column it was about.
+  const index: unknown = constraint?.index;
+  if (typeof index === 'string') return [index];
+
   return [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 /**
