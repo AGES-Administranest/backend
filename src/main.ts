@@ -21,8 +21,20 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   const config = app.get(ConfigService);
+  const isProduction = config.get<string>('NODE_ENV') === 'production';
 
-  if (config.get<string>('NODE_ENV') !== 'production') {
+  const corsOrigins = (config.get<string>('CORS_ORIGINS') ?? '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
+  if (corsOrigins.length > 0) {
+    app.enableCors({ origin: corsOrigins });
+  } else if (!isProduction) {
+    app.enableCors();
+  }
+
+  if (!isProduction) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('AGES Backend')
       .setDescription('Documentação da API do projeto AGES')
