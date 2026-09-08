@@ -60,3 +60,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Ambiente AWS local (MiniStack) — gerados, nunca versionados
 .aws-local.env
 /docker/ministack-data
+coverage-e2e
