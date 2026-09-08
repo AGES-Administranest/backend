@@ -146,8 +146,8 @@ Todo erro sai neste formato, sem exceção:
 {
   "statusCode": 409,
   "code": "USUARIO_EMAIL_JA_CADASTRADO",
-  "message": "E-mail já cadastrado",
-  "details": { "campos": ["email"] }, // opcional
+  "message": "E-mail already registered",
+  "details": { "fields": ["email"] }, // opcional
   "path": "/users",
   "timestamp": "2026-08-17T19:06:57.209Z",
 }
@@ -160,8 +160,8 @@ Alguns casos reais:
 {
   "statusCode": 400,
   "code": "VALIDACAO_INVALIDA",
-  "message": "Requisição inválida",
-  "details": { "campos": ["email must be an email"] },
+  "message": "Invalid request",
+  "details": { "fields": ["email must be an email"] },
   "path": "/users"
 }
 
@@ -169,7 +169,7 @@ Alguns casos reais:
 {
   "statusCode": 500,
   "code": "ERRO_INTERNO",
-  "message": "Erro interno do servidor",
+  "message": "Internal server error",
   "path": "/users"
 }
 ```
