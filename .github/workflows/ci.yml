@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, production]
+  push:
+    branches: [dev, production]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# `prisma generate` nao conecta em banco nenhum, mas prisma.config.ts le esta
+# variavel — sem ela o comando falha antes de gerar o client. Vale para todos
+# os jobs: sem o client gerado, o ESLint e o tsc nao enxergam os tipos do Prisma.
+env:
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ci?schema=public
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - run: npm run lint
+
+      - run: npm run format:check
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Unit tests
+        run: npm test
