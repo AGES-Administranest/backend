@@ -18,6 +18,7 @@ CLIENT_NAME="${COGNITO_CLIENT_NAME:?defina COGNITO_CLIENT_NAME}"
 BUCKET="${S3_BUCKET:?defina S3_BUCKET (vem do seu .env)}"
 DEV_EMAIL="${DEV_EMAIL:?defina DEV_EMAIL}"
 DEV_PASSWORD="${DEV_PASSWORD:?defina DEV_PASSWORD}"
+DEV_NAME="${DEV_NAME:-Dev Local}"
 
 ENV_FILE='/workspace/.aws-local.env'
 HOST_ENDPOINT_URL="${HOST_ENDPOINT_URL:-http://localhost:4566}"
@@ -94,6 +95,14 @@ else
     --message-action SUPPRESS >/dev/null
   echo "    criado: ${DEV_EMAIL}"
 fi
+
+# Outside the if/else on purpose: whoever already ran the bootstrap never hits
+# the creation branch again, and would keep a token with no `name` claim.
+aws cognito-idp admin-update-user-attributes \
+  --user-pool-id "${POOL_ID}" \
+  --username "${DEV_EMAIL}" \
+  --user-attributes "Name=name,Value=${DEV_NAME}" >/dev/null
+echo "    atributo name: ${DEV_NAME}"
 
 # `--permanent` evita o desafio NEW_PASSWORD_REQUIRED no primeiro login.
 aws cognito-idp admin-set-user-password \

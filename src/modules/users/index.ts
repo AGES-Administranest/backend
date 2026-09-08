@@ -6,5 +6,6 @@
  * `eslint.config.mjs` bloqueia. Assim dá pra reorganizar os arquivos internos
  * sem quebrar quem depende do módulo.
  */
+export { UserEntity } from './entities/user.entity';
 export { UsersModule } from './users.module';
 export { UsersService } from './users.service';

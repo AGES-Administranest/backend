@@ -73,7 +73,7 @@ Depois, no Service, lance um `DomainError` com quatro informações:
 throw new DomainError(
   'NOT_FOUND', // 1. natureza → vira o status HTTP
   'ESTOQUE_ITEM_NAO_ENCONTRADO', // 2. código → é o que o app lê
-  `Item ${id} não encontrado`, // 3. mensagem → para humanos
+  `Item ${id} not found`, // 3. mensagem → para humanos
   { id }, // 4. detalhes (opcional)
 );
 ```
@@ -105,7 +105,7 @@ está do outro lado já escreveu `if (code === 'USUARIO_NAO_ENCONTRADO')`.
 carrega detalhe interno: nada de nome de tabela, SQL ou stack trace.
 
 **4. Os detalhes** são o que ajuda quem chamou a entender o problema (`{ id }`,
-`{ campo: 'email' }`). Vale a mesma regra da mensagem.
+`{ field: 'email' }`). Vale a mesma regra da mensagem.
 
 ## Erro que vem do banco
 
@@ -119,7 +119,7 @@ try {
     throw new DomainError(
       'CONFLICT',
       'USUARIO_EMAIL_JA_CADASTRADO',
-      'E-mail já cadastrado',
+      'E-mail already registered',
     );
   }
   throw error; // não é seu caso: deixa subir
@@ -146,8 +146,8 @@ Todo erro sai neste formato, sem exceção:
 {
   "statusCode": 409,
   "code": "USUARIO_EMAIL_JA_CADASTRADO",
-  "message": "E-mail já cadastrado",
-  "details": { "campos": ["email"] }, // opcional
+  "message": "E-mail already registered",
+  "details": { "fields": ["email"] }, // opcional
   "path": "/users",
   "timestamp": "2026-08-17T19:06:57.209Z",
 }
@@ -160,8 +160,8 @@ Alguns casos reais:
 {
   "statusCode": 400,
   "code": "VALIDACAO_INVALIDA",
-  "message": "Requisição inválida",
-  "details": { "campos": ["email must be an email"] },
+  "message": "Invalid request",
+  "details": { "fields": ["email must be an email"] },
   "path": "/users"
 }
 
@@ -169,7 +169,7 @@ Alguns casos reais:
 {
   "statusCode": 500,
   "code": "ERRO_INTERNO",
-  "message": "Erro interno do servidor",
+  "message": "Internal server error",
   "path": "/users"
 }
 ```

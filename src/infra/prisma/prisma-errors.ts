@@ -1,48 +1,48 @@
 import { Prisma } from '@prisma/client';
 
 /**
- * Erros de banco em linguagem de aplicação.
+ * Database failures in the application's own vocabulary.
  *
- * O Prisma sinaliza falha com códigos (`P2002`, `P2025`…) que só fazem sentido
- * com a documentação dele aberta do lado. Estas classes existem para que o
- * resto do sistema nunca precise conhecer esses códigos: quem chama o banco
- * recebe um erro com nome, não um número.
+ * Prisma signals failure with codes (`P2002`, `P2025`…) that only mean
+ * something with its documentation open beside you. These classes exist so the
+ * rest of the system never has to know those codes: whoever calls the database
+ * gets an error with a name, not a number.
  *
- * Mora em `infra/` porque traduzir Prisma é assunto de infraestrutura. Se um
- * dia o ORM mudar, este arquivo muda — e mais nenhum.
+ * It lives in `infra/` because translating Prisma is an infrastructure concern.
+ * If the ORM ever changes, this file changes — and no other.
  */
 
-/** Violação de restrição UNIQUE (ex.: e-mail já cadastrado). */
+/** UNIQUE constraint violation (e.g. e-mail already registered). */
 export class UniqueConstraintError extends Error {
   constructor(readonly fields: string[]) {
-    super(`Violação de unicidade: ${fields.join(', ')}`);
+    super(`Unique constraint violated: ${fields.join(', ')}`);
     this.name = 'UniqueConstraintError';
   }
 }
 
-/** A operação exigia um registro que não existe (update/delete de id inválido). */
+/** The operation needed a record that does not exist (update/delete of a bad id). */
 export class RecordNotFoundError extends Error {
   constructor() {
-    super('Registro não encontrado');
+    super('Record not found');
     this.name = 'RecordNotFoundError';
   }
 }
 
-/** Violação de chave estrangeira: aponta para um registro que não existe. */
+/** Foreign key violation: it points at a record that does not exist. */
 export class InvalidReferenceError extends Error {
   constructor(readonly field?: string) {
-    super(field ? `Referência inválida: ${field}` : 'Referência inválida');
+    super(field ? `Invalid reference: ${field}` : 'Invalid reference');
     this.name = 'InvalidReferenceError';
   }
 }
 
 /**
- * Executa uma consulta do Prisma traduzindo os erros conhecidos.
+ * Runs a Prisma query, translating the errors we know about.
  *
- * Todo método de repository passa por aqui. É o que evita repetir
- * `instanceof PrismaClientKnownRequestError && error.code === '...'` em cada
- * método de cada módulo. Código não mapeado sobe intacto: erro desconhecido
- * não pode virar um erro genérico que esconde o problema real.
+ * Every repository method goes through here. It is what keeps
+ * `instanceof PrismaClientKnownRequestError && error.code === '...'` out of
+ * every method of every module. An unmapped code rises untouched: an unknown
+ * error must not become a generic one that hides the real problem.
  */
 export async function runQuery<T>(query: () => Promise<T>): Promise<T> {
   try {
@@ -68,21 +68,52 @@ function translate(error: Prisma.PrismaClientKnownRequestError): Error {
   }
 }
 
-/** `meta.target` vem como string, array ou undefined, dependendo do banco. */
+/**
+ * Which fields the violated constraint covers.
+ *
+ * Two shapes exist, and only one of them is documented in the obvious place.
+ * The classic query engine fills `meta.target`. A driver adapter — this project
+ * uses `@prisma/adapter-pg` — leaves `target` undefined and nests the Postgres
+ * error under `meta.driverAdapterError.cause.constraint` instead. Reading only
+ * `target` therefore returned an empty list for every error in this project,
+ * quietly: nothing crashes, the caller just cannot tell which field collided.
+ */
 function metaFields(error: Prisma.PrismaClientKnownRequestError): string[] {
-  const target: unknown = error.meta?.target;
+  const meta = asRecord(error.meta);
+
+  const target: unknown = meta?.target;
   if (Array.isArray(target))
     return target.map((field: unknown) => String(field));
   if (typeof target === 'string') return [target];
+
+  const constraint = asRecord(
+    asRecord(asRecord(meta?.driverAdapterError)?.cause)?.constraint,
+  );
+
+  const fields: unknown = constraint?.fields;
+  if (Array.isArray(fields))
+    return fields.map((field: unknown) => String(field));
+
+  // Some constraints come back named rather than described (`user_email_key`).
+  // The name still says which column it was about.
+  const index: unknown = constraint?.index;
+  if (typeof index === 'string') return [index];
+
   return [];
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 /**
- * O erro veio do Prisma sem passar por nenhuma tradução?
+ * Did this error come from Prisma without passing through any translation?
  *
- * Usado pelo filtro global como rede de segurança: se isso for verdade lá em
- * cima, alguém chamou o Prisma fora de um repository (ADR-01) ou o código do
- * erro não está mapeado aqui. Nos dois casos é bug nosso, e vira 500 + log.
+ * Used by the global filter as a safety net: if that is true up there, someone
+ * queried the database outside a repository (ADR-01) or the error's code is not
+ * mapped here. Either way it is our bug, and it becomes a 500 plus a log.
  */
 export function isPrismaKnownError(
   error: unknown,
