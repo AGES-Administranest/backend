@@ -23,9 +23,8 @@ export const ERROR_CODES = [
   // users
   'USUARIO_NAO_ENCONTRADO',
   'USUARIO_EMAIL_JA_CADASTRADO',
-  // The token is valid but the local mirror does not exist yet. It gets its own
-  // code because the app reacts differently than to a plain 404: it calls
-  // POST /auth/session and retries, instead of showing "not found" to the user.
+  // Own code, not a plain 404: the app reacts by calling POST /auth/session
+  // and retrying, instead of showing "not found" to the user.
   'USUARIO_NAO_PROVISIONADO',
 
   // seu módulo entra aqui

@@ -27,13 +27,7 @@ export class UsersRepository {
     return runQuery(() => this.prisma.user.findUnique({ where: { id } }));
   }
 
-  /**
-   * Updates the mirror addressed by its Cognito `sub`.
-   *
-   * Addressing by `cognitoSub` rather than reading the row first and updating
-   * by `id` keeps it a single statement: a read-then-write would raise a bare
-   * `P2025` if the row disappeared in between, and that escapes as a 500.
-   */
+  /** Single statement on purpose: a read-then-write can lose the row in between. */
   updateByCognitoSub(
     cognitoSub: string,
     data: Prisma.UserUpdateInput,
@@ -43,14 +37,7 @@ export class UsersRepository {
     );
   }
 
-  /**
-   * Creates the mirror of the Cognito user, or updates the existing one.
-   *
-   * An `upsert` and not a `create` because the app calls this on every login:
-   * idempotency belongs to the database, in a single statement, rather than to
-   * a `findFirst` followed by a `create` — which would lose the race against
-   * two simultaneous logins.
-   */
+  /** `upsert` and not `create`: find-then-create loses the race against two logins. */
   upsertByCognitoSub(
     cognitoSub: string,
     create: Prisma.UserCreateInput,

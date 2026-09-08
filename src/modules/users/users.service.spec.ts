@@ -9,13 +9,9 @@ import {
 import { DomainError } from '../../shared/errors/domain-error';
 
 /**
- * Mirror provisioning and terms consent (US34, subtask 1).
- *
- * The repository is a fake holding users in a Map, with the same uniqueness
- * constraints the database enforces. A mock that only returns `undefined` would
- * pass the idempotency test while proving nothing — the whole point is that
- * calling twice does not create two rows, and that only shows up with real
- * state behind it.
+ * The fake repository keeps real state and enforces the same uniqueness the
+ * database does: against a stateless mock the idempotency test would pass while
+ * proving nothing.
  */
 describe('UsersService — provisioning from Cognito', () => {
   let service: UsersService;
@@ -98,10 +94,6 @@ describe('UsersService — provisioning from Cognito', () => {
   });
 
   it('does not report a cognito_sub collision as an e-mail conflict', async () => {
-    // Two simultaneous logins for a brand-new sub can make the upsert lose the
-    // race and fail on `cognito_sub`. That is the retryable path: turning it
-    // into 409 USUARIO_EMAIL_JA_CADASTRADO would send the app to a human for
-    // something it should simply try again.
     const failing = {
       upsertByCognitoSub: () =>
         Promise.reject(new UniqueConstraintError(['cognito_sub'])),
@@ -135,7 +127,6 @@ describe('UsersService — terms consent', () => {
 
     expect(user.termsVersion).toBe('2026-09-01');
     expect(user.termsAcceptedAt?.getTime()).toBeGreaterThanOrEqual(before);
-    // The policy is accepted in the same act: both dates are written together.
     expect(user.privacyAcceptedAt).toEqual(user.termsAcceptedAt);
   });
 
@@ -149,9 +140,8 @@ describe('UsersService — terms consent', () => {
   });
 
   it('answers 404 and not 500 when the row vanishes mid-write', async () => {
-    // The repository raises RecordNotFoundError from the update itself. Left
-    // uncaught it would reach AllExceptionsFilter as an unknown error and come
-    // out as 500 ERRO_INTERNO, hiding a case the endpoint documents as 404.
+    // Uncaught, this reaches AllExceptionsFilter as an unknown error and comes
+    // out as 500, hiding a case the endpoint documents as 404.
     const vanishing = {
       updateByCognitoSub: () => Promise.reject(new RecordNotFoundError()),
     };
@@ -166,11 +156,6 @@ describe('UsersService — terms consent', () => {
   });
 });
 
-/**
- * In-memory repository carrying the `email` and `cognitoSub` uniqueness the
- * database guarantees — which is what lets the `UniqueConstraintError` path be
- * tested without starting Postgres.
- */
 class FakeUsersRepository {
   private readonly users = new Map<string, User>();
   private sequence = 0;

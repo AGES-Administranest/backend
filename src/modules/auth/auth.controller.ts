@@ -10,21 +10,14 @@ import {
 
 import { AcceptTermsDto } from './dto/accept-terms.dto';
 import { CurrentUser } from '../../shared/auth';
-// `import type` is required by `emitDecoratorMetadata`: a type used in the
-// signature of a decorated method cannot arrive through a value import.
+// `import type` is required by `emitDecoratorMetadata` on a decorated signature.
 import type { AuthenticatedUser } from '../../shared/auth';
 import { UserEntity, UsersService } from '../users';
 
 /**
- * The account lifecycle as far as the backend is concerned.
- *
- * Sign-up, sign-in, refresh and password reset do NOT go through here: the app
- * talks to Cognito directly (see `features/auth` in client-mobile). What is
- * left for the backend is the local mirror — creating it and recording consent.
- *
- * There is no `AuthService`: neither route has a rule of its own. The rules are
- * about the `user` table, so they live in `UsersService`, which owns it
- * (ADR-01).
+ * Sign-in, refresh and password reset do NOT go through here: the app talks to
+ * Cognito directly (client-mobile `features/auth`). What is left for the backend
+ * is the local mirror.
  */
 @ApiTags('auth')
 @Controller('auth')
@@ -35,9 +28,7 @@ export class AuthController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Creates or refreshes the local mirror of the Cognito user',
-    description:
-      'Idempotent: the app calls it on every login. 200 rather than 201 ' +
-      'precisely because the ordinary call is the one that creates nothing.',
+    description: 'Idempotent: the app calls it on every login.',
   })
   @ApiOkResponse({ type: UserEntity })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })

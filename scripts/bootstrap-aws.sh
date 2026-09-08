@@ -18,10 +18,6 @@ CLIENT_NAME="${COGNITO_CLIENT_NAME:?defina COGNITO_CLIENT_NAME}"
 BUCKET="${S3_BUCKET:?defina S3_BUCKET (vem do seu .env)}"
 DEV_EMAIL="${DEV_EMAIL:?defina DEV_EMAIL}"
 DEV_PASSWORD="${DEV_PASSWORD:?defina DEV_PASSWORD}"
-# The app sends the `name` claim on SignUp, and mirror provisioning uses it
-# (POST /auth/session). Without it here the test user would be the only one in
-# the system with no name, and local runs would exercise a path that does not
-# exist in production. Defaulted so an older compose file still works.
 DEV_NAME="${DEV_NAME:-Dev Local}"
 
 ENV_FILE='/workspace/.aws-local.env'
@@ -100,11 +96,8 @@ else
   echo "    criado: ${DEV_EMAIL}"
 fi
 
-# Outside the if/else on purpose: anyone who ran the bootstrap before this
-# change has the user without the `name` attribute, and the creation branch will
-# never run for them again. Without this their local token would carry no `name`
-# claim and provisioning would take the fallback path — exactly the divergence
-# from production this was meant to remove.
+# Outside the if/else on purpose: whoever already ran the bootstrap never hits
+# the creation branch again, and would keep a token with no `name` claim.
 aws cognito-idp admin-update-user-attributes \
   --user-pool-id "${POOL_ID}" \
   --username "${DEV_EMAIL}" \

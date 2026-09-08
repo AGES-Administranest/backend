@@ -34,7 +34,7 @@ export class UserEntity implements User {
   /** When the privacy policy was accepted. Null = not accepted yet */
   privacyAcceptedAt!: Date | null;
 
-  /** Version of the terms text that was accepted */
+  /** Version of the accepted terms text */
   termsVersion!: string | null;
 
   /** Data de criação do registro */

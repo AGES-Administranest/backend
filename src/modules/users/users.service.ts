@@ -51,17 +51,9 @@ export class UsersService {
   }
 
   /**
-   * Creates the local mirror from the token claims (ADR-02: the mirror is born
-   * on the first valid login — not in a PostConfirmation trigger, which would
-   * not even fire in the local environment).
-   *
-   * Idempotent on purpose: the app calls this on every login, and the second
-   * call must not create a second user.
-   *
-   * The e-mail comes from Cognito and overwrites the local one on every call —
-   * that is ADR-02 deciding who wins when the two diverge. The name is only
-   * overwritten when the token carries the claim, so a stored name is never
-   * wiped out.
+   * Creates the local mirror on first valid login (ADR-02), idempotently: the
+   * app calls this on every login. Cognito wins on e-mail; the name is only
+   * overwritten when the token carries the claim.
    */
   async provisionFromCognito(claims: {
     cognitoSub: string;
@@ -74,9 +66,6 @@ export class UsersService {
         {
           cognitoSub: claims.cognitoSub,
           email: claims.email,
-          // An account without the `name` claim still needs a non-null name.
-          // The e-mail is the only identifier we have, and the user can change
-          // it later.
           name: claims.name ?? claims.email,
           updatedAt: new Date(),
         },
@@ -86,15 +75,9 @@ export class UsersService {
         },
       );
     } catch (error) {
-      // Only an `email` collision means what `emailTaken()` says: the address
-      // already belongs to ANOTHER cognitoSub, so either two Cognito accounts
-      // share it or it was changed there and the old mirror was left behind —
-      // both need a human, not a retry.
-      //
-      // `user` also has a unique index on `cognito_sub`, and the upsert can
-      // still lose a race against a simultaneous login and fail on it. That is
-      // the retryable path, and reporting it as "e-mail already registered"
-      // would send the app to a human for something it should just try again.
+      // `user` is unique on `cognito_sub` too, and losing the upsert race fails
+      // on that one — a retryable path that must not be reported as a conflict
+      // needing a human.
       if (
         error instanceof UniqueConstraintError &&
         error.fields.some(field => field.includes('email'))
@@ -105,13 +88,7 @@ export class UsersService {
     }
   }
 
-  /**
-   * Records consent: date and version, never a boolean — when the text changes
-   * we need to know who accepted which one.
-   *
-   * The privacy policy is accepted in the same act, so it shares the terms
-   * version for as long as the two texts are versioned together.
-   */
+  /** Date and version, never a boolean: the text changes and we need to know which. */
   async acceptTerms(cognitoSub: string, termsVersion: string) {
     const acceptedAt = new Date();
 
