@@ -173,7 +173,7 @@ describe('stock-movement rules', () => {
           adjustmentReason: null,
         }),
       );
-      expect(error.code).toBe('ESTOQUE_MOTIVO_AJUSTE_INVALIDO');
+      expect(error.code).toBe('STOCK_REASON_ADJUSTMENT_INVALID');
       expect(error.kind).toBe('INVALID_INPUT');
     });
 
@@ -185,7 +185,7 @@ describe('stock-movement rules', () => {
           adjustmentReason: AdjustmentReason.LOSS,
         }),
       );
-      expect(error.code).toBe('ESTOQUE_MOTIVO_AJUSTE_INVALIDO');
+      expect(error.code).toBe('STOCK_REASON_ADJUSTMENT_INVALID');
     });
 
     it.each([
@@ -210,7 +210,7 @@ describe('stock-movement rules', () => {
       quantity => {
         const error = catchDomainError(() => assertPositiveQuantity(quantity));
         expect(error.kind).toBe('INVALID_INPUT');
-        expect(error.code).toBe('ESTOQUE_QUANTIDADE_INVALIDA');
+        expect(error.code).toBe('STOCK_QUANTITY_INVALID');
       },
     );
   });

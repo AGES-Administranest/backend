@@ -14,7 +14,7 @@ import { DomainError } from '../../../shared/errors/domain-error';
  * that the data dictionary describes (see `docs/data-dictionary.md`). The stock
  * service, once it exists, calls these functions; the tests cover them
  * directly.
-**/
+ **/
 
 export type Decimal = Prisma.Decimal;
 
@@ -112,7 +112,7 @@ export function assertValidMovement(movement: MovementShape): void {
   if (isAdjustment && !hasReason) {
     throw new DomainError(
       'INVALID_INPUT',
-      'STOCK_REASON_AJUSTMENT_INVALID',
+      'STOCK_REASON_ADJUSTMENT_INVALID',
       'A manual stock adjustment requires a reason (adjustmentReason)',
       { source: movement.source },
     );
@@ -120,7 +120,7 @@ export function assertValidMovement(movement: MovementShape): void {
   if (!isAdjustment && hasReason) {
     throw new DomainError(
       'INVALID_INPUT',
-      'STOCK_REASON_AJUSTMENT_INVALID',
+      'STOCK_REASON_ADJUSTMENT_INVALID',
       'adjustmentReason is only valid when source = MANUAL_ADJUSTMENT',
       { source: movement.source },
     );
