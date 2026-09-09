@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -22,6 +23,7 @@ import {
 
 import { CreateItemDto } from './dto/create-item.dto';
 import { DeleteItemDto } from './dto/delete-item.dto';
+import { QueryItemDto } from './dto/query-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { ItemEntity } from './entities/item.entity';
 import { ItemService } from './item.service';
@@ -46,10 +48,13 @@ export class ItemController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Lists active stock items' })
+  @ApiOperation({
+    summary:
+      'Lists stock items for a user: search by name, filter by category, paginated',
+  })
   @ApiOkResponse({ type: ItemEntity, isArray: true })
-  findAll() {
-    return this.itemService.findAll();
+  findAll(@Query() query: QueryItemDto) {
+    return this.itemService.findAll(query);
   }
 
   @Get(':id')

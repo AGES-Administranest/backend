@@ -29,6 +29,7 @@ export const ERROR_CODES = [
   'ITEM_NOT_FOUND',
   'DUPLICATED_ITEM_PRESENTATION',
   'INVALID_REFERENCE',
+  'ITEM_LOT_UNIT_COST_REQUIRED',
 
   // seu módulo entra aqui
 ] as const;

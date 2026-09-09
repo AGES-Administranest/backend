@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Item, MeasurementUnit } from '@prisma/client';
+import { Item, MeasurementUnit, Prisma } from '@prisma/client';
 
 import { CreateItemDto } from './dto/create-item.dto';
 import { DeleteItemDto } from './dto/delete-item.dto';
+import { QueryItemDto } from './dto/query-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { ItemEntity } from './entities/item.entity';
 import { ItemRepository } from './item.repository';
@@ -12,12 +13,31 @@ import {
 } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
+function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, match => `\\${match}`);
+}
+
 @Injectable()
 export class ItemService {
   constructor(private readonly itemRepository: ItemRepository) {}
 
-  async findAll(): Promise<ItemEntity[]> {
-    const items = await this.itemRepository.findMany();
+  async findAll(query: QueryItemDto): Promise<ItemEntity[]> {
+    const where: Prisma.ItemWhereInput = {
+      userId: query.userId,
+      active: query.active,
+      ...(query.category?.length ? { category: { in: query.category } } : {}),
+      ...(query.search && query.search.length >= 2
+        ? { name: { contains: escapeLike(query.search), mode: 'insensitive' } }
+        : {}),
+    };
+    const skip = (query.page - 1) * query.limit;
+
+    const items = await this.itemRepository.findMany(
+      where,
+      { [query.sort]: 'asc' },
+      skip,
+      query.limit,
+    );
     return items.map(item => this.sanitize(item));
   }
 
@@ -102,6 +122,9 @@ export class ItemService {
       defaultUnitCost: item.defaultUnitCost,
       minimumStock: item.minimumStock,
       currentQuantity: item.currentQuantity,
+      belowMinimum:
+        item.minimumStock !== null &&
+        item.currentQuantity.lessThanOrEqualTo(item.minimumStock),
       active: item.active,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
