@@ -153,6 +153,7 @@ enum MeasurementUnit {
   BOX
   ML
   MG
+  GRAM
   TABLET
   OTHER
 
@@ -328,6 +329,7 @@ model Item {
   userId          String          @map("user_id") @db.Uuid
   /// preferred/default supplier
   supplierId      String?         @map("supplier_id") @db.Uuid
+  category        ItemCategory
   unit            MeasurementUnit
   name            String
   /// suggested cost for a new lot

@@ -17,7 +17,7 @@ export const CurrentUser = createParamDecorator(
     if (!request.user) {
       throw new DomainError(
         'UNAUTHORIZED',
-        'NAO_AUTENTICADO',
+        'UNAUTHENTICATED',
         'Request has no authenticated user',
       );
     }
