@@ -18,7 +18,7 @@ export class ItemService {
 
   async findAll(): Promise<ItemEntity[]> {
     const items = await this.itemRepository.findMany();
-    return items.map((item) => this.sanitize(item));
+    return items.map(item => this.sanitize(item));
   }
 
   async findOne(id: string): Promise<ItemEntity> {

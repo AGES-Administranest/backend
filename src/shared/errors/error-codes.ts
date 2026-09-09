@@ -11,7 +11,7 @@
  * Sem isso o `DomainError` não compila — é de propósito.
  */
 export const ERROR_CODES = [
-   // Transversais: nascem no filtro global, valem para qualquer rota.
+  // Transversais: nascem no filtro global, valem para qualquer rota.
   'VALIDATION_ERROR',
   'INVALID_REQUEST',
   'UNAUTHENTICATED',
