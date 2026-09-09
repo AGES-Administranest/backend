@@ -1,4 +1,10 @@
-import { Item, ItemCategory, ItemLot, MeasurementUnit, Prisma } from '@prisma/client';
+import {
+  Item,
+  ItemCategory,
+  ItemLot,
+  MeasurementUnit,
+  Prisma,
+} from '@prisma/client';
 
 const { Decimal } = Prisma;
 
@@ -37,8 +43,14 @@ const lot = (overrides: Partial<ItemLot> = {}): ItemLot => ({
   ...overrides,
 });
 
-const createDto = (overrides: Partial<CreateItemLotDto> = {}): CreateItemLotDto =>
-  Object.assign(new CreateItemLotDto(), { userId: 'user-1', quantity: 5, ...overrides });
+const createDto = (
+  overrides: Partial<CreateItemLotDto> = {},
+): CreateItemLotDto =>
+  Object.assign(new CreateItemLotDto(), {
+    userId: 'user-1',
+    quantity: 5,
+    ...overrides,
+  });
 
 describe('ItemLotService', () => {
   let repository: {
@@ -62,9 +74,7 @@ describe('ItemLotService', () => {
   it('lança NOT_FOUND quando o item não existe ou não pertence ao usuário', async () => {
     repository.findItemForUser.mockResolvedValue(null);
 
-    await expect(
-      service.create('item-1', createDto()),
-    ).rejects.toMatchObject({
+    await expect(service.create('item-1', createDto())).rejects.toMatchObject({
       code: 'ITEM_NOT_FOUND',
     } satisfies Partial<DomainError>);
     expect(repository.findByExpiration).not.toHaveBeenCalled();
@@ -116,7 +126,9 @@ describe('ItemLotService', () => {
   });
 
   it('usa o defaultUnitCost do item quando unitCost não é informado', async () => {
-    repository.findItemForUser.mockResolvedValue(item({ defaultUnitCost: new Decimal(7.5) }));
+    repository.findItemForUser.mockResolvedValue(
+      item({ defaultUnitCost: new Decimal(7.5) }),
+    );
     repository.findByExpiration.mockResolvedValue(null);
     repository.createLot.mockResolvedValue(lot());
 
@@ -130,7 +142,9 @@ describe('ItemLotService', () => {
   });
 
   it('lança erro de validação quando não há unitCost nem defaultUnitCost', async () => {
-    repository.findItemForUser.mockResolvedValue(item({ defaultUnitCost: null }));
+    repository.findItemForUser.mockResolvedValue(
+      item({ defaultUnitCost: null }),
+    );
     repository.findByExpiration.mockResolvedValue(null);
 
     await expect(service.create('item-1', createDto())).rejects.toMatchObject({

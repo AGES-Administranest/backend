@@ -17,7 +17,9 @@ export class ItemLotService {
     );
     if (!item) throw this.itemNotFound(itemId);
 
-    const expirationDate = dto.expirationDate ? new Date(dto.expirationDate) : null;
+    const expirationDate = dto.expirationDate
+      ? new Date(dto.expirationDate)
+      : null;
     const existingLot = await this.itemLotRepository.findByExpiration(
       itemId,
       expirationDate,

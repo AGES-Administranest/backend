@@ -102,7 +102,9 @@ describe('ItemService', () => {
         0,
         20,
       );
-      const [where] = repository.findMany.mock.calls[0] as [Prisma.ItemWhereInput];
+      const [where] = repository.findMany.mock.calls[0] as [
+        Prisma.ItemWhereInput,
+      ];
       expect(where).not.toHaveProperty('name');
 
       await service.findAll(query({ search: 'Dipirona' }));
@@ -148,7 +150,9 @@ describe('ItemService', () => {
     it('calcula o skip a partir da página e usa o sort pedido', async () => {
       repository.findMany.mockResolvedValue([]);
 
-      await service.findAll(query({ page: 3, limit: 10, sort: 'currentQuantity' }));
+      await service.findAll(
+        query({ page: 3, limit: 10, sort: 'currentQuantity' }),
+      );
 
       expect(repository.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ active: true }),

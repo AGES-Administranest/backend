@@ -36,11 +36,7 @@ export class ItemLotRepository {
     );
   }
 
-  addToLot(
-    lot: ItemLot,
-    userId: string,
-    quantity: number,
-  ): Promise<ItemLot> {
+  addToLot(lot: ItemLot, userId: string, quantity: number): Promise<ItemLot> {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
         const updatedLot = await tx.itemLot.update({

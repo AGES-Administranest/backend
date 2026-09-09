@@ -14,7 +14,9 @@ export class ItemRepository {
     skip?: number,
     take?: number,
   ): Promise<Item[]> {
-    return runQuery(() => this.prisma.item.findMany({ where, orderBy, skip, take }));
+    return runQuery(() =>
+      this.prisma.item.findMany({ where, orderBy, skip, take }),
+    );
   }
 
   findById(id: string): Promise<Item | null> {

@@ -193,7 +193,9 @@ describe('Item (e2e)', () => {
         })
         .expect(201);
 
-      await request(server()).delete(`/item/${itemBody(created).id}`).expect(200);
+      await request(server())
+        .delete(`/item/${itemBody(created).id}`)
+        .expect(200);
 
       const res = await request(server())
         .get('/item')
@@ -220,7 +222,10 @@ describe('Item (e2e)', () => {
     });
 
     it('busca com menos de 2 caracteres é ignorada (retorna tudo)', async () => {
-      const all = await request(server()).get('/item').query({ userId }).expect(200);
+      const all = await request(server())
+        .get('/item')
+        .query({ userId })
+        .expect(200);
       const filtered = await request(server())
         .get('/item')
         .query({ userId, search: 'a' })

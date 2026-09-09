@@ -82,7 +82,9 @@ describe('ItemLot (e2e)', () => {
     await prisma.item.deleteMany({
       where: { userId: { in: [userId, otherUserId] } },
     });
-    await prisma.user.deleteMany({ where: { id: { in: [userId, otherUserId] } } });
+    await prisma.user.deleteMany({
+      where: { id: { in: [userId, otherUserId] } },
+    });
     await app.close();
   });
 

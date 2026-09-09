@@ -13,7 +13,11 @@ import {
   Min,
 } from 'class-validator';
 
-export const ITEM_SORT_FIELDS = ['name', 'currentQuantity', 'updatedAt'] as const;
+export const ITEM_SORT_FIELDS = [
+  'name',
+  'currentQuantity',
+  'updatedAt',
+] as const;
 export type ItemSortField = (typeof ITEM_SORT_FIELDS)[number];
 
 const toArray = ({ value }: { value: unknown }): unknown[] | undefined =>
@@ -25,7 +29,8 @@ export class QueryItemDto {
   userId!: string;
 
   @ApiPropertyOptional({
-    description: 'Partial, case-insensitive match on the item name. Ignored when shorter than 2 characters.',
+    description:
+      'Partial, case-insensitive match on the item name. Ignored when shorter than 2 characters.',
   })
   @IsOptional()
   @IsString()
@@ -43,10 +48,13 @@ export class QueryItemDto {
 
   @ApiPropertyOptional({
     default: true,
-    description: 'Inactive items are only returned when explicitly set to false',
+    description:
+      'Inactive items are only returned when explicitly set to false',
   })
   @IsOptional()
-  @Transform(({ value }: { value: unknown }) => value === 'false' ? false : value === 'true' ? true : value)
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'false' ? false : value === 'true' ? true : value,
+  )
   @IsBoolean()
   active: boolean = true;
 
