@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { AppController } from './app.controller';
@@ -8,6 +8,7 @@ import { StorageModule } from './infra/storage';
 import { AuthModule } from './modules/auth';
 import { StockEntryModule } from './modules/stock-entry';
 import { UsersModule } from './modules/users/users.module';
+import { DevAuthMiddleware } from './shared/auth';
 
 @Module({
   imports: [
@@ -28,4 +29,13 @@ import { UsersModule } from './modules/users/users.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /** TEMPORARY — goes away with `DevAuthMiddleware` (US34 subtask 2). */
+  configure(consumer: MiddlewareConsumer) {
+    const bypass = process.env.DEV_AUTH_BYPASS === 'true';
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (!bypass || isProduction) return;
+
+    consumer.apply(DevAuthMiddleware).forRoutes('{*path}');
+  }
+}
