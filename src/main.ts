@@ -41,7 +41,6 @@ async function bootstrap() {
       .setVersion('1.0')
       .addTag('users', 'Gerenciamento de usuários')
       .addTag('item', 'Estoque de insumos e medicamentos')
-      .addTag('stock-movements', 'Movimentações de estoque')
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
       .build();
 

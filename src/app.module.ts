@@ -7,7 +7,6 @@ import { PrismaModule } from './infra/prisma/prisma.module';
 import { AuthModule } from './modules/auth';
 import { ItemModule } from './modules/item/item.module';
 import { UsersModule } from './modules/users/users.module';
-import { StockMovementsModule } from './modules/stock-movements/stock-movements.module';
 
 @Module({
   imports: [
