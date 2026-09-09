@@ -28,6 +28,11 @@ export class UsersService {
     return user;
   }
 
+  /** Other modules need the internal `user.id`; the token only has the sub. */
+  findByCognitoSub(cognitoSub: string) {
+    return this.usersRepository.findByCognitoSub(cognitoSub);
+  }
+
   async create(dto: CreateUserDto) {
     try {
       return await this.usersRepository.create({

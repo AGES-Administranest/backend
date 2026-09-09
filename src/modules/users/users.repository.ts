@@ -23,6 +23,12 @@ export class UsersRepository {
     );
   }
 
+  findByCognitoSub(cognitoSub: string): Promise<User | null> {
+    return runQuery(() =>
+      this.prisma.user.findUnique({ where: { cognitoSub } }),
+    );
+  }
+
   findById(id: string): Promise<User | null> {
     return runQuery(() => this.prisma.user.findUnique({ where: { id } }));
   }

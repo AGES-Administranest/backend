@@ -27,6 +27,12 @@ export const ERROR_CODES = [
   // and retrying, instead of showing "not found" to the user.
   'USUARIO_NAO_PROVISIONADO',
 
+  // stock-entry (purchase invoices)
+  'PEDIDO_NAO_ENCONTRADO',
+  'PEDIDO_NAO_EDITAVEL',
+  'PEDIDO_ARQUIVO_DUPLICADO',
+  'INVOICE_FILE_TOO_LARGE',
+
   // seu módulo entra aqui
 ] as const;
 
