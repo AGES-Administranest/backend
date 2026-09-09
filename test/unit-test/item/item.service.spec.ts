@@ -43,7 +43,7 @@ describe('ItemService', () => {
     findByPresentation: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
-    softDelete: jest.Mock;
+    delete: jest.Mock;
   };
   let service: ItemService;
 
@@ -54,7 +54,7 @@ describe('ItemService', () => {
       findByPresentation: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
-      softDelete: jest.fn(),
+      delete: jest.fn(),
     };
     service = new ItemService(repository as never);
   });
@@ -157,7 +157,7 @@ describe('ItemService', () => {
 
   describe('remove', () => {
     it('inativa o item e devolve id+name', async () => {
-      repository.softDelete.mockResolvedValue(item({ active: false }));
+      repository.delete.mockResolvedValue(item({ active: false }));
 
       const result = await service.remove('item-1');
 
@@ -165,7 +165,7 @@ describe('ItemService', () => {
     });
 
     it('lança NOT_FOUND quando o item não existe', async () => {
-      repository.softDelete.mockRejectedValue(new RecordNotFoundError());
+      repository.delete.mockRejectedValue(new RecordNotFoundError());
 
       await expect(service.remove('missing')).rejects.toMatchObject({
         code: 'ITEM_NAO_ENCONTRADO',

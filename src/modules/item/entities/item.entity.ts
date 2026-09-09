@@ -15,7 +15,6 @@ export class ItemEntity {
   @ApiProperty({ type: String, nullable: true, example: '12.5000' })
   defaultUnitCost!: Prisma.Decimal | null;
 
-  /** Estoque mínimo */
   @ApiProperty({ type: String, nullable: true, example: '10.000' })
   minimumStock!: Prisma.Decimal | null;
 

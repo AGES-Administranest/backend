@@ -4,6 +4,6 @@ export class DeleteItemDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ example: 'Dipirona injetável 500mg/mL' })
+  @ApiProperty({ example: 'Injectable dipyrone 500mg/mL' })
   name!: string;
 }

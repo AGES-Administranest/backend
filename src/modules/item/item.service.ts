@@ -27,13 +27,13 @@ export class ItemService {
   }
 
   async create(dto: CreateItemDto): Promise<ItemEntity> {
-    await this.garantirPresentacaoUnica(dto.userId, dto.name, dto.unit);
+    await this.ensureUniquePresentation(dto.userId, dto.name, dto.unit);
     try {
       const item = await this.itemRepository.create(dto);
       return this.sanitize(item);
     } catch (error) {
       if (error instanceof InvalidReferenceError)
-        throw this.referenciaInvalida(error.field);
+        throw this.invalidReference(error.field);
       throw error;
     }
   }
@@ -42,7 +42,7 @@ export class ItemService {
     const existing = await this.getOrThrow(id);
 
     if (dto.name !== undefined || dto.unit !== undefined) {
-      await this.garantirPresentacaoUnica(
+      await this.ensureUniquePresentation(
         existing.userId,
         dto.name ?? existing.name,
         dto.unit ?? existing.unit,
@@ -54,30 +54,30 @@ export class ItemService {
       const item = await this.itemRepository.update(id, dto);
       return this.sanitize(item);
     } catch (error) {
-      if (error instanceof RecordNotFoundError) throw this.naoEncontrado(id);
+      if (error instanceof RecordNotFoundError) throw this.itemNotFound(id);
       if (error instanceof InvalidReferenceError)
-        throw this.referenciaInvalida(error.field);
+        throw this.invalidReference(error.field);
       throw error;
     }
   }
 
   async remove(id: string): Promise<DeleteItemDto> {
     try {
-      const item = await this.itemRepository.softDelete(id);
+      const item = await this.itemRepository.delete(id);
       return { id: item.id, name: item.name };
     } catch (error) {
-      if (error instanceof RecordNotFoundError) throw this.naoEncontrado(id);
+      if (error instanceof RecordNotFoundError) throw this.itemNotFound(id);
       throw error;
     }
   }
 
   private async getOrThrow(id: string): Promise<Item> {
     const item = await this.itemRepository.findById(id);
-    if (!item) throw this.naoEncontrado(id);
+    if (!item) throw this.itemNotFound(id);
     return item;
   }
 
-  private async garantirPresentacaoUnica(
+  private async ensureUniquePresentation(
     userId: string,
     name: string,
     unit: MeasurementUnit,
@@ -89,7 +89,7 @@ export class ItemService {
       unit,
       excludeId,
     );
-    if (existing) throw this.presentacaoDuplicada();
+    if (existing) throw this.duplicatePresentation();
   }
 
   private sanitize(item: Item): ItemEntity {
@@ -109,28 +109,28 @@ export class ItemService {
     };
   }
 
-  private naoEncontrado(id: string): DomainError {
+  private itemNotFound(id: string): DomainError {
     return new DomainError(
       'NOT_FOUND',
       'ITEM_NAO_ENCONTRADO',
-      `Item ${id} não encontrado`,
+      `Item ${id} not found`,
       { id },
     );
   }
 
-  private presentacaoDuplicada(): DomainError {
+  private duplicatePresentation(): DomainError {
     return new DomainError(
       'CONFLICT',
       'ITEM_PRESENTACAO_DUPLICADA',
-      'Já existe um item com esse nome e essa unidade de medida',
+      'An item with this name and measurement unit already exists',
     );
   }
 
-  private referenciaInvalida(field?: string): DomainError {
+  private invalidReference(field?: string): DomainError {
     return new DomainError(
       'INVALID_REFERENCE',
       'ITEM_REFERENCIA_INVALIDA',
-      field ? `Referência inválida: ${field}` : 'Referência inválida',
+      field ? `Invalid reference: ${field}` : 'Invalid reference',
       field ? { field } : undefined,
     );
   }

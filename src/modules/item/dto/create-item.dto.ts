@@ -29,7 +29,7 @@ export class CreateItemDto {
   @IsEnum(MeasurementUnit)
   unit!: MeasurementUnit;
 
-  @ApiProperty({ example: 'Dipirona injetável 500mg/mL' })
+  @ApiProperty({ example: 'Injectable dipyrone 500mg/mL' })
   @IsString()
   @MinLength(2)
   @MaxLength(120)
