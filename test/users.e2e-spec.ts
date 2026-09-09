@@ -59,7 +59,7 @@ describe('users (e2e)', () => {
       );
 
       expect(body(response)).toMatchObject({
-        code: 'USUARIO_EMAIL_JA_CADASTRADO',
+        code: 'USER_EMAIL_ALREADY_REGISTERED',
       });
     });
 
@@ -76,7 +76,7 @@ describe('users (e2e)', () => {
         400,
       );
 
-      expect(body(response)).toMatchObject({ code: 'VALIDACAO_INVALIDA' });
+      expect(body(response)).toMatchObject({ code: 'VALIDATION_ERROR' });
       const details = body(response).details as { fields: string[] };
       expect(details.fields.join(' ')).toContain('email');
     });
@@ -127,7 +127,7 @@ describe('users (e2e)', () => {
         .expect(404);
 
       expect(body(response)).toMatchObject({
-        code: 'USUARIO_NAO_ENCONTRADO',
+        code: 'USER_NOT_FOUND',
       });
     });
 
@@ -135,7 +135,7 @@ describe('users (e2e)', () => {
       // ParseUUIDPipe throws before the service is ever reached; the filter
       // still shapes it like every other error.
       const response = await request(http).get('/users/not-a-uuid').expect(400);
-      expect(body(response).code).toBe('REQUISICAO_INVALIDA');
+      expect(body(response).code).toBe('INVALID_REQUEST');
     });
   });
 
@@ -159,7 +159,7 @@ describe('users (e2e)', () => {
         .send({ name: 'Ghost' })
         .expect(404);
 
-      expect(body(response).code).toBe('USUARIO_NAO_ENCONTRADO');
+      expect(body(response).code).toBe('USER_NOT_FOUND');
     });
 
     it('conflicts when the new e-mail belongs to someone else', async () => {
@@ -175,7 +175,7 @@ describe('users (e2e)', () => {
         .send({ email: ana.email })
         .expect(409);
 
-      expect(body(response).code).toBe('USUARIO_EMAIL_JA_CADASTRADO');
+      expect(body(response).code).toBe('USER_EMAIL_ALREADY_REGISTERED');
     });
   });
 
@@ -193,7 +193,7 @@ describe('users (e2e)', () => {
         .delete('/users/6f3b7c1e-0000-4000-8000-000000000000')
         .expect(404);
 
-      expect(body(response).code).toBe('USUARIO_NAO_ENCONTRADO');
+      expect(body(response).code).toBe('USER_NOT_FOUND');
     });
 
     it('deletes the row for real, despite the model having deleted_at', async () => {

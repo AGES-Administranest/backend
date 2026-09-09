@@ -86,7 +86,7 @@ describe('ItemService', () => {
       repository.findByPresentation.mockResolvedValue(item());
 
       await expect(service.create(createDto())).rejects.toMatchObject({
-        code: 'ITEM_PRESENTACAO_DUPLICADA',
+        code: 'DUPLICATED_ITEM_PRESENTATION',
       } satisfies Partial<DomainError>);
       expect(repository.create).not.toHaveBeenCalled();
     });
@@ -96,7 +96,7 @@ describe('ItemService', () => {
       repository.create.mockRejectedValue(new InvalidReferenceError('userId'));
 
       await expect(service.create(createDto())).rejects.toMatchObject({
-        code: 'ITEM_REFERENCIA_INVALIDA',
+        code: 'INVALID_REFERENCE',
       } satisfies Partial<DomainError>);
     });
   });
@@ -106,7 +106,7 @@ describe('ItemService', () => {
       repository.findById.mockResolvedValue(null);
 
       await expect(service.findOne('missing')).rejects.toMatchObject({
-        code: 'ITEM_NAO_ENCONTRADO',
+        code: 'ITEM_NOT_FOUND',
       } satisfies Partial<DomainError>);
     });
 
@@ -129,7 +129,7 @@ describe('ItemService', () => {
       await expect(
         service.update('item-1', { name: 'Novo nome' }),
       ).rejects.toMatchObject({
-        code: 'ITEM_PRESENTACAO_DUPLICADA',
+        code: 'DUPLICATED_ITEM_PRESENTATION',
       } satisfies Partial<DomainError>);
     });
 
@@ -150,7 +150,7 @@ describe('ItemService', () => {
       await expect(
         service.update('missing', { currentQuantity: 1 }),
       ).rejects.toMatchObject({
-        code: 'ITEM_NAO_ENCONTRADO',
+        code: 'ITEM_NOT_FOUND',
       } satisfies Partial<DomainError>);
     });
   });
@@ -168,7 +168,7 @@ describe('ItemService', () => {
       repository.delete.mockRejectedValue(new RecordNotFoundError());
 
       await expect(service.remove('missing')).rejects.toMatchObject({
-        code: 'ITEM_NAO_ENCONTRADO',
+        code: 'ITEM_NOT_FOUND',
       } satisfies Partial<DomainError>);
     });
   });

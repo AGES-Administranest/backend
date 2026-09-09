@@ -18,7 +18,7 @@ export class ItemService {
 
   async findAll(): Promise<ItemEntity[]> {
     const items = await this.itemRepository.findMany();
-    return items.map(item => this.sanitize(item));
+    return items.map((item) => this.sanitize(item));
   }
 
   async findOne(id: string): Promise<ItemEntity> {
@@ -89,7 +89,7 @@ export class ItemService {
       unit,
       excludeId,
     );
-    if (existing) throw this.duplicatePresentation();
+    if (existing) throw this.duplicatedPresentation();
   }
 
   private sanitize(item: Item): ItemEntity {
@@ -112,16 +112,16 @@ export class ItemService {
   private itemNotFound(id: string): DomainError {
     return new DomainError(
       'NOT_FOUND',
-      'ITEM_NAO_ENCONTRADO',
+      'ITEM_NOT_FOUND',
       `Item ${id} not found`,
       { id },
     );
   }
 
-  private duplicatePresentation(): DomainError {
+  private duplicatedPresentation(): DomainError {
     return new DomainError(
       'CONFLICT',
-      'ITEM_PRESENTACAO_DUPLICADA',
+      'DUPLICATED_ITEM_PRESENTATION',
       'An item with this name and measurement unit already exists',
     );
   }
@@ -129,9 +129,9 @@ export class ItemService {
   private invalidReference(field?: string): DomainError {
     return new DomainError(
       'INVALID_REFERENCE',
-      'ITEM_REFERENCIA_INVALIDA',
-      field ? `Invalid reference: ${field}` : 'Invalid reference',
-      field ? { field } : undefined,
+      'INVALID_REFERENCE',
+      'The provided reference does not exist or is invalid',
+      { field },
     );
   }
 }

@@ -34,7 +34,7 @@ describe('AllExceptionsFilter', () => {
 
   it('uses the status matching the domain error kind', () => {
     filter.catch(
-      new DomainError('NOT_FOUND', 'USUARIO_NAO_ENCONTRADO', 'not found', {
+      new DomainError('NOT_FOUND', 'USER_NOT_FOUND', 'not found', {
         id: 'abc',
       }),
       host(),
@@ -42,7 +42,7 @@ describe('AllExceptionsFilter', () => {
 
     expect(status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND);
     expect(responseBody()).toMatchObject({
-      code: 'USUARIO_NAO_ENCONTRADO',
+      code: 'USER_NOT_FOUND',
       details: { id: 'abc' },
       path: '/users/abc',
     });
@@ -60,7 +60,7 @@ describe('AllExceptionsFilter', () => {
 
     expect(status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
     expect(responseBody()).toMatchObject({
-      code: 'VALIDACAO_INVALIDA',
+      code: 'VALIDATION_ERROR',
       details: { fields: ['email must be an email'] },
     });
   });
@@ -70,7 +70,7 @@ describe('AllExceptionsFilter', () => {
 
     expect(status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
     expect(responseBody()).toMatchObject({
-      code: 'ERRO_INTERNO',
+      code: 'INTERNAL_SERVER_ERROR',
       message: 'Internal server error',
     });
     expect(JSON.stringify(responseBody())).not.toContain('ECONNREFUSED');

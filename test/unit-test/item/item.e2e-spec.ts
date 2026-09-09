@@ -90,7 +90,7 @@ describe('Item (e2e)', () => {
         .expect(400);
 
       const body = errorBody(res);
-      expect(body.code).toBe('VALIDACAO_INVALIDA');
+      expect(body.code).toBe('VALIDATION_ERROR');
       expect(body.details?.campos).toEqual(
         expect.arrayContaining([
           expect.stringContaining('category'),
@@ -120,7 +120,7 @@ describe('Item (e2e)', () => {
         })
         .expect(409);
 
-      expect(errorBody(res).code).toBe('ITEM_PRESENTACAO_DUPLICADA');
+      expect(errorBody(res).code).toBe('DUPLICATED_ITEM_PRESENTATION');
     });
 
     it('rejeita userId que não corresponde a um registro (422)', async () => {
@@ -134,7 +134,7 @@ describe('Item (e2e)', () => {
         })
         .expect(422);
 
-      expect(errorBody(res).code).toBe('ITEM_REFERENCIA_INVALIDA');
+      expect(errorBody(res).code).toBe('INVALID_REFERENCE');
     });
   });
 
@@ -162,7 +162,7 @@ describe('Item (e2e)', () => {
         .get(`/item/${randomUUID()}`)
         .expect(404);
 
-      expect(errorBody(res).code).toBe('ITEM_NAO_ENCONTRADO');
+      expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');
     });
   });
 
@@ -194,7 +194,7 @@ describe('Item (e2e)', () => {
         .send({ currentQuantity: 1 })
         .expect(404);
 
-      expect(errorBody(res).code).toBe('ITEM_NAO_ENCONTRADO');
+      expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');
     });
   });
 
@@ -225,7 +225,7 @@ describe('Item (e2e)', () => {
         .delete(`/item/${randomUUID()}`)
         .expect(404);
 
-      expect(errorBody(res).code).toBe('ITEM_NAO_ENCONTRADO');
+      expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');
     });
   });
 });

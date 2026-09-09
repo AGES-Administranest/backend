@@ -46,14 +46,14 @@ export class ItemController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List active inventory items' })
+  @ApiOperation({ summary: 'Lists active stock items' })
   @ApiOkResponse({ type: ItemEntity, isArray: true })
   findAll() {
     return this.itemService.findAll();
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Find item by id' })
+  @ApiOperation({ summary: 'Finds an item by id' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ItemEntity })
   @ApiNotFoundResponse({ description: 'Item not found' })
