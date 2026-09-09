@@ -160,6 +160,15 @@ enum MeasurementUnit {
   @@map("measurement_unit_enum")
 }
 
+enum ItemCategory {
+  MEDICATION
+  ANESTHETIC
+  DISPOSABLE
+  OTHER
+
+  @@map("item_category_enum")
+}
+
 /// Identity and owner of all data. No admin role: the system is for individual
 /// use by the professional, with no confirmed need for multi-user support.
 model User {
