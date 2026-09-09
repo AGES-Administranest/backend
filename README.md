@@ -136,12 +136,30 @@ Alguns detalhes que economizam tempo:
 
 **Testes**
 
-| Script               | O que faz                                |
-| -------------------- | ---------------------------------------- |
-| `npm test`           | Testes unitários (`*.spec.ts` em `src/`) |
-| `npm run test:watch` | Idem, em watch                           |
-| `npm run test:cov`   | Com relatório de cobertura               |
-| `npm run test:e2e`   | Testes end-to-end (`test/*.e2e-spec.ts`) |
+| Script               | O que faz                                                             |
+| -------------------- | --------------------------------------------------------------------- |
+| `npm test`           | Testes unitários (`*.spec.ts` em `src/`) — não precisam de banco       |
+| `npm run test:watch` | Idem, em watch                                                        |
+| `npm run test:cov`   | Com relatório de cobertura                                            |
+| `npm run test:e2e`   | Testes end-to-end (`test/*.e2e-spec.ts`) — exigem `DATABASE_URL` ativo |
+| `npm run test:db`    | **Tudo que precisa de banco**, num banco descartável — veja abaixo     |
+
+### `npm run test:db`
+
+É o comando a rodar antes de abrir PR que mexa em schema, migration ou
+repository. Ele cria um banco `backend_test` dentro do Postgres do Compose (o
+seu banco de desenvolvimento nunca é tocado) e verifica quatro coisas, nesta
+ordem:
+
+1. toda migration aplica a partir de um banco vazio;
+2. `schema.prisma` e as migrations concordam — editar o schema sem gerar a
+   migration falha **aqui**, e não na máquina de outra pessoa;
+3. cada `down.sql` realmente desfaz a sua migration (e o script confere que
+   desfez: um `down.sql` que roda sem mudar nada é reprovado);
+4. a suíte e2e passa contra o schema resultante.
+
+Precisa do Docker rodando. Argumentos extras vão para o Jest:
+`npm run test:db -- --coverage`.
 
 ## Banco de dados
 

@@ -23,6 +23,9 @@ export const ERROR_CODES = [
   // users
   'USUARIO_NAO_ENCONTRADO',
   'USUARIO_EMAIL_JA_CADASTRADO',
+  // Own code, not a plain 404: the app reacts by calling POST /auth/session
+  // and retrying, instead of showing "not found" to the user.
+  'USUARIO_NAO_PROVISIONADO',
 
   // item
   'ITEM_NAO_ENCONTRADO',

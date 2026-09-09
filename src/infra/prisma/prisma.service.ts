@@ -17,6 +17,8 @@ export class PrismaService
     await this.$connect();
   }
 
+  // Without this the pool keeps its sockets open: the process lingers on
+  // shutdown, and a test run never exits on its own.
   async onModuleDestroy() {
     await this.$disconnect();
   }

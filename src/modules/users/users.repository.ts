@@ -27,6 +27,27 @@ export class UsersRepository {
     return runQuery(() => this.prisma.user.findUnique({ where: { id } }));
   }
 
+  /** Single statement on purpose: a read-then-write can lose the row in between. */
+  updateByCognitoSub(
+    cognitoSub: string,
+    data: Prisma.UserUpdateInput,
+  ): Promise<User> {
+    return runQuery(() =>
+      this.prisma.user.update({ where: { cognitoSub }, data }),
+    );
+  }
+
+  /** `upsert` and not `create`: find-then-create loses the race against two logins. */
+  upsertByCognitoSub(
+    cognitoSub: string,
+    create: Prisma.UserCreateInput,
+    update: Prisma.UserUpdateInput,
+  ): Promise<User> {
+    return runQuery(() =>
+      this.prisma.user.upsert({ where: { cognitoSub }, create, update }),
+    );
+  }
+
   create(data: Prisma.UserCreateInput): Promise<User> {
     return runQuery(() => this.prisma.user.create({ data }));
   }
