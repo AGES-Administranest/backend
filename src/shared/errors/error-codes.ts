@@ -31,6 +31,10 @@ export const ERROR_CODES = [
   'INVALID_REFERENCE',
   'ITEM_LOT_UNIT_COST_REQUIRED',
 
+  // stock-movements
+  'STOCK_QUANTITY_INVALID',
+  'STOCK_REASON_ADJUSTMENT_INVALID',
+
   // seu módulo entra aqui
 ] as const;
 
