@@ -4,7 +4,9 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
+import { StorageModule } from './infra/storage';
 import { AuthModule } from './modules/auth';
+import { StockEntryModule } from './modules/stock-entry';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -18,8 +20,10 @@ import { UsersModule } from './modules/users/users.module';
       envFilePath: ['.env', '.aws-local.env'],
     }),
     PrismaModule,
+    StorageModule,
     UsersModule,
     AuthModule,
+    StockEntryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
