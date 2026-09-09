@@ -16,6 +16,7 @@ const item = (overrides: Partial<Item> = {}): Item => ({
   defaultUnitCost: new Decimal(10),
   minimumStock: new Decimal(5),
   currentQuantity: new Decimal(0),
+  needsAdjustment: false,
   active: true,
   createdAt: new Date(),
   updatedAt: new Date(),
