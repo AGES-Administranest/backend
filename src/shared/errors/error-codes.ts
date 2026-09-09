@@ -30,6 +30,8 @@ export const ERROR_CODES = [
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
+  'STOCK_ADJUSTMENT_NEGATIVE_BALANCE',
+  'ITEM_NOT_FOUND',
 
   // seu módulo entra aqui
 ] as const;
