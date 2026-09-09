@@ -1,6 +1,6 @@
 
 
-CREATE TYPE "item_category_enum" AS ENUM ('MEDICATION', 'ANESTHETIC', 'DISPOSABLE');
+CREATE TYPE "item_category_enum" AS ENUM ('MEDICATION', 'ANESTHETIC', 'DISPOSABLE', 'OTHER');
 
 ALTER TYPE "measurement_unit_enum" ADD VALUE 'GRAM';
 

@@ -39,21 +39,21 @@ export class ItemController {
     description: 'Já existe um item com esse nome e essa unidade de medida',
   })
   @ApiUnprocessableEntityResponse({
-    description: 'userId ou supplierId não correspondem a um registro existente',
+    description: 'userId or supplierId does not match an existing record',
   })
   create(@Body() dto: CreateItemDto) {
     return this.itemService.create(dto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Lista os itens de estoque ativos' })
+  @ApiOperation({ summary: 'Lists active stock items' })
   @ApiOkResponse({ type: ItemEntity, isArray: true })
   findAll() {
     return this.itemService.findAll();
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Busca um item pelo id' })
+  @ApiOperation({ summary: 'Finds an item by id' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ItemEntity })
   @ApiNotFoundResponse({ description: 'Item não encontrado' })

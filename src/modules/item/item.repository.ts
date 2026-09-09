@@ -43,7 +43,7 @@ export class ItemRepository {
     return runQuery(() => this.prisma.item.update({ where: { id }, data }));
   }
 
-  softDelete(id: string): Promise<Item> {
+  delete(id: string): Promise<Item> {
     return runQuery(() =>
       this.prisma.item.update({
         where: { id },

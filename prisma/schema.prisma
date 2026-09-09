@@ -141,6 +141,7 @@ enum ItemCategory {
   MEDICATION
   ANESTHETIC
   DISPOSABLE
+  OTHER
 
   @@map("item_category_enum")
 }
