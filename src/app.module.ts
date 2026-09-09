@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { AuthModule } from './modules/auth';
 import { UsersModule } from './modules/users/users.module';
+import { StockModule } from './modules/stock/stock.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { UsersModule } from './modules/users/users.module';
     PrismaModule,
     UsersModule,
     AuthModule,
+    StockModule
   ],
   controllers: [AppController],
   providers: [AppService],
