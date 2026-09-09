@@ -32,10 +32,10 @@ const STATUS_BY_KIND: Record<ErrorKind, number> = {
 
 /** Errors NestJS itself throws (unknown route, guard, ParseUUIDPipe…). */
 const CODE_BY_STATUS: Record<number, ErrorCode> = {
-  [HttpStatus.BAD_REQUEST]: 'REQUISICAO_INVALIDA',
-  [HttpStatus.UNAUTHORIZED]: 'NAO_AUTENTICADO',
-  [HttpStatus.FORBIDDEN]: 'SEM_PERMISSAO',
-  [HttpStatus.NOT_FOUND]: 'ROTA_NAO_ENCONTRADA',
+  [HttpStatus.BAD_REQUEST]: 'INVALID_REQUEST',
+  [HttpStatus.UNAUTHORIZED]: 'UNAUTHENTICATED',
+  [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
+  [HttpStatus.NOT_FOUND]: 'ROUTE_NOT_FOUND',
 };
 
 interface TranslatedError {
@@ -101,7 +101,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (Array.isArray(messages)) {
       return {
         statusCode,
-        code: 'VALIDACAO_INVALIDA',
+        code: 'VALIDATION_ERROR',
         message: 'Invalid request',
         details: { fields: messages.map((field: unknown) => String(field)) },
       };
@@ -109,7 +109,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     return {
       statusCode,
-      code: CODE_BY_STATUS[statusCode] ?? 'ERRO_HTTP',
+      code: CODE_BY_STATUS[statusCode] ?? 'HTTP_ERROR',
       message: typeof messages === 'string' ? messages : exception.message,
     };
   }
@@ -118,7 +118,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private internalError(): TranslatedError {
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      code: 'ERRO_INTERNO',
+      code: 'INTERNAL_SERVER_ERROR',
       message: 'Internal server error',
     };
   }

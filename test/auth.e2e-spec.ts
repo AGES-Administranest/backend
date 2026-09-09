@@ -48,7 +48,7 @@ describe('auth (e2e)', () => {
     it('rejects a request with no authenticated user', async () => {
       const response = await request(http).post('/auth/session').expect(401);
 
-      expect(body(response)).toMatchObject({ code: 'NAO_AUTENTICADO' });
+      expect(body(response)).toMatchObject({ code: 'UNAUTHENTICATED' });
       expect(await countUsers()).toBe(0);
     });
 
@@ -99,7 +99,7 @@ describe('auth (e2e)', () => {
       // Losing the race is retryable. What it must never be is the conflict
       // that tells the app a human has to intervene.
       for (const response of responses) {
-        expect(body(response).code).not.toBe('USUARIO_EMAIL_JA_CADASTRADO');
+        expect(body(response).code).not.toBe('USER_EMAIL_ALREADY_REGISTERED');
       }
       expect(responses.some(r => r.status === 200)).toBe(true);
     });
@@ -166,7 +166,7 @@ describe('auth (e2e)', () => {
         .expect(409);
 
       expect(body(response)).toMatchObject({
-        code: 'USUARIO_EMAIL_JA_CADASTRADO',
+        code: 'USER_EMAIL_ALREADY_REGISTERED',
       });
       expect(await countUsers()).toBe(1);
     });
@@ -185,7 +185,7 @@ describe('auth (e2e)', () => {
         .send({ termsVersion: '2026-09-01' })
         .expect(401);
 
-      expect(body(response)).toMatchObject({ code: 'NAO_AUTENTICADO' });
+      expect(body(response)).toMatchObject({ code: 'UNAUTHENTICATED' });
     });
 
     it('answers 404 with its own code when the mirror does not exist', async () => {
@@ -194,7 +194,7 @@ describe('auth (e2e)', () => {
       );
 
       expect(body(response)).toMatchObject({
-        code: 'USUARIO_NAO_PROVISIONADO',
+        code: 'USER_NOT_PROVISIONED',
       });
     });
 
@@ -244,7 +244,7 @@ describe('auth (e2e)', () => {
 
       const response = await accept(ana, {}).expect(400);
 
-      expect(body(response)).toMatchObject({ code: 'VALIDACAO_INVALIDA' });
+      expect(body(response)).toMatchObject({ code: 'VALIDATION_ERROR' });
       const details = body(response).details as { fields: string[] };
       expect(details.fields.join(' ')).toContain('termsVersion');
     });
@@ -262,7 +262,7 @@ describe('auth (e2e)', () => {
         acceptedEverything: true,
       }).expect(400);
 
-      expect(body(response)).toMatchObject({ code: 'VALIDACAO_INVALIDA' });
+      expect(body(response)).toMatchObject({ code: 'VALIDATION_ERROR' });
     });
   });
 
