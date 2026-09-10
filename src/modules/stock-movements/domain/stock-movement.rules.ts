@@ -96,6 +96,30 @@ export function balanceRequiresAdjustment(balance: DecimalInput): boolean {
   return toDecimal(balance).isNegative();
 }
 
+export function assertSufficientBalance(
+  currentBalance: DecimalInput,
+  movement: MovementLike,
+  options: { allowNegativeBalance: boolean },
+): Decimal {
+  const resultingBalance = toDecimal(currentBalance).plus(
+    signedQuantity(movement),
+  );
+
+  if (resultingBalance.isNegative() && !options.allowNegativeBalance) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_MOVEMENT_INSUFFICIENT_BALANCE',
+      'This movement would leave the item with a negative balance',
+      {
+        currentBalance: toDecimal(currentBalance).toString(),
+        resultingBalance: resultingBalance.toString(),
+      },
+    );
+  }
+
+  return resultingBalance;
+}
+
 /**
  * Invariant that Prisma does not express: `adjustmentReason` exists if and only
  * if `source = MANUAL_ADJUSTMENT`.

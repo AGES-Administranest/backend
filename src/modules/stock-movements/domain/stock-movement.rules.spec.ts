@@ -7,11 +7,13 @@ import {
 
 import {
   assertPositiveQuantity,
+  assertSufficientBalance,
   assertValidMovement,
   balanceRequiresAdjustment,
   Decimal,
   DecimalInput,
   movementForDelta,
+  MovementLike,
   reversalType,
   signedQuantity,
   stockBalance,
@@ -213,5 +215,53 @@ describe('stock-movement rules', () => {
         expect(error.code).toBe('STOCK_QUANTITY_INVALID');
       },
     );
+  });
+
+  describe('assertSufficientBalance', () => {
+    const inboundOf = (quantity: DecimalInput): MovementLike => ({
+      type: StockMovementType.INBOUND,
+      quantity,
+    });
+
+    const outboundOf = (quantity: DecimalInput): MovementLike => ({
+      type: StockMovementType.OUTBOUND,
+      quantity,
+    });
+
+    it('returns the resulting balance when it stays non-negative', () => {
+      const result = assertSufficientBalance(10, outboundOf(4), {
+        allowNegativeBalance: false,
+      });
+      expect(result.toString()).toBe('6');
+    });
+
+    it('allows a resulting balance of exactly zero', () => {
+      const result = assertSufficientBalance(10, outboundOf(10), {
+        allowNegativeBalance: false,
+      });
+      expect(result.toString()).toBe('0');
+    });
+
+    it('blocks an outbound that would leave the balance negative, by default', () => {
+      expect(() =>
+        assertSufficientBalance(5, outboundOf(8), {
+         allowNegativeBalance: false,
+        }),
+      ).toThrow(DomainError);
+    });
+
+    it('allows a negative resulting balance when explicitly authorized', () => {
+      const result = assertSufficientBalance(5, outboundOf(8), {
+        allowNegativeBalance: true,
+      });
+      expect(result.toString()).toBe('-3');
+    });
+
+    it('never blocks an inbound movement', () => {
+      const result = assertSufficientBalance(-3, inboundOf(3), {
+        allowNegativeBalance: false,
+      });
+      expect(result.toString()).toBe('0');
+    });
   });
 });
