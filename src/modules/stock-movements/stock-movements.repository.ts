@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Item, Prisma, StockMovement } from '@prisma/client';
+import { Item, Prisma, StockMovement, Supplier } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -30,7 +30,20 @@ export class StockMovementsRepository {
 
   findItemById(userId: string, itemId: string): Promise<Item | null> {
     return runQuery(() =>
-      this.prisma.item.findFirst({ where: { id: itemId, userId } }),
+      this.prisma.item.findFirst({
+        where: { id: itemId, userId, deletedAt: null },
+      }),
+    );
+  }
+
+  findSupplierById(
+    userId: string,
+    supplierId: string,
+  ): Promise<Supplier | null> {
+    return runQuery(() =>
+      this.prisma.supplier.findFirst({
+        where: { id: supplierId, userId, deletedAt: null },
+      }),
     );
   }
 
@@ -42,6 +55,23 @@ export class StockMovementsRepository {
       this.prisma.item.update({
         where: { id: itemId },
         data: { currentQuantity },
+      }),
+    );
+  }
+
+  /**
+   * After a manual purchase inbound: the item's cost becomes the latest
+   * purchase price (same rule as the purchase-order import, US10) and the item
+   * is reactivated if it was inactive.
+   */
+  applyInboundPurchaseToItem(
+    itemId: string,
+    unitCost: Prisma.Decimal,
+  ): Promise<Item> {
+    return runQuery(() =>
+      this.prisma.item.update({
+        where: { id: itemId },
+        data: { defaultUnitCost: unitCost, active: true },
       }),
     );
   }

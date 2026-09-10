@@ -15,6 +15,7 @@ import {
   stockBalance,
 } from './domain/stock-movement.rules';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
+import { CreateStockPurchaseDto } from './dto/create-stock-purchase.dto';
 import { StockMovementEntity } from './entities/stock-movement.entity';
 import { StockMovementsRepository } from './stock-movements.repository';
 import type { AuthenticatedUser } from '../../shared/auth';
@@ -33,6 +34,7 @@ export interface RecordMovementInput {
   unitCost: DecimalInput;
   occurredAt: Date;
   adjustmentReason?: AdjustmentReason | null;
+  supplierId?: string | null;
   notes?: string | null;
 }
 
@@ -85,6 +87,7 @@ export class StockMovementsService {
       quantity: new Prisma.Decimal(input.quantity),
       unitCost: new Prisma.Decimal(input.unitCost),
       occurredAt: input.occurredAt,
+      supplierId: input.supplierId ?? null,
       notes: input.notes ?? null,
     });
 
@@ -152,6 +155,71 @@ export class StockMovementsService {
     if (item.needsAdjustment) {
       await this.repository.setItemNeedsAdjustment(dto.itemId, false);
     }
+
+    return StockMovementEntity.fromModel(movement);
+  }
+
+  /**
+   * Manual purchase entry: a purchase typed in by hand, for the cases with no
+   * order or invoice to import (over-the-counter, a supplier that issues no
+   * PDF). Delegates to `record` (INBOUND / MANUAL_PURCHASE), then updates the
+   * item's cost to the latest purchase price (same rule as the order import,
+   * US10) and reactivates the item if it was inactive.
+   *
+   * Note: a manual purchase is also an EXPENSE / MANUAL financial event (money
+   * left to buy supplies). US03 owns that; it is intentionally NOT emitted here
+   * until the financial module exists.
+   */
+  async registerPurchase(
+    authUser: AuthenticatedUser,
+    dto: CreateStockPurchaseDto,
+  ): Promise<StockMovementEntity> {
+    const user = await this.usersService.findByCognitoSub(authUser.cognitoSub);
+
+    const item = await this.repository.findItemById(user.id, dto.itemId);
+    if (!item) throw this.itemNotFound(dto.itemId);
+
+    const occurredAt = new Date(dto.date);
+    if (occurredAt.getTime() > Date.now()) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'STOCK_MOVEMENT_DATE_IN_FUTURE',
+        'A data da compra não pode estar no futuro.',
+        { date: dto.date },
+      );
+    }
+
+    if (dto.supplierId) {
+      const supplier = await this.repository.findSupplierById(
+        user.id,
+        dto.supplierId,
+      );
+      if (!supplier) {
+        throw new DomainError(
+          'INVALID_REFERENCE',
+          'SUPPLIER_NOT_FOUND',
+          'Fornecedor não encontrado. Cadastre o fornecedor antes de vincular a compra.',
+          { supplierId: dto.supplierId },
+        );
+      }
+    }
+
+    const unitCost = new Prisma.Decimal(dto.unitValue);
+
+    const { movement } = await this.record(user.id, {
+      itemId: dto.itemId,
+      type: StockMovementType.INBOUND,
+      source: StockMovementSource.MANUAL_PURCHASE,
+      quantity: dto.quantity,
+      unitCost,
+      occurredAt,
+      supplierId: dto.supplierId ?? null,
+      notes: dto.notes ?? null,
+    });
+
+    // Latest purchase price wins; the price history stays in the ledger's
+    // `unitCost` column. Reactivates the item if it had been deactivated.
+    await this.repository.applyInboundPurchaseToItem(dto.itemId, unitCost);
 
     return StockMovementEntity.fromModel(movement);
   }

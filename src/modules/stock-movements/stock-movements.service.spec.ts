@@ -5,11 +5,13 @@ import {
   StockMovement,
   StockMovementSource,
   StockMovementType,
+  Supplier,
 } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
+import { CreateStockPurchaseDto } from './dto/create-stock-purchase.dto';
 import { StockMovementsRepository } from './stock-movements.repository';
 import { StockMovementsService } from './stock-movements.service';
 import { DomainError } from '../../shared/errors/domain-error';
@@ -25,8 +27,15 @@ const decimal = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value);
  */
 class FakeRepository {
   readonly items = new Map<string, Item>();
+  readonly suppliers = new Map<string, Supplier>();
   readonly movements: StockMovement[] = [];
   private sequence = 0;
+
+  seedSupplier(id: string, userId: string): Supplier {
+    const supplier = { id, userId, deletedAt: null } as unknown as Supplier;
+    this.suppliers.set(id, supplier);
+    return supplier;
+  }
 
   seedItem(item: Partial<Item> & Pick<Item, 'id' | 'userId'>): Item {
     const full = {
@@ -100,6 +109,26 @@ class FakeRepository {
     item.needsAdjustment = needsAdjustment;
     return Promise.resolve(item);
   }
+
+  findSupplierById(
+    userId: string,
+    supplierId: string,
+  ): Promise<Supplier | null> {
+    const supplier = this.suppliers.get(supplierId);
+    return Promise.resolve(
+      supplier && supplier.userId === userId ? supplier : null,
+    );
+  }
+
+  applyInboundPurchaseToItem(
+    itemId: string,
+    unitCost: Prisma.Decimal,
+  ): Promise<Item> {
+    const item = this.items.get(itemId)!;
+    item.defaultUnitCost = unitCost;
+    item.active = true;
+    return Promise.resolve(item);
+  }
 }
 
 const fakeUsers = (map: Record<string, string>) =>
@@ -131,6 +160,16 @@ const dto = (
   quantity: 3,
   adjustmentReason: AdjustmentReason.LOSS,
   date: '2026-09-10T00:00:00.000Z',
+  ...over,
+});
+
+const purchaseDto = (
+  over: Partial<CreateStockPurchaseDto> = {},
+): CreateStockPurchaseDto => ({
+  itemId: 'item-1',
+  quantity: 5,
+  unitValue: 8,
+  date: '2026-09-09T00:00:00.000Z',
   ...over,
 });
 
@@ -219,6 +258,145 @@ describe('StockMovementsService.registerAdjustment (US11)', () => {
   });
 });
 
+describe('StockMovementsService.registerPurchase (manual purchase entry)', () => {
+  it('records an INBOUND MANUAL_PURCHASE that adds to the balance', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: 'user-ana' });
+
+    const movement = await service.registerPurchase(
+      ana,
+      purchaseDto({ quantity: 7 }),
+    );
+
+    expect(movement.type).toBe(StockMovementType.INBOUND);
+    expect(movement.source).toBe(StockMovementSource.MANUAL_PURCHASE);
+    expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(7);
+  });
+
+  it('updates the item unit cost to the price paid (US10 rule)', async () => {
+    const { repository, service } = build();
+    repository.seedItem({
+      id: 'item-1',
+      userId: 'user-ana',
+      defaultUnitCost: decimal(10),
+    });
+
+    const movement = await service.registerPurchase(
+      ana,
+      purchaseDto({ unitValue: 13.5 }),
+    );
+
+    expect(movement.unitCost).toBe('13.5');
+    expect(repository.items.get('item-1')!.defaultUnitCost!.toNumber()).toBe(
+      13.5,
+    );
+  });
+
+  it('accepts an optional supplier that belongs to the user', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: 'user-ana' });
+    repository.seedSupplier('sup-1', 'user-ana');
+
+    const movement = await service.registerPurchase(
+      ana,
+      purchaseDto({ supplierId: 'sup-1' }),
+    );
+
+    expect(movement.supplierId).toBe('sup-1');
+  });
+
+  it('rejects a supplier that belongs to another user', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: 'user-ana' });
+    repository.seedSupplier('sup-bob', 'user-bob');
+
+    const rejected = service.registerPurchase(
+      ana,
+      purchaseDto({ supplierId: 'sup-bob' }),
+    );
+
+    await expect(rejected).rejects.toMatchObject({
+      kind: 'INVALID_REFERENCE',
+      code: 'SUPPLIER_NOT_FOUND',
+    });
+    expect(repository.movements).toHaveLength(0);
+  });
+
+  it('rejects a future date but accepts a backdated one', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: 'user-ana' });
+
+    await expect(
+      service.registerPurchase(ana, purchaseDto({ date: '2099-01-01' })),
+    ).rejects.toMatchObject({
+      kind: 'INVALID_INPUT',
+      code: 'STOCK_MOVEMENT_DATE_IN_FUTURE',
+    });
+
+    const backdated = await service.registerPurchase(
+      ana,
+      purchaseDto({ date: '2020-01-01' }),
+    );
+    expect(backdated.occurredAt).toEqual(new Date('2020-01-01'));
+  });
+
+  it('reactivates an inactive item', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: 'user-ana', active: false });
+
+    await service.registerPurchase(ana, purchaseDto());
+
+    expect(repository.items.get('item-1')!.active).toBe(true);
+  });
+
+  it('leaves the balance above the minimum and no longer below it', async () => {
+    const { repository, service } = build();
+    repository.seedItem({
+      id: 'item-1',
+      userId: 'user-ana',
+      minimumStock: decimal(5),
+    });
+    await service.record('user-ana', {
+      itemId: 'item-1',
+      type: StockMovementType.OUTBOUND,
+      source: StockMovementSource.CORRECTION_REVERSAL,
+      quantity: 2,
+      unitCost: 10,
+      occurredAt: new Date(),
+    });
+
+    await service.registerPurchase(ana, purchaseDto({ quantity: 20 }));
+
+    const result = await service.record('user-ana', inbound('item-1', 0.001));
+    expect(result.belowMinimum).toBe(false);
+  });
+
+  it('does not clear needsAdjustment (only the adjustment does, ADR-10)', async () => {
+    const { repository, service } = build();
+    repository.seedItem({
+      id: 'item-1',
+      userId: 'user-ana',
+      needsAdjustment: true,
+    });
+
+    await service.registerPurchase(ana, purchaseDto());
+
+    expect(repository.items.get('item-1')!.needsAdjustment).toBe(true);
+  });
+
+  it("does not let a user buy into another user's item (ADR-11)", async () => {
+    const { repository, service } = build({
+      'sub-ana': 'user-ana',
+      'sub-bob': 'user-bob',
+    });
+    repository.seedItem({ id: 'item-1', userId: 'user-bob' });
+
+    await expect(
+      service.registerPurchase(ana, purchaseDto()),
+    ).rejects.toMatchObject({ kind: 'NOT_FOUND', code: 'ITEM_NOT_FOUND' });
+  });
+});
+
 describe('StockMovementsService.record (central ledger)', () => {
   it('flags the minimum-stock check when the balance crosses minimumStock', async () => {
     const { repository, service } = build();
@@ -292,6 +470,40 @@ describe('CreateStockAdjustmentDto', () => {
       date: '2026-09-10',
     });
     expect(errors).toHaveLength(0);
+  });
+});
+
+describe('CreateStockPurchaseDto', () => {
+  const parse = (raw: unknown) =>
+    validate(plainToInstance(CreateStockPurchaseDto, raw));
+
+  const valid = {
+    itemId: '11111111-1111-4111-8111-111111111111',
+    quantity: 2,
+    unitValue: 9.9,
+    date: '2026-09-09',
+  };
+
+  it('accepts a valid payload without a supplier', async () => {
+    expect(await parse(valid)).toHaveLength(0);
+  });
+
+  it('rejects a missing or non-positive unitValue', async () => {
+    const missing = await parse({ ...valid, unitValue: undefined });
+    expect(missing.some(e => e.property === 'unitValue')).toBe(true);
+
+    const negative = await parse({ ...valid, unitValue: -1 });
+    expect(negative.some(e => e.property === 'unitValue')).toBe(true);
+  });
+
+  it('rejects a non-positive quantity', async () => {
+    const errors = await parse({ ...valid, quantity: 0 });
+    expect(errors.some(e => e.property === 'quantity')).toBe(true);
+  });
+
+  it('rejects a supplierId that is not a uuid', async () => {
+    const errors = await parse({ ...valid, supplierId: 'not-a-uuid' });
+    expect(errors.some(e => e.property === 'supplierId')).toBe(true);
   });
 });
 

@@ -19,6 +19,9 @@ export class StockMovementEntity {
   /** Lote de origem, quando aplicável */
   lotId!: string | null;
 
+  /** Fornecedor da entrada, quando informado (ex.: `source = MANUAL_PURCHASE`) */
+  supplierId!: string | null;
+
   /** Sentido da movimentação (INBOUND soma, OUTBOUND subtrai) */
   type!: StockMovementType;
 
@@ -45,6 +48,7 @@ export class StockMovementEntity {
       id: movement.id,
       itemId: movement.itemId,
       lotId: movement.lotId,
+      supplierId: movement.supplierId,
       type: movement.type,
       source: movement.source,
       adjustmentReason: movement.adjustmentReason,
