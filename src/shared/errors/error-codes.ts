@@ -12,20 +12,27 @@
  */
 export const ERROR_CODES = [
   // Transversais: nascem no filtro global, valem para qualquer rota.
-  'VALIDACAO_INVALIDA',
-  'REQUISICAO_INVALIDA',
-  'NAO_AUTENTICADO',
-  'SEM_PERMISSAO',
-  'ROTA_NAO_ENCONTRADA',
-  'ERRO_HTTP',
-  'ERRO_INTERNO',
+  'VALIDATION_ERROR',
+  'INVALID_REQUEST',
+  'UNAUTHENTICATED',
+  'FORBIDDEN',
+  'ROUTE_NOT_FOUND',
+  'HTTP_ERROR',
+  'INTERNAL_SERVER_ERROR',
 
   // users
-  'USUARIO_NAO_ENCONTRADO',
-  'USUARIO_EMAIL_JA_CADASTRADO',
-  // Own code, not a plain 404: the app reacts by calling POST /auth/session
-  // and retrying, instead of showing "not found" to the user.
-  'USUARIO_NAO_PROVISIONADO',
+  'USER_NOT_FOUND',
+  'USER_EMAIL_ALREADY_REGISTERED',
+  'USER_NOT_PROVISIONED',
+
+  // item
+  'ITEM_NOT_FOUND',
+  'DUPLICATED_ITEM_PRESENTATION',
+  'INVALID_REFERENCE',
+
+  // stock-movements
+  'STOCK_QUANTITY_INVALID',
+  'STOCK_REASON_ADJUSTMENT_INVALID',
 
   // stock-movements
   'STOCK_QUANTITY_INVALID',

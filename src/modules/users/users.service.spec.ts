@@ -88,7 +88,7 @@ describe('UsersService — provisioning from Cognito', () => {
 
     await expect(conflict).rejects.toMatchObject({
       kind: 'CONFLICT',
-      code: 'USUARIO_EMAIL_JA_CADASTRADO',
+      code: 'USER_EMAIL_ALREADY_REGISTERED',
     });
     await expect(conflict).rejects.toBeInstanceOf(DomainError);
   });
@@ -135,7 +135,7 @@ describe('UsersService — terms consent', () => {
 
     await expect(withoutMirror).rejects.toMatchObject({
       kind: 'NOT_FOUND',
-      code: 'USUARIO_NAO_PROVISIONADO',
+      code: 'USER_NOT_PROVISIONED',
     });
   });
 
@@ -151,7 +151,7 @@ describe('UsersService — terms consent', () => {
       isolated.acceptTerms('sub-123', '2026-09-01'),
     ).rejects.toMatchObject({
       kind: 'NOT_FOUND',
-      code: 'USUARIO_NAO_PROVISIONADO',
+      code: 'USER_NOT_PROVISIONED',
     });
   });
 });

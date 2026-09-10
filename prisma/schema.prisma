@@ -153,10 +153,20 @@ enum MeasurementUnit {
   BOX
   ML
   MG
+  GRAM
   TABLET
   OTHER
 
   @@map("measurement_unit_enum")
+}
+
+enum ItemCategory {
+  MEDICATION
+  ANESTHETIC
+  DISPOSABLE
+  OTHER
+
+  @@map("item_category_enum")
 }
 
 /// Identity and owner of all data. No admin role: the system is for individual
@@ -328,6 +338,7 @@ model Item {
   userId          String          @map("user_id") @db.Uuid
   /// preferred/default supplier
   supplierId      String?         @map("supplier_id") @db.Uuid
+  category        ItemCategory
   unit            MeasurementUnit
   name            String
   /// suggested cost for a new lot

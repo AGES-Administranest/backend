@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { AuthModule } from './modules/auth';
 import { StockMovementsModule } from './modules/stock-movements';
+import { ItemModule } from './modules/item/item.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -20,6 +21,7 @@ import { UsersModule } from './modules/users/users.module';
     }),
     PrismaModule,
     UsersModule,
+    ItemModule,
     AuthModule,
     StockMovementsModule,
   ],
