@@ -4,11 +4,18 @@ import { Item, Prisma, StockMovement } from '@prisma/client';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
+/**
+ * The only place the stock-movements module talks to the database (ADR-01).
+ * Every method scopes by `userId` (ADR-11); the ledger is append-only, so there
+ * is no update or delete of a movement here (ADR-10).
+ */
 @Injectable()
 export class StockMovementsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(data: Prisma.StockMovementCreateInput): Promise<StockMovement> {
+  create(
+    data: Prisma.StockMovementUncheckedCreateInput,
+  ): Promise<StockMovement> {
     return runQuery(() => this.prisma.stockMovement.create({ data }));
   }
 

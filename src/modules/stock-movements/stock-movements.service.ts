@@ -1,0 +1,167 @@
+import { Injectable } from '@nestjs/common';
+import {
+  AdjustmentReason,
+  Prisma,
+  StockMovement,
+  StockMovementSource,
+  StockMovementType,
+} from '@prisma/client';
+
+import {
+  type DecimalInput,
+  assertPositiveQuantity,
+  assertValidMovement,
+  balanceRequiresAdjustment,
+  stockBalance,
+} from './domain/stock-movement.rules';
+import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
+import { StockMovementEntity } from './entities/stock-movement.entity';
+import { StockMovementsRepository } from './stock-movements.repository';
+import type { AuthenticatedUser } from '../../shared/auth';
+import { DomainError } from '../../shared/errors/domain-error';
+import { UsersService } from '../users';
+
+/** Everything the central ledger needs to record one movement. */
+export interface RecordMovementInput {
+  itemId: string;
+  lotId?: string | null;
+  type: StockMovementType;
+  source: StockMovementSource;
+  /** positive magnitude — the sign comes from `type` */
+  quantity: DecimalInput;
+  /** cost snapshot for the movement */
+  unitCost: DecimalInput;
+  occurredAt: Date;
+  adjustmentReason?: AdjustmentReason | null;
+  notes?: string | null;
+}
+
+export interface RecordMovementResult {
+  movement: StockMovement;
+  /** item balance after the movement, from the ledger (ADR-10) */
+  balance: Prisma.Decimal;
+  /** the new balance dropped below `item.minimumStock` */
+  belowMinimum: boolean;
+}
+
+/**
+ * The stock ledger's single write path.
+ *
+ * `record` is the one place a `stock_movement` row is created: it persists the
+ * movement, recomputes the balance from the ledger, refreshes the
+ * `item.currentQuantity` cache, runs the minimum-stock check and flips
+ * `needsAdjustment` when the balance goes negative (ADR-10, US10). Every use
+ * case — the manual adjustment here, and the appointment/purchase flows later —
+ * goes through it. Knows nothing about HTTP: failures are `DomainError` (ADR-07).
+ */
+@Injectable()
+export class StockMovementsService {
+  constructor(
+    private readonly repository: StockMovementsRepository,
+    private readonly usersService: UsersService,
+  ) {}
+
+  async record(
+    userId: string,
+    input: RecordMovementInput,
+  ): Promise<RecordMovementResult> {
+    assertValidMovement({
+      type: input.type,
+      source: input.source,
+      quantity: input.quantity,
+      adjustmentReason: input.adjustmentReason ?? null,
+    });
+
+    const item = await this.repository.findItemById(userId, input.itemId);
+    if (!item) throw this.itemNotFound(input.itemId);
+
+    const movement = await this.repository.create({
+      userId,
+      itemId: input.itemId,
+      lotId: input.lotId ?? null,
+      type: input.type,
+      source: input.source,
+      adjustmentReason: input.adjustmentReason ?? null,
+      quantity: new Prisma.Decimal(input.quantity),
+      unitCost: new Prisma.Decimal(input.unitCost),
+      occurredAt: input.occurredAt,
+      notes: input.notes ?? null,
+    });
+
+    const balance = stockBalance(
+      await this.repository.findMovementsByItem(userId, input.itemId),
+    );
+    await this.repository.updateItemQuantity(input.itemId, balance);
+
+    if (balanceRequiresAdjustment(balance)) {
+      await this.repository.setItemNeedsAdjustment(input.itemId, true);
+    }
+
+    const belowMinimum =
+      item.minimumStock != null && balance.lessThan(item.minimumStock);
+
+    return { movement, balance, belowMinimum };
+  }
+
+  /**
+   * US11: register a manual outbound adjustment (loss / expiration / breakage /
+   * other) and close the loop opened by a US10 correction — if the item was
+   * flagged `needsAdjustment`, the flag is cleared once the movement lands.
+   */
+  async registerAdjustment(
+    authUser: AuthenticatedUser,
+    dto: CreateStockAdjustmentDto,
+  ): Promise<StockMovementEntity> {
+    const user = await this.usersService.findByCognitoSub(authUser.cognitoSub);
+
+    const item = await this.repository.findItemById(user.id, dto.itemId);
+    if (!item) throw this.itemNotFound(dto.itemId);
+
+    const quantity = assertPositiveQuantity(dto.quantity);
+    const currentBalance = stockBalance(
+      await this.repository.findMovementsByItem(user.id, dto.itemId),
+    );
+
+    if (currentBalance.minus(quantity).isNegative()) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'STOCK_ADJUSTMENT_NEGATIVE_BALANCE',
+        'O ajuste deixaria o saldo do item negativo. Confira o saldo atual do item antes de registrar a perda.',
+        {
+          itemId: dto.itemId,
+          currentBalance: currentBalance.toString(),
+          quantity: quantity.toString(),
+        },
+      );
+    }
+
+    // "custo unitário do item no momento" (US11): the item's current unit cost.
+    const unitCost = item.defaultUnitCost ?? new Prisma.Decimal(0);
+
+    const { movement } = await this.record(user.id, {
+      itemId: dto.itemId,
+      type: StockMovementType.OUTBOUND,
+      source: StockMovementSource.MANUAL_ADJUSTMENT,
+      adjustmentReason: dto.adjustmentReason,
+      quantity,
+      unitCost,
+      occurredAt: new Date(dto.date),
+      notes: dto.notes ?? null,
+    });
+
+    if (item.needsAdjustment) {
+      await this.repository.setItemNeedsAdjustment(dto.itemId, false);
+    }
+
+    return StockMovementEntity.fromModel(movement);
+  }
+
+  private itemNotFound(itemId: string) {
+    return new DomainError(
+      'NOT_FOUND',
+      'ITEM_NOT_FOUND',
+      `Item ${itemId} not found`,
+      { itemId },
+    );
+  }
+}
