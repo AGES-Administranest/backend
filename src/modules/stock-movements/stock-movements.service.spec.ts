@@ -61,6 +61,14 @@ class FakeRepository {
     return Promise.resolve(item && item.userId === userId ? item : null);
   }
 
+  async recordWithLock<T>(
+    itemId: string,
+    fn: (tx: unknown, lockedItem: Item | undefined) => Promise<T>,
+  ): Promise<T> {
+    const item = this.items.get(itemId);
+    return fn(undefined, item);
+  }
+
   findMovementsByItem(
     userId: string,
     itemId: string,

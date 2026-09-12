@@ -15,16 +15,18 @@ export class StockMovementsRepository {
 
   create(
     data: Prisma.StockMovementUncheckedCreateInput,
+    tx?: Prisma.TransactionClient,
   ): Promise<StockMovement> {
-    return runQuery(() => this.prisma.stockMovement.create({ data }));
+    return runQuery(() => (tx ?? this.prisma).stockMovement.create({ data }));
   }
 
   findMovementsByItem(
     userId: string,
     itemId: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<StockMovement[]> {
     return runQuery(() =>
-      this.prisma.stockMovement.findMany({ where: { userId, itemId } }),
+      (tx ?? this.prisma).stockMovement.findMany({ where: { userId, itemId } }),
     );
   }
 
@@ -50,9 +52,10 @@ export class StockMovementsRepository {
   updateItemQuantity(
     itemId: string,
     currentQuantity: Prisma.Decimal,
+    tx?: Prisma.TransactionClient,
   ): Promise<Item> {
     return runQuery(() =>
-      this.prisma.item.update({
+      (tx ?? this.prisma).item.update({
         where: { id: itemId },
         data: { currentQuantity },
       }),
@@ -79,11 +82,32 @@ export class StockMovementsRepository {
   setItemNeedsAdjustment(
     itemId: string,
     needsAdjustment: boolean,
+    tx?: Prisma.TransactionClient,
   ): Promise<Item> {
     return runQuery(() =>
-      this.prisma.item.update({
+      (tx ?? this.prisma).item.update({
         where: { id: itemId },
         data: { needsAdjustment },
+      }),
+    );
+  }
+
+  /**
+   * Runs `fn` inside a single transaction, with the item's row locked
+   * (`SELECT ... FOR UPDATE`) for its duration. This is what makes `record()`
+   * safe under concurrency (ADR-10): two simultaneous movements on the same
+   * item serialize on this lock instead of racing on stale reads.
+   */
+  async recordWithLock<T>(
+    itemId: string,
+    fn: (tx: Prisma.TransactionClient, lockedItem: Item | undefined) => Promise<T>,
+  ): Promise<T> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const [lockedItem] = await tx.$queryRaw<Item[]>`
+          SELECT * FROM "item" WHERE id = ${itemId}::uuid FOR UPDATE
+        `;
+        return fn(tx, lockedItem);
       }),
     );
   }
