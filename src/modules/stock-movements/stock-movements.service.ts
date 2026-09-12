@@ -47,6 +47,8 @@ export interface RecordMovementResult {
   balance: Prisma.Decimal;
   /** the new balance dropped below `item.minimumStock` */
   belowMinimum: boolean;
+  /** the movement flipped (or kept) `item.needsAdjustment` to true — US10 alert */
+  needsAdjustment: boolean;
 }
 
 /**
@@ -124,15 +126,16 @@ export class StockMovementsService {
           tx,
         );
 
-        if (balanceRequiresAdjustment(resultingBalance)) {
-          await this.repository.setItemNeedsAdjustment(input.itemId, true, tx);
-        }
+      const needsAdjustment = balanceRequiresAdjustment(resultingBalance);
+      if (needsAdjustment) {
+        await this.repository.setItemNeedsAdjustment(input.itemId, true, tx);
+      }
 
-        const belowMinimum =
-          lockedItem.minimumStock != null &&
-          resultingBalance.lessThan(lockedItem.minimumStock);
+      const belowMinimum =
+        lockedItem.minimumStock != null &&
+        resultingBalance.lessThan(lockedItem.minimumStock);
 
-        return { movement, balance: resultingBalance, belowMinimum };
+      return { movement, balance: resultingBalance, belowMinimum, needsAdjustment };
       },
     );
   }
