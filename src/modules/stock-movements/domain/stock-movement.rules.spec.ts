@@ -7,11 +7,13 @@ import {
 
 import {
   assertPositiveQuantity,
+  assertSufficientBalance,
   assertValidMovement,
   balanceRequiresAdjustment,
   Decimal,
   DecimalInput,
   movementForDelta,
+  MovementLike,
   reversalType,
   signedQuantity,
   stockBalance,
@@ -189,14 +191,43 @@ describe('stock-movement rules', () => {
     });
 
     it.each([
-      StockMovementSource.MANUAL_PURCHASE,
-      StockMovementSource.ORDER_IMPORT,
-      StockMovementSource.APPOINTMENT,
-      StockMovementSource.CORRECTION_REVERSAL,
-    ])('aceita %s sem motivo', source => {
+      { source: StockMovementSource.MANUAL_PURCHASE },
+      { source: StockMovementSource.ORDER_IMPORT, purchaseOrderId: 'po-1' },
+      { source: StockMovementSource.APPOINTMENT, appointmentId: 'appt-1' },
+      { source: StockMovementSource.CORRECTION_REVERSAL },
+    ])('aceita %s sem motivo', ({ source, ...extra }) => {
       expect(() =>
-        assertValidMovement({ ...base, source, adjustmentReason: null }),
+        assertValidMovement({
+          ...base,
+          source,
+          adjustmentReason: null,
+          ...extra,
+        }),
       ).not.toThrow();
+    });
+
+    it('rejeita APPOINTMENT sem appointmentId', () => {
+      const error = catchDomainError(() =>
+        assertValidMovement({
+          ...base,
+          source: StockMovementSource.APPOINTMENT,
+          adjustmentReason: null,
+          appointmentId: null,
+        }),
+      );
+      expect(error.code).toBe('STOCK_APPOINTMENT_ID_REQUIRED');
+    });
+
+    it('rejeita ORDER_IMPORT sem purchaseOrderId', () => {
+      const error = catchDomainError(() =>
+        assertValidMovement({
+          ...base,
+          source: StockMovementSource.ORDER_IMPORT,
+          adjustmentReason: null,
+          purchaseOrderId: null,
+        }),
+      );
+      expect(error.code).toBe('STOCK_PURCHASE_ORDER_ID_REQUIRED');
     });
   });
 
@@ -213,5 +244,53 @@ describe('stock-movement rules', () => {
         expect(error.code).toBe('STOCK_QUANTITY_INVALID');
       },
     );
+  });
+
+  describe('assertSufficientBalance', () => {
+    const inboundOf = (quantity: DecimalInput): MovementLike => ({
+      type: StockMovementType.INBOUND,
+      quantity,
+    });
+
+    const outboundOf = (quantity: DecimalInput): MovementLike => ({
+      type: StockMovementType.OUTBOUND,
+      quantity,
+    });
+
+    it('returns the resulting balance when it stays non-negative', () => {
+      const result = assertSufficientBalance(10, outboundOf(4), {
+        allowNegativeBalance: false,
+      });
+      expect(result.toString()).toBe('6');
+    });
+
+    it('allows a resulting balance of exactly zero', () => {
+      const result = assertSufficientBalance(10, outboundOf(10), {
+        allowNegativeBalance: false,
+      });
+      expect(result.toString()).toBe('0');
+    });
+
+    it('blocks an outbound that would leave the balance negative, by default', () => {
+      expect(() =>
+        assertSufficientBalance(5, outboundOf(8), {
+          allowNegativeBalance: false,
+        }),
+      ).toThrow(DomainError);
+    });
+
+    it('allows a negative resulting balance when explicitly authorized', () => {
+      const result = assertSufficientBalance(5, outboundOf(8), {
+        allowNegativeBalance: true,
+      });
+      expect(result.toString()).toBe('-3');
+    });
+
+    it('never blocks an inbound movement', () => {
+      const result = assertSufficientBalance(-3, inboundOf(3), {
+        allowNegativeBalance: false,
+      });
+      expect(result.toString()).toBe('0');
+    });
   });
 });

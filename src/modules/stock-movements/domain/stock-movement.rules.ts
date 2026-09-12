@@ -37,6 +37,8 @@ export interface MovementLike {
 export interface MovementShape extends MovementLike {
   source: StockMovementSource;
   adjustmentReason?: AdjustmentReason | null;
+  appointmentId?: string | null;
+  purchaseOrderId?: string | null;
 }
 
 /**
@@ -96,6 +98,30 @@ export function balanceRequiresAdjustment(balance: DecimalInput): boolean {
   return toDecimal(balance).isNegative();
 }
 
+export function assertSufficientBalance(
+  currentBalance: DecimalInput,
+  movement: MovementLike,
+  options: { allowNegativeBalance: boolean },
+): Decimal {
+  const resultingBalance = toDecimal(currentBalance).plus(
+    signedQuantity(movement),
+  );
+
+  if (resultingBalance.isNegative() && !options.allowNegativeBalance) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_ADJUSTMENT_NEGATIVE_BALANCE',
+      "This movement would leave the item with a negative balance. Check the item's current balance before recording it.",
+      {
+        currentBalance: toDecimal(currentBalance).toString(),
+        resultingBalance: resultingBalance.toString(),
+      },
+    );
+  }
+
+  return resultingBalance;
+}
+
 /**
  * Invariant that Prisma does not express: `adjustmentReason` exists if and only
  * if `source = MANUAL_ADJUSTMENT`.
@@ -122,6 +148,26 @@ export function assertValidMovement(movement: MovementShape): void {
       'INVALID_INPUT',
       'STOCK_REASON_ADJUSTMENT_INVALID',
       'adjustmentReason is only valid when source = MANUAL_ADJUSTMENT',
+      { source: movement.source },
+    );
+  }
+
+  const isAppointment = movement.source === StockMovementSource.APPOINTMENT;
+  if (isAppointment && movement.appointmentId == null) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_APPOINTMENT_ID_REQUIRED',
+      'source = APPOINTMENT requires appointmentId',
+      { source: movement.source },
+    );
+  }
+
+  const isOrderImport = movement.source === StockMovementSource.ORDER_IMPORT;
+  if (isOrderImport && movement.purchaseOrderId == null) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_PURCHASE_ORDER_ID_REQUIRED',
+      'source = ORDER_IMPORT requires purchaseOrderId',
       { source: movement.source },
     );
   }
