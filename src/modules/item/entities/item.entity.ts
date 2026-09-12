@@ -21,6 +21,9 @@ export class ItemEntity {
   @ApiProperty({ type: String, example: '0.000' })
   currentQuantity!: Prisma.Decimal;
 
+  @ApiProperty({ description: 'true when currentQuantity <= minimumStock' })
+  belowMinimum!: boolean;
+
   active!: boolean;
 
   createdAt!: Date;

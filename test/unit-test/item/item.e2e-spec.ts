@@ -62,6 +62,7 @@ describe('Item (e2e)', () => {
   const server = () => app.getHttpServer();
   const itemBody = (res: request.Response) => res.body as ItemBody;
   const errorBody = (res: request.Response) => res.body as ErrorBody;
+  const listBody = (res: request.Response) => res.body as ItemBody[];
 
   describe('POST /item', () => {
     it('cria um item (201) sem expor userId na resposta', async () => {
@@ -135,6 +136,106 @@ describe('Item (e2e)', () => {
         .expect(422);
 
       expect(errorBody(res).code).toBe('INVALID_REFERENCE');
+    });
+  });
+
+  describe('GET /item', () => {
+    it('busca por nome e filtra por categoria (200)', async () => {
+      await request(server())
+        .post('/item')
+        .send({
+          userId,
+          category: 'MEDICATION',
+          unit: 'AMPOULE',
+          name: 'Cetamina e2e listagem',
+        })
+        .expect(201);
+
+      const res = await request(server())
+        .get('/item')
+        .query({ userId, search: 'Cetamina e2e', category: 'MEDICATION' })
+        .expect(200);
+
+      expect(listBody(res)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'Cetamina e2e listagem' }),
+        ]),
+      );
+    });
+
+    it('não retorna itens de outro usuário (isolamento — ADR-11)', async () => {
+      const other = await prisma.user.create({
+        data: {
+          cognitoSub: `e2e-item-other-${randomUUID()}`,
+          email: `e2e-item-other-${randomUUID()}@example.com`,
+          name: 'E2E Item Other',
+        },
+      });
+
+      const res = await request(server())
+        .get('/item')
+        .query({ userId: other.id })
+        .expect(200);
+
+      expect(listBody(res)).toHaveLength(0);
+
+      await prisma.user.delete({ where: { id: other.id } });
+    });
+
+    it('não inativos não aparecem na listagem (soft delete)', async () => {
+      const created = await request(server())
+        .post('/item')
+        .send({
+          userId,
+          category: 'DISPOSABLE',
+          unit: 'UNIT',
+          name: 'Item inativo e2e listagem',
+        })
+        .expect(201);
+
+      await request(server())
+        .delete(`/item/${itemBody(created).id}`)
+        .expect(200);
+
+      const res = await request(server())
+        .get('/item')
+        .query({ userId, search: 'Item inativo e2e listagem' })
+        .expect(200);
+
+      expect(listBody(res)).toHaveLength(0);
+
+      const withInactive = await request(server())
+        .get('/item')
+        .query({ userId, search: 'Item inativo e2e listagem', active: false })
+        .expect(200);
+
+      expect(listBody(withInactive)).toHaveLength(1);
+    });
+
+    it('respeita o limit como teto de resultados', async () => {
+      const res = await request(server())
+        .get('/item')
+        .query({ userId, page: 1, limit: 1 })
+        .expect(200);
+
+      expect(listBody(res)).toHaveLength(1);
+    });
+
+    it('busca com menos de 2 caracteres é ignorada (retorna tudo)', async () => {
+      const all = await request(server())
+        .get('/item')
+        .query({ userId })
+        .expect(200);
+      const filtered = await request(server())
+        .get('/item')
+        .query({ userId, search: 'a' })
+        .expect(200);
+
+      expect(listBody(filtered)).toHaveLength(listBody(all).length);
+    });
+
+    it('400 quando userId não é informado', async () => {
+      await request(server()).get('/item').expect(400);
     });
   });
 
