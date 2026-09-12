@@ -28,6 +28,18 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * The local mirror for a Cognito `sub`. Other modules use it to resolve the
+   * authenticated user's local id before scoping their own queries (ADR-11).
+   * Fails with `USUARIO_NAO_PROVISIONADO` when there is no mirror yet, so the
+   * app knows to call `POST /auth/session` and retry.
+   */
+  async findByCognitoSub(cognitoSub: string) {
+    const user = await this.usersRepository.findByCognitoSub(cognitoSub);
+    if (!user) throw this.notProvisioned();
+    return user;
+  }
+
   async create(dto: CreateUserDto) {
     try {
       return await this.usersRepository.create({
