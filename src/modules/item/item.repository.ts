@@ -8,8 +8,15 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 export class ItemRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  findMany(where: Prisma.ItemWhereInput = { active: true }): Promise<Item[]> {
-    return runQuery(() => this.prisma.item.findMany({ where }));
+  findMany(
+    where: Prisma.ItemWhereInput = { active: true },
+    orderBy: Prisma.ItemOrderByWithRelationInput = { name: 'asc' },
+    skip?: number,
+    take?: number,
+  ): Promise<Item[]> {
+    return runQuery(() =>
+      this.prisma.item.findMany({ where, orderBy, skip, take }),
+    );
   }
 
   findById(id: string): Promise<Item | null> {

@@ -7,6 +7,7 @@ import {
   RecordNotFoundError,
 } from '../../../src/infra/prisma/prisma-errors';
 import { CreateItemDto } from '../../../src/modules/item/dto/create-item.dto';
+import { QueryItemDto } from '../../../src/modules/item/dto/query-item.dto';
 import { ItemService } from '../../../src/modules/item/item.service';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
@@ -61,13 +62,104 @@ describe('ItemService', () => {
   });
 
   describe('findAll', () => {
-    it('lista os itens sem expor userId', async () => {
+    const query = (overrides: Partial<QueryItemDto> = {}) =>
+      Object.assign(new QueryItemDto(), {
+        userId: 'user-1',
+        active: true,
+        sort: 'name',
+        page: 1,
+        limit: 20,
+        ...overrides,
+      });
+
+    it('lista os itens do usuário sem expor userId', async () => {
       repository.findMany.mockResolvedValue([item(), item({ id: 'item-2' })]);
 
-      const result = await service.findAll();
+      const result = await service.findAll(query());
 
       expect(result).toHaveLength(2);
       expect(result.every(i => !('userId' in i))).toBe(true);
+      expect(repository.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', active: true }),
+        { name: 'asc' },
+        0,
+        20,
+      );
+    });
+
+    it('filtra por categorias e busca por nome (ignorando <2 caracteres)', async () => {
+      repository.findMany.mockResolvedValue([item()]);
+
+      await service.findAll(
+        query({ search: 'a', category: [ItemCategory.MEDICATION] }),
+      );
+
+      expect(repository.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          category: { in: [ItemCategory.MEDICATION] },
+        }),
+        expect.anything(),
+        0,
+        20,
+      );
+      const [where] = repository.findMany.mock.calls[0] as [
+        Prisma.ItemWhereInput,
+      ];
+      expect(where).not.toHaveProperty('name');
+
+      await service.findAll(query({ search: 'Dipirona' }));
+
+      expect(repository.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          name: { contains: 'Dipirona', mode: 'insensitive' },
+        }),
+        expect.anything(),
+        0,
+        20,
+      );
+    });
+
+    it('escapa % e _ digitados na busca', async () => {
+      repository.findMany.mockResolvedValue([]);
+
+      await service.findAll(query({ search: '50%_off' }));
+
+      expect(repository.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: { contains: '50\\%\\_off', mode: 'insensitive' },
+        }),
+        expect.anything(),
+        0,
+        20,
+      );
+    });
+
+    it('só retorna inativos quando active=false é pedido explicitamente', async () => {
+      repository.findMany.mockResolvedValue([]);
+
+      await service.findAll(query({ active: false }));
+
+      expect(repository.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ active: false }),
+        expect.anything(),
+        0,
+        20,
+      );
+    });
+
+    it('calcula o skip a partir da página e usa o sort pedido', async () => {
+      repository.findMany.mockResolvedValue([]);
+
+      await service.findAll(
+        query({ page: 3, limit: 10, sort: 'currentQuantity' }),
+      );
+
+      expect(repository.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ active: true }),
+        { currentQuantity: 'asc' },
+        20,
+        10,
+      );
     });
   });
 
