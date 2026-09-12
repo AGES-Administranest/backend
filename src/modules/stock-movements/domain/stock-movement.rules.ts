@@ -37,6 +37,8 @@ export interface MovementLike {
 export interface MovementShape extends MovementLike {
   source: StockMovementSource;
   adjustmentReason?: AdjustmentReason | null;
+  appointmentId?: string | null;
+  purchaseOrderId?: string | null;
 }
 
 /**
@@ -146,6 +148,26 @@ export function assertValidMovement(movement: MovementShape): void {
       'INVALID_INPUT',
       'STOCK_REASON_ADJUSTMENT_INVALID',
       'adjustmentReason is only valid when source = MANUAL_ADJUSTMENT',
+      { source: movement.source },
+    );
+  }
+
+  const isAppointment = movement.source === StockMovementSource.APPOINTMENT;
+  if (isAppointment && movement.appointmentId == null) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_APPOINTMENT_ID_REQUIRED',
+      'source = APPOINTMENT requires appointmentId',
+      { source: movement.source },
+    );
+  }
+
+  const isOrderImport = movement.source === StockMovementSource.ORDER_IMPORT;
+  if (isOrderImport && movement.purchaseOrderId == null) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_PURCHASE_ORDER_ID_REQUIRED',
+      'source = ORDER_IMPORT requires purchaseOrderId',
       { source: movement.source },
     );
   }
