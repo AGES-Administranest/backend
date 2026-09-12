@@ -1,4 +1,4 @@
-import { Item, ItemCategory, MeasurementUnit, Prisma } from '@prisma/client';
+import { ItemCategory, MeasurementUnit, Prisma } from '@prisma/client';
 
 const { Decimal } = Prisma;
 
@@ -8,10 +8,13 @@ import {
 } from '../../../src/infra/prisma/prisma-errors';
 import { CreateItemDto } from '../../../src/modules/item/dto/create-item.dto';
 import { QueryItemDto } from '../../../src/modules/item/dto/query-item.dto';
+import type { ItemWithNearestLot } from '../../../src/modules/item/item.repository';
 import { ItemService } from '../../../src/modules/item/item.service';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
-const item = (overrides: Partial<Item> = {}): Item => ({
+const item = (
+  overrides: Partial<ItemWithNearestLot> = {},
+): ItemWithNearestLot => ({
   id: 'item-1',
   userId: 'user-1',
   supplierId: null,
@@ -26,6 +29,7 @@ const item = (overrides: Partial<Item> = {}): Item => ({
   createdAt: new Date(),
   updatedAt: new Date(),
   deletedAt: null,
+  lots: [],
   ...overrides,
 });
 
@@ -191,6 +195,49 @@ describe('ItemService', () => {
       await expect(service.create(createDto())).rejects.toMatchObject({
         code: 'INVALID_REFERENCE',
       } satisfies Partial<DomainError>);
+    });
+  });
+
+  describe('nearestExpiration', () => {
+    const listQuery = () =>
+      Object.assign(new QueryItemDto(), {
+        userId: 'user-1',
+        active: true,
+        sort: 'name',
+        page: 1,
+        limit: 20,
+      });
+
+    it('exposes the expiration of the lot the repository returned', async () => {
+      repository.findMany.mockResolvedValue([
+        item({
+          lots: [{ expirationDate: new Date('2027-03-31T00:00:00.000Z') }],
+        }),
+      ]);
+
+      const [result] = await service.findAll(listQuery());
+
+      expect(result.nearestExpiration).toBe('2027-03-31');
+    });
+
+    it('is null when the item has no lot carrying an expiration', async () => {
+      repository.findMany.mockResolvedValue([item({ lots: [] })]);
+
+      const [result] = await service.findAll(listQuery());
+
+      expect(result.nearestExpiration).toBeNull();
+    });
+
+    it('travels on findOne as well, so the detail view gets it too', async () => {
+      repository.findById.mockResolvedValue(
+        item({
+          lots: [{ expirationDate: new Date('2026-12-01T00:00:00.000Z') }],
+        }),
+      );
+
+      const result = await service.findOne('item-1');
+
+      expect(result.nearestExpiration).toBe('2026-12-01');
     });
   });
 

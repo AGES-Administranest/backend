@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { Item, MeasurementUnit, Prisma } from '@prisma/client';
+import { MeasurementUnit, Prisma } from '@prisma/client';
 
 import { CreateItemDto } from './dto/create-item.dto';
 import { DeleteItemDto } from './dto/delete-item.dto';
 import { QueryItemDto } from './dto/query-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { ItemEntity } from './entities/item.entity';
-import { ItemRepository } from './item.repository';
+import { ItemRepository, type ItemWithNearestLot } from './item.repository';
 import {
   InvalidReferenceError,
   RecordNotFoundError,
@@ -91,7 +91,7 @@ export class ItemService {
     }
   }
 
-  private async getOrThrow(id: string): Promise<Item> {
+  private async getOrThrow(id: string): Promise<ItemWithNearestLot> {
     const item = await this.itemRepository.findById(id);
     if (!item) throw this.itemNotFound(id);
     return item;
@@ -112,7 +112,7 @@ export class ItemService {
     if (existing) throw this.duplicatedPresentation();
   }
 
-  private sanitize(item: Item): ItemEntity {
+  private sanitize(item: ItemWithNearestLot): ItemEntity {
     return {
       id: item.id,
       supplierId: item.supplierId,
@@ -125,6 +125,11 @@ export class ItemService {
       belowMinimum:
         item.minimumStock !== null &&
         item.currentQuantity.lessThanOrEqualTo(item.minimumStock),
+      // `expiration_date` is a DATE column: it has no time and no zone. Sent
+      // as a full timestamp it would read as the previous day for any client
+      // west of UTC, so only the calendar part travels.
+      nearestExpiration:
+        item.lots[0]?.expirationDate?.toISOString().slice(0, 10) ?? null,
       active: item.active,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
