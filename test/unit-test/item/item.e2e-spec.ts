@@ -18,7 +18,7 @@ interface ItemBody {
 
 interface ErrorBody {
   code: string;
-  details?: { campos?: string[] };
+  details?: { fields?: string[] };
 }
 
 describe('Item (e2e)', () => {
@@ -92,7 +92,7 @@ describe('Item (e2e)', () => {
 
       const body = errorBody(res);
       expect(body.code).toBe('VALIDATION_ERROR');
-      expect(body.details?.campos).toEqual(
+      expect(body.details?.fields).toEqual(
         expect.arrayContaining([
           expect.stringContaining('category'),
           expect.stringContaining('name'),
