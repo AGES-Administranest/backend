@@ -1,9 +1,17 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import { NextFunction, Request, Response } from 'express';
+import { generateKeyPair, JWTVerifyGetKey, SignJWT } from 'jose';
 
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/infra/prisma/prisma.service';
+import {
+  AUTH_USER_RESOLVER,
+  type AuthUserResolver,
+  CognitoJwtVerifier,
+  JwtAuthGuard,
+  SubIdCache,
+} from '../../src/shared/auth';
 import { AllExceptionsFilter } from '../../src/shared/filters/all-exceptions.filter';
 
 export interface TestUser {
@@ -12,15 +20,93 @@ export interface TestUser {
   name?: string;
 }
 
+export interface BearerOptions {
+  /** `exp` already in the past — the case that must read as TOKEN_EXPIRED. */
+  expired?: boolean;
+  /** Well formed, but signed by a key the pool does not publish. */
+  foreign?: boolean;
+}
+
+const ISSUER = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test';
+const CLIENT_ID = 'test-client-id';
+
 /**
- * Header the tests use to say who is making the request.
- *
- * The guard from US34 subtask 2 is what will fill `request.user` for real. This
- * middleware fills the same slot from a header so the endpoints can be
- * exercised now — and so a request with no header still takes the real
- * unauthenticated path instead of a mocked one.
+ * The suite verifies real RS256 tokens through the real guard: only the key
+ * source is swapped for a locally generated pair, so nothing about the
+ * verification path is faked and MiniStack is not needed to run the tests.
  */
-export const TEST_USER_HEADER = 'x-test-user';
+let signingKey: CryptoKey;
+let strangerKey: CryptoKey;
+
+/**
+ * Tokens are minted up front so `bearer()` can be synchronous.
+ *
+ * Signing is async, and an async `bearer()` would force every call site into
+ * `.set('Authorization', await bearer(ana))` — which, inside a supertest chain,
+ * reads badly and is easy to get wrong. Paying for the tokens once in
+ * `beforeAll` keeps the specs looking like ordinary request builders.
+ */
+const tokens = new Map<string, string>();
+
+const keyFor = (user: TestUser, options: BearerOptions): string =>
+  [
+    user.cognitoSub,
+    user.email,
+    user.name ?? '',
+    String(options.expired ?? false),
+    String(options.foreign ?? false),
+  ].join('|');
+
+async function mint(
+  user: TestUser,
+  options: BearerOptions = {},
+): Promise<void> {
+  const token = await new SignJWT({
+    token_use: 'id',
+    aud: CLIENT_ID,
+    email: user.email,
+    ...(user.name ? { name: user.name } : {}),
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
+    .setSubject(user.cognitoSub)
+    .setIssuer(ISSUER)
+    .setIssuedAt()
+    .setExpirationTime(options.expired ? '-1h' : '1h')
+    .sign(options.foreign ? strangerKey : signingKey);
+
+  tokens.set(keyFor(user, options), token);
+}
+
+/**
+ * Mints the tokens a spec needs.
+ *
+ * Call it from `beforeAll`, after `createTestApp`, with every identity the
+ * spec will authenticate as.
+ */
+export async function mintTokens(
+  users: TestUser[],
+  options: BearerOptions[] = [{}],
+): Promise<void> {
+  for (const user of users) {
+    for (const option of options) {
+      await mint(user, option);
+    }
+  }
+}
+
+/** An `Authorization` header value, as Cognito would issue it. */
+export function bearer(user: TestUser, options: BearerOptions = {}): string {
+  const token = tokens.get(keyFor(user, options));
+
+  if (!token) {
+    throw new Error(
+      `No token was minted for ${keyFor(user, options)}. ` +
+        'Pass this user to mintTokens() in the spec beforeAll.',
+    );
+  }
+
+  return `Bearer ${token}`;
+}
 
 export interface TestContext {
   app: INestApplication;
@@ -28,22 +114,46 @@ export interface TestContext {
 }
 
 export async function createTestApp(): Promise<TestContext> {
+  const pair = await generateKeyPair('RS256', { extractable: true });
+  const stranger = await generateKeyPair('RS256', { extractable: true });
+  signingKey = pair.privateKey;
+  strangerKey = stranger.privateKey;
+  tokens.clear();
+
+  const keys: JWTVerifyGetKey = () => Promise.resolve(pair.publicKey);
+
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    .overrideProvider(CognitoJwtVerifier)
+    .useValue(
+      new CognitoJwtVerifier(
+        {
+          jwksUri: 'http://localhost/unused',
+          issuer: ISSUER,
+          clientId: CLIENT_ID,
+          acceptedTokenUse: ['id'],
+          subCacheTtlMs: 0,
+          subCacheMaxEntries: 0,
+          clockToleranceSec: 5,
+        },
+        keys,
+      ),
+    )
+    .compile();
 
   const app = moduleRef.createNestApplication();
 
-  app.use(
-    (
-      req: Request & { user?: TestUser },
-      _res: Response,
-      next: NextFunction,
-    ) => {
-      const header = req.headers[TEST_USER_HEADER];
-      if (typeof header === 'string') req.user = JSON.parse(header) as TestUser;
-      next();
-    },
+  // The real guard on every route, as `main.ts` will run it. The cache gets a
+  // zero TTL so a user provisioned mid-test is visible to the very next
+  // request instead of being masked by an entry from a moment ago.
+  app.useGlobalGuards(
+    new JwtAuthGuard(
+      app.get(Reflector),
+      app.get(CognitoJwtVerifier),
+      app.get<AuthUserResolver>(AUTH_USER_RESOLVER),
+      new SubIdCache(0, 0),
+    ),
   );
 
   // Same wiring as src/main.ts: testing against a different configuration than
@@ -64,11 +174,6 @@ export async function createTestApp(): Promise<TestContext> {
   await app.listen(0);
 
   return { app, prisma: app.get(PrismaService) };
-}
-
-/** Serialized identity for the `x-test-user` header. */
-export function asUser(user: TestUser): string {
-  return JSON.stringify(user);
 }
 
 /**
