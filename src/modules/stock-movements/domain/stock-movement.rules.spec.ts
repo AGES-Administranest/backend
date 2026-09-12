@@ -245,7 +245,7 @@ describe('stock-movement rules', () => {
     it('blocks an outbound that would leave the balance negative, by default', () => {
       expect(() =>
         assertSufficientBalance(5, outboundOf(8), {
-         allowNegativeBalance: false,
+          allowNegativeBalance: false,
         }),
       ).toThrow(DomainError);
     });

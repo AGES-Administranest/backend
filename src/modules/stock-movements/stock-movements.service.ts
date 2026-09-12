@@ -64,63 +64,74 @@ export class StockMovementsService {
     private readonly usersService: UsersService,
   ) {}
 
-async record(
-  userId: string,
-  input: RecordMovementInput,
-  options: { allowNegativeBalance?: boolean } = {},
-): Promise<RecordMovementResult> {
-  assertValidMovement({
-    type: input.type,
-    source: input.source,
-    quantity: input.quantity,
-    adjustmentReason: input.adjustmentReason ?? null,
-  });
+  async record(
+    userId: string,
+    input: RecordMovementInput,
+    options: { allowNegativeBalance?: boolean } = {},
+  ): Promise<RecordMovementResult> {
+    assertValidMovement({
+      type: input.type,
+      source: input.source,
+      quantity: input.quantity,
+      adjustmentReason: input.adjustmentReason ?? null,
+    });
 
-  return this.repository.recordWithLock(input.itemId, async (tx, lockedItem) => {
-    if (!lockedItem || lockedItem.userId !== userId || lockedItem.deletedAt) {
-      throw this.itemNotFound(input.itemId);
-    }
+    return this.repository.recordWithLock(
+      input.itemId,
+      async (tx, lockedItem) => {
+        if (
+          !lockedItem ||
+          lockedItem.userId !== userId ||
+          lockedItem.deletedAt
+        ) {
+          throw this.itemNotFound(input.itemId);
+        }
 
-    const currentBalance = stockBalance(
-      await this.repository.findMovementsByItem(userId, input.itemId, tx),
-    );
+        const currentBalance = stockBalance(
+          await this.repository.findMovementsByItem(userId, input.itemId, tx),
+        );
 
-    const resultingBalance = assertSufficientBalance(
-      currentBalance,
-      { type: input.type, quantity: input.quantity },
-      { allowNegativeBalance: options.allowNegativeBalance ?? false },
-    );
+        const resultingBalance = assertSufficientBalance(
+          currentBalance,
+          { type: input.type, quantity: input.quantity },
+          { allowNegativeBalance: options.allowNegativeBalance ?? false },
+        );
 
-    const movement = await this.repository.create(
-      {
-        userId,
-        itemId: input.itemId,
-        lotId: input.lotId ?? null,
-        type: input.type,
-        source: input.source,
-        adjustmentReason: input.adjustmentReason ?? null,
-        quantity: new Prisma.Decimal(input.quantity),
-        unitCost: new Prisma.Decimal(input.unitCost),
-        occurredAt: input.occurredAt,
-        supplierId: input.supplierId ?? null,
-        notes: input.notes ?? null,
+        const movement = await this.repository.create(
+          {
+            userId,
+            itemId: input.itemId,
+            lotId: input.lotId ?? null,
+            type: input.type,
+            source: input.source,
+            adjustmentReason: input.adjustmentReason ?? null,
+            quantity: new Prisma.Decimal(input.quantity),
+            unitCost: new Prisma.Decimal(input.unitCost),
+            occurredAt: input.occurredAt,
+            supplierId: input.supplierId ?? null,
+            notes: input.notes ?? null,
+          },
+          tx,
+        );
+
+        await this.repository.updateItemQuantity(
+          input.itemId,
+          resultingBalance,
+          tx,
+        );
+
+        if (balanceRequiresAdjustment(resultingBalance)) {
+          await this.repository.setItemNeedsAdjustment(input.itemId, true, tx);
+        }
+
+        const belowMinimum =
+          lockedItem.minimumStock != null &&
+          resultingBalance.lessThan(lockedItem.minimumStock);
+
+        return { movement, balance: resultingBalance, belowMinimum };
       },
-      tx,
     );
-
-    await this.repository.updateItemQuantity(input.itemId, resultingBalance, tx);
-
-    if (balanceRequiresAdjustment(resultingBalance)) {
-      await this.repository.setItemNeedsAdjustment(input.itemId, true, tx);
-    }
-
-    const belowMinimum =
-      lockedItem.minimumStock != null &&
-      resultingBalance.lessThan(lockedItem.minimumStock);
-
-    return { movement, balance: resultingBalance, belowMinimum };
-  });
-}
+  }
 
   /**
    * US11: register a manual outbound adjustment (loss / expiration / breakage /

@@ -109,7 +109,7 @@ export function assertSufficientBalance(
     throw new DomainError(
       'INVALID_INPUT',
       'STOCK_ADJUSTMENT_NEGATIVE_BALANCE',
-      'This movement would leave the item with a negative balance. Check the item\'s current balance before recording it.',
+      "This movement would leave the item with a negative balance. Check the item's current balance before recording it.",
       {
         currentBalance: toDecimal(currentBalance).toString(),
         resultingBalance: resultingBalance.toString(),

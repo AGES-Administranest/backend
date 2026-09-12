@@ -448,7 +448,7 @@ describe('StockMovementsService.record (central ledger)', () => {
         occurredAt: new Date(),
       },
       { allowNegativeBalance: true },
-    );  
+    );
 
     expect(repository.items.get('item-1')!.needsAdjustment).toBe(true);
   });

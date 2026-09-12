@@ -100,7 +100,10 @@ export class StockMovementsRepository {
    */
   async recordWithLock<T>(
     itemId: string,
-    fn: (tx: Prisma.TransactionClient, lockedItem: Item | undefined) => Promise<T>,
+    fn: (
+      tx: Prisma.TransactionClient,
+      lockedItem: Item | undefined,
+    ) => Promise<T>,
   ): Promise<T> {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
