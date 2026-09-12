@@ -533,3 +533,39 @@ function inbound(itemId: string, quantity: number) {
     occurredAt: new Date(),
   };
 }
+
+describe('StockMovementsService.reconcileItemBalance (support routine)', () => {
+  it('reports no divergence when the cache already matches the ledger', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: 'user-ana' });
+    await service.record('user-ana', inbound('item-1', 10));
+
+    const result = await service.reconcileItemBalance('user-ana', 'item-1');
+
+    expect(result.wasDivergent).toBe(false);
+    expect(result.reconciledBalance.toNumber()).toBe(10);
+  });
+
+  it('corrects the cache when it drifted from the ledger', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: 'user-ana' });
+    await service.record('user-ana', inbound('item-1', 10));
+
+    // simulates external drift: someone touched currentQuantity outside record()
+    repository.items.get('item-1')!.currentQuantity = decimal(999);
+
+    const result = await service.reconcileItemBalance('user-ana', 'item-1');
+
+    expect(result.wasDivergent).toBe(true);
+    expect(result.previousBalance.toNumber()).toBe(999);
+    expect(result.reconciledBalance.toNumber()).toBe(10);
+    expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(10);
+  });
+
+  it('throws when the item does not exist for the user', async () => {
+    const { service } = build();
+    await expect(
+      service.reconcileItemBalance('user-ana', 'missing'),
+    ).rejects.toMatchObject({ code: 'ITEM_NOT_FOUND' });
+  });
+});
