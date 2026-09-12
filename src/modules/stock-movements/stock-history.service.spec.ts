@@ -1,12 +1,13 @@
 import {
   AdjustmentReason,
+  MeasurementUnit,
   Prisma,
   StockMovementSource,
   StockMovementType,
 } from '@prisma/client';
 
 import { QueryStockHistoryDto } from './dto/query-stock-history.dto';
-import { StockSummaryRow } from './stock-history.repository';
+import { StockHistoryRow, StockSummaryRow } from './stock-history.repository';
 import { StockHistoryService } from './stock-history.service';
 import { DomainError } from '../../shared/errors/domain-error';
 
@@ -19,7 +20,7 @@ const ITEM_ID = 'item-propofol';
 
 const decimal = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value);
 
-function row(overrides: Partial<StockSummaryRow> = {}): StockSummaryRow {
+function summaryRow(overrides: Partial<StockSummaryRow> = {}): StockSummaryRow {
   return {
     type: OUTBOUND,
     source: APPOINTMENT,
@@ -32,17 +33,49 @@ function row(overrides: Partial<StockSummaryRow> = {}): StockSummaryRow {
   };
 }
 
+function historyRow(overrides: Partial<StockHistoryRow> = {}): StockHistoryRow {
+  return {
+    id: 'mov-1',
+    userId: ANA_ID,
+    itemId: ITEM_ID,
+    lotId: null,
+    type: OUTBOUND,
+    source: APPOINTMENT,
+    adjustmentReason: null,
+    quantity: decimal(3),
+    unitCost: decimal(5),
+    occurredAt: new Date('2026-09-10T14:00:00.000Z'),
+    appointmentId: 'apt-1',
+    purchaseOrderId: null,
+    purchaseInvoiceLineId: null,
+    supplierId: null,
+    notes: null,
+    createdAt: new Date('2026-09-10T14:00:01.000Z'),
+    deletedAt: null,
+    item: { id: ITEM_ID, name: 'Propofol', unit: MeasurementUnit.AMPOULE },
+    appointment: {
+      id: 'apt-1',
+      patientName: 'Rex',
+      procedureName: 'Castration',
+      startsAt: new Date('2026-09-10T13:30:00.000Z'),
+    },
+    purchaseOrder: null,
+    supplier: null,
+    ...overrides,
+  };
+}
+
 /** Same worked example as the domain spec: +10, −3, −2, −1 expired. */
 const september: StockSummaryRow[] = [
-  row({
+  summaryRow({
     type: INBOUND,
     source: MANUAL_PURCHASE,
     quantity: decimal(10),
     appointment: null,
   }),
-  row({ quantity: decimal(3) }),
-  row({ quantity: decimal(2) }),
-  row({
+  summaryRow({ quantity: decimal(3) }),
+  summaryRow({ quantity: decimal(2) }),
+  summaryRow({
     source: MANUAL_ADJUSTMENT,
     adjustmentReason: AdjustmentReason.EXPIRATION,
     quantity: decimal(1),
@@ -142,9 +175,11 @@ describe('StockHistoryService', () => {
       expect(filter.to.toISOString()).toBe('2026-09-30T23:59:59.999Z');
     });
 
-    it('returns the page with its total', async () => {
-      const rows = [{ id: 'm1' }, { id: 'm2' }];
-      repository.findPage.mockResolvedValue(rows);
+    it('returns the page as entities, with its total', async () => {
+      repository.findPage.mockResolvedValue([
+        historyRow({ id: 'm1' }),
+        historyRow({ id: 'm2' }),
+      ]);
       repository.count.mockResolvedValue(42);
 
       const result = await service.listHistory(
@@ -152,7 +187,13 @@ describe('StockHistoryService', () => {
         query({ page: 3, limit: 2 }),
       );
 
-      expect(result).toEqual({ data: rows, page: 3, limit: 2, total: 42 });
+      expect(result).toMatchObject({ page: 3, limit: 2, total: 42 });
+      expect(result.data.map(entry => entry.id)).toEqual(['m1', 'm2']);
+      expect(result.data[0]).toMatchObject({
+        itemName: 'Propofol',
+        totalValue: '15.00',
+        appointment: { patientName: 'Rex' },
+      });
     });
 
     it("answers 404 for an item that is not the user's, before touching the ledger", async () => {
@@ -202,17 +243,20 @@ describe('StockHistoryService', () => {
         endDate: '2026-09-30',
       });
 
-      expect(report.summary.inbound.quantity.toFixed()).toBe('10');
-      expect(report.summary.outbound.quantity.toFixed()).toBe('6');
-      expect(report.summary.consumptionByProcedure[0]).toMatchObject({
+      expect(report.inbound).toEqual({ quantity: '10', value: '50.00' });
+      expect(report.outbound).toEqual({ quantity: '6', value: '30.00' });
+      expect(report.consumptionByProcedure[0]).toMatchObject({
         procedureName: 'Castration',
       });
-      expect(report.summary.adjustmentsByReason[0]).toMatchObject({
+      expect(report.adjustmentsByReason[0]).toMatchObject({
         reason: AdjustmentReason.EXPIRATION,
       });
-
-      expect(report.item?.openingBalance.toFixed()).toBe('4');
-      expect(report.item?.closingBalance.toFixed()).toBe('8');
+      expect(report.item).toEqual({
+        openingBalance: '4',
+        inbound: '10',
+        outbound: '6',
+        closingBalance: '8',
+      });
       expect(repository.sumQuantityByTypeBefore).toHaveBeenCalledWith(
         ANA_ID,
         ITEM_ID,
@@ -225,8 +269,8 @@ describe('StockHistoryService', () => {
 
       const report = await service.summarize(ANA, { itemId: ITEM_ID });
 
-      expect(report.item?.openingBalance.toFixed()).toBe('0');
-      expect(report.item?.closingBalance.toFixed()).toBe('4');
+      expect(report.item?.openingBalance).toBe('0');
+      expect(report.item?.closingBalance).toBe('4');
       expect(repository.sumQuantityByTypeBefore).not.toHaveBeenCalled();
     });
 

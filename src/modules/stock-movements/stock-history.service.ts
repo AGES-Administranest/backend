@@ -2,35 +2,22 @@ import { Injectable } from '@nestjs/common';
 
 import {
   type PeriodBalance,
-  type PeriodSummary,
   type SummarizableMovement,
   balanceFromSums,
   periodBalance,
   summarizePeriod,
 } from './domain/stock-summary.rules';
 import { QueryStockHistoryDto } from './dto/query-stock-history.dto';
+import { StockHistoryPageEntity } from './entities/stock-history-page.entity';
+import { StockSummaryEntity } from './entities/stock-summary.entity';
 import {
   StockHistoryFilter,
   StockHistoryRepository,
-  StockHistoryRow,
   StockSummaryRow,
 } from './stock-history.repository';
 import type { AuthenticatedUser } from '../../shared/auth';
 import { DomainError } from '../../shared/errors/domain-error';
 import { UsersService } from '../users';
-
-export interface StockHistoryPage {
-  data: StockHistoryRow[];
-  page: number;
-  limit: number;
-  total: number;
-}
-
-export interface StockPeriodReport {
-  summary: PeriodSummary;
-  /** only when the query named an item */
-  item: PeriodBalance | null;
-}
 
 /** `YYYY-MM-DD`, with no time part. */
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -51,23 +38,23 @@ export class StockHistoryService {
   async listHistory(
     authUser: AuthenticatedUser,
     query: QueryStockHistoryDto,
-  ): Promise<StockHistoryPage> {
+  ): Promise<StockHistoryPageEntity> {
     const userId = await this.resolveUserId(authUser);
     const filter = await this.toFilter(userId, query);
     const pageRequest = { page: query.page, limit: query.limit };
 
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.repository.findPage(userId, filter, pageRequest),
       this.repository.count(userId, filter),
     ]);
 
-    return { data, page: query.page, limit: query.limit, total };
+    return StockHistoryPageEntity.from(rows, query.page, query.limit, total);
   }
 
   async summarize(
     authUser: AuthenticatedUser,
     query: Partial<QueryStockHistoryDto>,
-  ): Promise<StockPeriodReport> {
+  ): Promise<StockSummaryEntity> {
     const userId = await this.resolveUserId(authUser);
     const filter = await this.toFilter(userId, query);
     const rows = await this.repository.findForSummary(userId, filter);
@@ -77,7 +64,7 @@ export class StockHistoryService {
       ? await this.itemBalance(userId, filter.itemId, filter.from, rows)
       : null;
 
-    return { summary, item };
+    return StockSummaryEntity.from(summary, item);
   }
 
   /**
