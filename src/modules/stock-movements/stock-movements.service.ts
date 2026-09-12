@@ -10,6 +10,7 @@ import {
 import {
   type DecimalInput,
   assertPositiveQuantity,
+  assertSufficientBalance,
   assertValidMovement,
   balanceRequiresAdjustment,
   stockBalance,
@@ -63,48 +64,56 @@ export class StockMovementsService {
     private readonly usersService: UsersService,
   ) {}
 
-  async record(
-    userId: string,
-    input: RecordMovementInput,
-  ): Promise<RecordMovementResult> {
-    assertValidMovement({
-      type: input.type,
-      source: input.source,
-      quantity: input.quantity,
-      adjustmentReason: input.adjustmentReason ?? null,
-    });
+    async record(
+      userId: string,
+      input: RecordMovementInput,
+      options: { allowNegativeBalance?: boolean } = {},
+    ): Promise<RecordMovementResult> {
+      assertValidMovement({
+        type: input.type,
+        source: input.source,
+        quantity: input.quantity,
+        adjustmentReason: input.adjustmentReason ?? null,
+      });
 
-    const item = await this.repository.findItemById(userId, input.itemId);
-    if (!item) throw this.itemNotFound(input.itemId);
+      const item = await this.repository.findItemById(userId, input.itemId);
+      if (!item) throw this.itemNotFound(input.itemId);
 
-    const movement = await this.repository.create({
-      userId,
-      itemId: input.itemId,
-      lotId: input.lotId ?? null,
-      type: input.type,
-      source: input.source,
-      adjustmentReason: input.adjustmentReason ?? null,
-      quantity: new Prisma.Decimal(input.quantity),
-      unitCost: new Prisma.Decimal(input.unitCost),
-      occurredAt: input.occurredAt,
-      supplierId: input.supplierId ?? null,
-      notes: input.notes ?? null,
-    });
+      const currentBalance = stockBalance(
+        await this.repository.findMovementsByItem(userId, input.itemId),
+      );
 
-    const balance = stockBalance(
-      await this.repository.findMovementsByItem(userId, input.itemId),
-    );
-    await this.repository.updateItemQuantity(input.itemId, balance);
+      const resultingBalance = assertSufficientBalance(
+        currentBalance,
+        { type: input.type, quantity: input.quantity },
+        { allowNegativeBalance: options.allowNegativeBalance ?? false },
+      );
 
-    if (balanceRequiresAdjustment(balance)) {
-      await this.repository.setItemNeedsAdjustment(input.itemId, true);
+      const movement = await this.repository.create({
+        userId,
+        itemId: input.itemId,
+        lotId: input.lotId ?? null,
+        type: input.type,
+        source: input.source,
+        adjustmentReason: input.adjustmentReason ?? null,
+        quantity: new Prisma.Decimal(input.quantity),
+        unitCost: new Prisma.Decimal(input.unitCost),
+        occurredAt: input.occurredAt,
+        supplierId: input.supplierId ?? null,
+        notes: input.notes ?? null,
+      });
+
+      await this.repository.updateItemQuantity(input.itemId, resultingBalance);
+
+      if (balanceRequiresAdjustment(resultingBalance)) {
+        await this.repository.setItemNeedsAdjustment(input.itemId, true);
+      }
+
+      const belowMinimum =
+        item.minimumStock != null && resultingBalance.lessThan(item.minimumStock);
+
+      return { movement, balance: resultingBalance, belowMinimum };
     }
-
-    const belowMinimum =
-      item.minimumStock != null && balance.lessThan(item.minimumStock);
-
-    return { movement, balance, belowMinimum };
-  }
 
   /**
    * US11: register a manual outbound adjustment (loss / expiration / breakage /
@@ -121,22 +130,6 @@ export class StockMovementsService {
     if (!item) throw this.itemNotFound(dto.itemId);
 
     const quantity = assertPositiveQuantity(dto.quantity);
-    const currentBalance = stockBalance(
-      await this.repository.findMovementsByItem(user.id, dto.itemId),
-    );
-
-    if (currentBalance.minus(quantity).isNegative()) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        'STOCK_ADJUSTMENT_NEGATIVE_BALANCE',
-        'O ajuste deixaria o saldo do item negativo. Confira o saldo atual do item antes de registrar a perda.',
-        {
-          itemId: dto.itemId,
-          currentBalance: currentBalance.toString(),
-          quantity: quantity.toString(),
-        },
-      );
-    }
 
     // "custo unitário do item no momento" (US11): the item's current unit cost.
     const unitCost = item.defaultUnitCost ?? new Prisma.Decimal(0);

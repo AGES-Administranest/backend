@@ -356,14 +356,18 @@ describe('StockMovementsService.registerPurchase (manual purchase entry)', () =>
       userId: 'user-ana',
       minimumStock: decimal(5),
     });
-    await service.record('user-ana', {
-      itemId: 'item-1',
-      type: StockMovementType.OUTBOUND,
-      source: StockMovementSource.CORRECTION_REVERSAL,
-      quantity: 2,
-      unitCost: 10,
-      occurredAt: new Date(),
-    });
+    await service.record(
+      'user-ana',
+      {
+        itemId: 'item-1',
+        type: StockMovementType.OUTBOUND,
+        source: StockMovementSource.CORRECTION_REVERSAL,
+        quantity: 2,
+        unitCost: 10,
+        occurredAt: new Date(),
+      },
+      { allowNegativeBalance: true },
+    );
 
     await service.registerPurchase(ana, purchaseDto({ quantity: 20 }));
 
@@ -425,14 +429,18 @@ describe('StockMovementsService.record (central ledger)', () => {
     const { repository, service } = build();
     repository.seedItem({ id: 'item-1', userId: 'user-ana' });
 
-    await service.record('user-ana', {
-      itemId: 'item-1',
-      type: StockMovementType.OUTBOUND,
-      source: StockMovementSource.CORRECTION_REVERSAL,
-      quantity: 2,
-      unitCost: 10,
-      occurredAt: new Date(),
-    });
+    await service.record(
+      'user-ana',
+      {
+        itemId: 'item-1',
+        type: StockMovementType.OUTBOUND,
+        source: StockMovementSource.CORRECTION_REVERSAL,
+        quantity: 2,
+        unitCost: 10,
+        occurredAt: new Date(),
+      },
+      { allowNegativeBalance: true },
+    );  
 
     expect(repository.items.get('item-1')!.needsAdjustment).toBe(true);
   });
