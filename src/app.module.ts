@@ -7,6 +7,7 @@ import { PrismaModule } from './infra/prisma/prisma.module';
 import { AuthModule } from './modules/auth';
 import { ItemModule } from './modules/item/item.module';
 import { UsersModule } from './modules/users/users.module';
+import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
 
 @Module({
   imports: [
@@ -19,11 +20,15 @@ import { UsersModule } from './modules/users/users.module';
       envFilePath: ['.env', '.aws-local.env'],
     }),
     PrismaModule,
+    SharedAuthModule,
     UsersModule,
     ItemModule,
     AuthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  // The guard is assembled here, and not in SharedAuthModule, because this is
+  // the module that can see both halves of it: the verifier and cache from
+  // `shared/auth`, and the resolver token from `UsersModule`.
+  providers: [AppService, JwtAuthGuard],
 })
 export class AppModule {}
