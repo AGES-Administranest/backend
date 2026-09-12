@@ -10,11 +10,12 @@ import { DomainError } from '../../shared/errors/domain-error';
 export class ItemLotService {
   constructor(private readonly itemLotRepository: ItemLotRepository) {}
 
-  async create(itemId: string, dto: CreateItemLotDto): Promise<ItemLotEntity> {
-    const item = await this.itemLotRepository.findItemForUser(
-      itemId,
-      dto.userId,
-    );
+  async create(
+    itemId: string,
+    userId: string,
+    dto: CreateItemLotDto,
+  ): Promise<ItemLotEntity> {
+    const item = await this.itemLotRepository.findItemForUser(itemId, userId);
     if (!item) throw this.itemNotFound(itemId);
 
     const expirationDate = dto.expirationDate
@@ -28,7 +29,7 @@ export class ItemLotService {
     if (existingLot) {
       const lot = await this.itemLotRepository.addToLot(
         existingLot,
-        dto.userId,
+        userId,
         dto.quantity,
       );
       return this.sanitize(lot);
@@ -37,7 +38,7 @@ export class ItemLotService {
     const unitCost = dto.unitCost ?? item.defaultUnitCost?.toNumber();
     if (unitCost === undefined) throw this.unitCostRequired(itemId);
 
-    const lot = await this.itemLotRepository.createLot(itemId, dto.userId, {
+    const lot = await this.itemLotRepository.createLot(itemId, userId, {
       quantity: dto.quantity,
       unitCost,
       expirationDate,

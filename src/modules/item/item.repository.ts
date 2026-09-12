@@ -19,8 +19,17 @@ export class ItemRepository {
     );
   }
 
-  findById(id: string): Promise<Item | null> {
-    return runQuery(() => this.prisma.item.findUnique({ where: { id } }));
+  /**
+   * Scoped to the owner (ADR-11), and `findFirst` rather than `findUnique`
+   * because the filter is on two columns. Someone else's item comes back null,
+   * which the service reports as "not found" — the same answer as an id that
+   * never existed, so the response cannot be used to probe for other people's
+   * records.
+   */
+  findById(id: string, userId: string): Promise<Item | null> {
+    return runQuery(() =>
+      this.prisma.item.findFirst({ where: { id, userId } }),
+    );
   }
 
   findByPresentation(
@@ -46,15 +55,46 @@ export class ItemRepository {
     return runQuery(() => this.prisma.item.create({ data }));
   }
 
-  update(id: string, data: Prisma.ItemUncheckedUpdateInput): Promise<Item> {
-    return runQuery(() => this.prisma.item.update({ where: { id }, data }));
+  /**
+   * Returns null when the item belongs to someone else, so the caller answers
+   * "not found" instead of writing to another account's row.
+   *
+   * Prisma's `update` needs a unique `where`, and ownership is two columns, so
+   * the check and the write go in one transaction rather than being a
+   * read-then-write that another request could slip between.
+   */
+  update(
+    id: string,
+    userId: string,
+    data: Prisma.ItemUncheckedUpdateInput,
+  ): Promise<Item | null> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const owned = await tx.item.findFirst({
+          where: { id, userId },
+          select: { id: true },
+        });
+        if (!owned) return null;
+
+        return tx.item.update({ where: { id }, data });
+      }),
+    );
   }
 
-  delete(id: string): Promise<Item> {
+  /** Soft delete, owner-scoped the same way as `update`. */
+  delete(id: string, userId: string): Promise<Item | null> {
     return runQuery(() =>
-      this.prisma.item.update({
-        where: { id },
-        data: { active: false, deletedAt: new Date() },
+      this.prisma.$transaction(async tx => {
+        const owned = await tx.item.findFirst({
+          where: { id, userId },
+          select: { id: true },
+        });
+        if (!owned) return null;
+
+        return tx.item.update({
+          where: { id },
+          data: { active: false, deletedAt: new Date() },
+        });
       }),
     );
   }

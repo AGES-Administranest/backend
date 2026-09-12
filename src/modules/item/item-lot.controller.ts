@@ -11,6 +11,9 @@ import {
 import { CreateItemLotDto } from './dto/create-item-lot.dto';
 import { ItemLotEntity } from './entities/item-lot.entity';
 import { ItemLotService } from './item-lot.service';
+import { CurrentUser } from '../../shared/auth';
+// `import type` is required by `emitDecoratorMetadata` on a decorated signature.
+import type { AuthenticatedUser } from '../../shared/auth';
 
 @ApiTags('item')
 @Controller('item/:itemId/lot')
@@ -30,9 +33,10 @@ export class ItemLotController {
   })
   @ApiNotFoundResponse({ description: 'Item not found' })
   create(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('itemId', ParseUUIDPipe) itemId: string,
     @Body() dto: CreateItemLotDto,
   ) {
-    return this.itemLotService.create(itemId, dto);
+    return this.itemLotService.create(itemId, user.id, dto);
   }
 }

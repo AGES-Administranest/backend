@@ -5,15 +5,11 @@ import {
   IsOptional,
   IsPositive,
   IsString,
-  IsUUID,
   Min,
 } from 'class-validator';
 
+// No `userId`: the owner comes from the token, never from the request (ADR-11).
 export class CreateItemLotDto {
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  userId!: string;
-
   @ApiProperty({ example: 10 })
   @IsNumber({ maxDecimalPlaces: 3 })
   @IsPositive()

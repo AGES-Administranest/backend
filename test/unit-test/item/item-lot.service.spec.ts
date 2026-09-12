@@ -47,7 +47,6 @@ const createDto = (
   overrides: Partial<CreateItemLotDto> = {},
 ): CreateItemLotDto =>
   Object.assign(new CreateItemLotDto(), {
-    userId: 'user-1',
     quantity: 5,
     ...overrides,
   });
@@ -74,7 +73,9 @@ describe('ItemLotService', () => {
   it('lança NOT_FOUND quando o item não existe ou não pertence ao usuário', async () => {
     repository.findItemForUser.mockResolvedValue(null);
 
-    await expect(service.create('item-1', createDto())).rejects.toMatchObject({
+    await expect(
+      service.create('item-1', 'user-1', createDto()),
+    ).rejects.toMatchObject({
       code: 'ITEM_NOT_FOUND',
     } satisfies Partial<DomainError>);
     expect(repository.findByExpiration).not.toHaveBeenCalled();
@@ -83,8 +84,11 @@ describe('ItemLotService', () => {
   it('não enxerga um item de outro usuário (ADR-11)', async () => {
     repository.findItemForUser.mockResolvedValue(null);
 
+    // The owner now comes from the token, so the lookup is always scoped to
+    // whoever is calling — there is no longer a field in the request that
+    // could name someone else.
     await expect(
-      service.create('item-1', createDto({ userId: 'user-2' })),
+      service.create('item-1', 'user-2', createDto()),
     ).rejects.toMatchObject({ code: 'ITEM_NOT_FOUND' });
     expect(repository.findItemForUser).toHaveBeenCalledWith('item-1', 'user-2');
   });
@@ -99,6 +103,7 @@ describe('ItemLotService', () => {
 
     const result = await service.create(
       'item-1',
+      'user-1',
       createDto({ expirationDate: '2026-12-31' }),
     );
 
@@ -114,6 +119,7 @@ describe('ItemLotService', () => {
 
     const result = await service.create(
       'item-1',
+      'user-1',
       createDto({ expirationDate: '2027-01-15' }),
     );
 
@@ -132,7 +138,7 @@ describe('ItemLotService', () => {
     repository.findByExpiration.mockResolvedValue(null);
     repository.createLot.mockResolvedValue(lot());
 
-    await service.create('item-1', createDto());
+    await service.create('item-1', 'user-1', createDto());
 
     expect(repository.createLot).toHaveBeenCalledWith(
       'item-1',
@@ -147,7 +153,9 @@ describe('ItemLotService', () => {
     );
     repository.findByExpiration.mockResolvedValue(null);
 
-    await expect(service.create('item-1', createDto())).rejects.toMatchObject({
+    await expect(
+      service.create('item-1', 'user-1', createDto()),
+    ).rejects.toMatchObject({
       code: 'ITEM_LOT_UNIT_COST_REQUIRED',
     } satisfies Partial<DomainError>);
     expect(repository.createLot).not.toHaveBeenCalled();
