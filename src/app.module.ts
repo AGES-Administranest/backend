@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -20,6 +21,13 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
       isGlobal: true,
       envFilePath: ['.env', '.aws-local.env'],
     }),
+    // A ceiling on how fast one address can call, not a security control.
+    // Brute force and e-mail enumeration are Cognito's problem in this design:
+    // the app signs in against Cognito directly, so this backend has no login
+    // or password-reset route to protect. What it does have is POST
+    // /auth/session and the data routes, and this keeps one client from
+    // hammering them. See the PR notes.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
     SharedAuthModule,
     UsersModule,
@@ -37,6 +45,10 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
   providers: [
     AppService,
     JwtAuthGuard,
+    // Order matters: Nest runs APP_GUARDs in the order they are provided, and
+    // rate limiting first means a flood is turned away before anything spends
+    // time verifying signatures.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useExisting: JwtAuthGuard },
   ],
 })

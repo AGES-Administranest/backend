@@ -36,6 +36,7 @@ const CODE_BY_STATUS: Record<number, ErrorCode> = {
   [HttpStatus.UNAUTHORIZED]: 'UNAUTHENTICATED',
   [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
   [HttpStatus.NOT_FOUND]: 'ROUTE_NOT_FOUND',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
 };
 
 interface TranslatedError {
@@ -107,10 +108,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       };
     }
 
+    const code = CODE_BY_STATUS[statusCode] ?? 'HTTP_ERROR';
+
     return {
       statusCode,
-      code: CODE_BY_STATUS[statusCode] ?? 'HTTP_ERROR',
-      message: typeof messages === 'string' ? messages : exception.message,
+      code,
+      // The throttler's own message is the class name ("ThrottlerException:
+      // Too Many Requests"), which says more about our stack than about what
+      // the caller should do.
+      message:
+        code === 'TOO_MANY_REQUESTS'
+          ? 'Too many requests. Try again shortly.'
+          : typeof messages === 'string'
+            ? messages
+            : exception.message,
     };
   }
 

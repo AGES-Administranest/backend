@@ -130,6 +130,13 @@ quando é o guard que recusa (não dá para saber quem é), 404 quando é o
 `acceptTerms` que não achou o registro. O código é o contrato; o status é
 transporte.
 
+**`TOO_MANY_REQUESTS` (429)** vem do `ThrottlerGuard`, que roda antes do
+`JwtAuthGuard` — uma enxurrada é recusada antes de alguém gastar tempo
+conferindo assinatura. O limite é teto de volume, não controle de segurança:
+força bruta e enumeração de e-mail são responsabilidade do Cognito neste
+desenho, porque o app autentica direto lá e o backend não tem rota de login
+nem de redefinição de senha para proteger.
+
 ## Erro que vem do banco
 
 Se a falha nasce no banco, o repository já a converte antes de você:
