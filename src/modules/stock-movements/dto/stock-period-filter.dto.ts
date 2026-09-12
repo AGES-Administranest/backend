@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsUUID } from 'class-validator';
 
+import { IsNotBefore } from '../../../shared/validation/is-not-before.decorator';
+
 /**
  * Period filter shared by the history and the summary endpoints.
  *
@@ -29,9 +31,11 @@ export class StockPeriodFilterDto {
   @ApiPropertyOptional({
     format: 'date-time',
     example: '2026-09-30T23:59:59.999Z',
-    description: 'Inclusive upper bound on occurredAt (ISO 8601)',
+    description:
+      'Inclusive upper bound on occurredAt (ISO 8601); a plain date covers the whole day',
   })
   @IsOptional()
   @IsDateString()
+  @IsNotBefore('startDate')
   endDate?: string;
 }

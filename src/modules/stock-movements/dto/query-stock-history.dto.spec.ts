@@ -72,6 +72,23 @@ describe('QueryStockHistoryDto', () => {
 
       expect(invalidFields).toEqual([field]);
     });
+    it('rejects an endDate before startDate, naming endDate', async () => {
+      const { invalidFields } = await parseQuery(QueryStockHistoryDto, {
+        startDate: '2026-09-30',
+        endDate: '2026-09-01',
+      });
+
+      expect(invalidFields).toEqual(['endDate']);
+    });
+
+    it('accepts a plain endDate on the same day as a timed startDate', async () => {
+      const { invalidFields } = await parseQuery(QueryStockHistoryDto, {
+        startDate: '2026-09-01T10:00:00.000Z',
+        endDate: '2026-09-01',
+      });
+
+      expect(invalidFields).toEqual([]);
+    });
   });
 
   describe('type and source', () => {

@@ -17,10 +17,11 @@ import {
 } from './stock-history.repository';
 import type { AuthenticatedUser } from '../../shared/auth';
 import { DomainError } from '../../shared/errors/domain-error';
+import {
+  toPeriodEnd,
+  toPeriodStart,
+} from '../../shared/validation/period-bounds';
 import { UsersService } from '../users';
-
-/** `YYYY-MM-DD`, with no time part. */
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Read side of the stock ledger for US12: the paginated history with its
@@ -128,21 +129,6 @@ export class StockHistoryService {
       { itemId },
     );
   }
-}
-
-/** A date-only start is the first instant of that day (UTC). */
-function toPeriodStart(value: string): Date {
-  return new Date(value);
-}
-
-/**
- * A date-only end covers the whole day: `2026-09-30` means up to
- * `23:59:59.999Z`, not midnight at its start. A full timestamp is used as is.
- */
-function toPeriodEnd(value: string): Date {
-  return DATE_ONLY.test(value)
-    ? new Date(`${value}T23:59:59.999Z`)
-    : new Date(value);
 }
 
 /** The summary rules want the procedure name flat, not nested in the appointment. */
