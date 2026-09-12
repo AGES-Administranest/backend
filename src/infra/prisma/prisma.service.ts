@@ -10,6 +10,13 @@ export class PrismaService
   constructor() {
     super({
       adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+      // Opt-in SQL log. The e2e suite turns it on to count the statements a
+      // request runs (proof there is no N+1); it is also handy when debugging
+      // locally. Off by default: it is noisy.
+      log:
+        process.env.PRISMA_LOG_QUERIES === 'true'
+          ? [{ emit: 'event', level: 'query' }]
+          : [],
     });
   }
 
