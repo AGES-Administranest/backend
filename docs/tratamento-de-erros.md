@@ -107,6 +107,29 @@ carrega detalhe interno: nada de nome de tabela, SQL ou stack trace.
 **4. Os detalhes** são o que ajuda quem chamou a entender o problema (`{ id }`,
 `{ field: 'email' }`). Vale a mesma regra da mensagem.
 
+## Os erros de autenticação
+
+Todos saem do `JwtAuthGuard` (US34, subtarefa 2) com natureza `UNAUTHORIZED`,
+ou seja, 401. O que muda é o código — e é por ele que o app decide o que fazer:
+
+| Código                 | Quando                                                     | O que o app faz              |
+| ---------------------- | ---------------------------------------------------------- | ---------------------------- |
+| `UNAUTHENTICATED`      | não veio `Authorization`, ou não é `Bearer <token>`        | manda para o login           |
+| `TOKEN_EXPIRED`        | o `exp` do token já passou                                 | renova no Cognito e repete   |
+| `TOKEN_INVALID`        | assinatura, `iss`, `aud`, `token_use` ou formato inválidos | manda para o login           |
+| `USER_NOT_PROVISIONED` | token válido, mas não existe espelho local (ADR-02)        | chama `POST /auth/session`   |
+
+**Por que só dois códigos para o token.** A decisão do app tem exatamente dois
+caminhos: renovar ou deslogar. Separar `TOKEN_INVALID` em "assinatura errada",
+"issuer errado" e "audience errado" não muda nada do lado dele, e conta a quem
+está forjando token qual parte precisa corrigir. O motivo exato vai para o log
+do servidor, nunca para a resposta.
+
+**`USER_NOT_PROVISIONED` aparece com dois status**, e isso é proposital: 401
+quando é o guard que recusa (não dá para saber quem é), 404 quando é o
+`acceptTerms` que não achou o registro. O código é o contrato; o status é
+transporte.
+
 ## Erro que vem do banco
 
 Se a falha nasce no banco, o repository já a converte antes de você:
