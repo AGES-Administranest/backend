@@ -98,20 +98,34 @@ export class StockMovementsRepository {
    * safe under concurrency (ADR-10): two simultaneous movements on the same
    * item serialize on this lock instead of racing on stale reads.
    */
-  async recordWithLock<T>(
-    itemId: string,
-    fn: (
-      tx: Prisma.TransactionClient,
-      lockedItem: Item | undefined,
-    ) => Promise<T>,
-  ): Promise<T> {
-    return runQuery(() =>
-      this.prisma.$transaction(async tx => {
-        const [lockedItem] = await tx.$queryRaw<Item[]>`
-          SELECT * FROM "item" WHERE id = ${itemId}::uuid FOR UPDATE
-        `;
-        return fn(tx, lockedItem);
-      }),
-    );
-  }
+ async recordWithLock<T>(
+  itemId: string,
+  fn: (tx: Prisma.TransactionClient, lockedItem: Item | undefined) => Promise<T>,
+): Promise<T> {
+  return runQuery(() =>
+    this.prisma.$transaction(async tx => {
+      const [lockedItem] = await tx.$queryRaw<Item[]>`
+        SELECT
+          id,
+          user_id            AS "userId",
+          supplier_id        AS "supplierId",
+          category,
+          unit,
+          name,
+          default_unit_cost  AS "defaultUnitCost",
+          minimum_stock      AS "minimumStock",
+          current_quantity   AS "currentQuantity",
+          needs_adjustment   AS "needsAdjustment",
+          active,
+          created_at         AS "createdAt",
+          updated_at         AS "updatedAt",
+          deleted_at         AS "deletedAt"
+        FROM "item"
+        WHERE id = ${itemId}::uuid
+        FOR UPDATE
+      `;
+      return fn(tx, lockedItem);
+    }),
+  );
+}
 }
