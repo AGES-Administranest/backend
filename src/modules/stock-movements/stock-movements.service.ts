@@ -35,6 +35,8 @@ export interface RecordMovementInput {
   unitCost: DecimalInput;
   occurredAt: Date;
   adjustmentReason?: AdjustmentReason | null;
+  appointmentId?: string | null;
+  purchaseOrderId?: string | null;
   supplierId?: string | null;
   notes?: string | null;
 }
@@ -74,6 +76,8 @@ export class StockMovementsService {
       source: input.source,
       quantity: input.quantity,
       adjustmentReason: input.adjustmentReason ?? null,
+      appointmentId: input.appointmentId ?? null,
+      purchaseOrderId: input.purchaseOrderId ?? null,
     });
 
     return this.repository.recordWithLock(

@@ -191,14 +191,38 @@ describe('stock-movement rules', () => {
     });
 
     it.each([
-      StockMovementSource.MANUAL_PURCHASE,
-      StockMovementSource.ORDER_IMPORT,
-      StockMovementSource.APPOINTMENT,
-      StockMovementSource.CORRECTION_REVERSAL,
-    ])('aceita %s sem motivo', source => {
+      { source: StockMovementSource.MANUAL_PURCHASE },
+      { source: StockMovementSource.ORDER_IMPORT, purchaseOrderId: 'po-1' },
+      { source: StockMovementSource.APPOINTMENT, appointmentId: 'appt-1' },
+      { source: StockMovementSource.CORRECTION_REVERSAL },
+    ])('aceita %s sem motivo', ({ source, ...extra }) => {
       expect(() =>
-        assertValidMovement({ ...base, source, adjustmentReason: null }),
+        assertValidMovement({ ...base, source, adjustmentReason: null, ...extra }),
       ).not.toThrow();
+    });
+
+    it('rejeita APPOINTMENT sem appointmentId', () => {
+      const error = catchDomainError(() =>
+        assertValidMovement({
+          ...base,
+          source: StockMovementSource.APPOINTMENT,
+          adjustmentReason: null,
+          appointmentId: null,
+        }),
+      );
+      expect(error.code).toBe('STOCK_APPOINTMENT_ID_REQUIRED');
+    });
+
+    it('rejeita ORDER_IMPORT sem purchaseOrderId', () => {
+      const error = catchDomainError(() =>
+        assertValidMovement({
+          ...base,
+          source: StockMovementSource.ORDER_IMPORT,
+          adjustmentReason: null,
+          purchaseOrderId: null,
+        }),
+      );
+      expect(error.code).toBe('STOCK_PURCHASE_ORDER_ID_REQUIRED');
     });
   });
 
