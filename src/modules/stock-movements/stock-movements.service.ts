@@ -126,47 +126,56 @@ export class StockMovementsService {
           tx,
         );
 
-      const needsAdjustment = balanceRequiresAdjustment(resultingBalance);
-      if (needsAdjustment) {
-        await this.repository.setItemNeedsAdjustment(input.itemId, true, tx);
-      }
+        const needsAdjustment = balanceRequiresAdjustment(resultingBalance);
+        if (needsAdjustment) {
+          await this.repository.setItemNeedsAdjustment(input.itemId, true, tx);
+        }
 
-      const belowMinimum =
-        lockedItem.minimumStock != null &&
-        resultingBalance.lessThan(lockedItem.minimumStock);
+        const belowMinimum =
+          lockedItem.minimumStock != null &&
+          resultingBalance.lessThan(lockedItem.minimumStock);
 
-      return { movement, balance: resultingBalance, belowMinimum, needsAdjustment };
+        return {
+          movement,
+          balance: resultingBalance,
+          belowMinimum,
+          needsAdjustment,
+        };
       },
     );
   }
 
   /**
- * Verification/support routine (not part of the write path): recomputes an
- * item's balance from the full movement history and reconciles
- * `item.currentQuantity` if it drifted. Useful in tests and in support when
- * investigating a suspected divergence between the ledger and the cache.
- */
-async reconcileItemBalance(
-  userId: string,
-  itemId: string,
-): Promise<{ previousBalance: Prisma.Decimal; reconciledBalance: Prisma.Decimal; wasDivergent: boolean }> {
-  const item = await this.repository.findItemById(userId, itemId);
-  if (!item) throw this.itemNotFound(itemId);
+   * Verification/support routine (not part of the write path): recomputes an
+   * item's balance from the full movement history and reconciles
+   * `item.currentQuantity` if it drifted. Useful in tests and in support when
+   * investigating a suspected divergence between the ledger and the cache.
+   */
+  async reconcileItemBalance(
+    userId: string,
+    itemId: string,
+  ): Promise<{
+    previousBalance: Prisma.Decimal;
+    reconciledBalance: Prisma.Decimal;
+    wasDivergent: boolean;
+  }> {
+    const item = await this.repository.findItemById(userId, itemId);
+    if (!item) throw this.itemNotFound(itemId);
 
-  const movements = await this.repository.findMovementsByItem(userId, itemId);
-  const reconciledBalance = stockBalance(movements);
-  const previousBalance = item.currentQuantity;
-  const wasDivergent = !previousBalance.equals(reconciledBalance);
+    const movements = await this.repository.findMovementsByItem(userId, itemId);
+    const reconciledBalance = stockBalance(movements);
+    const previousBalance = item.currentQuantity;
+    const wasDivergent = !previousBalance.equals(reconciledBalance);
 
-  if (wasDivergent) {
-    await this.repository.updateItemQuantity(itemId, reconciledBalance);
-    if (balanceRequiresAdjustment(reconciledBalance)) {
-      await this.repository.setItemNeedsAdjustment(itemId, true);
+    if (wasDivergent) {
+      await this.repository.updateItemQuantity(itemId, reconciledBalance);
+      if (balanceRequiresAdjustment(reconciledBalance)) {
+        await this.repository.setItemNeedsAdjustment(itemId, true);
+      }
     }
-  }
 
-  return { previousBalance, reconciledBalance, wasDivergent };
-}
+    return { previousBalance, reconciledBalance, wasDivergent };
+  }
 
   /**
    * US11: register a manual outbound adjustment (loss / expiration / breakage /

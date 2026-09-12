@@ -197,7 +197,12 @@ describe('stock-movement rules', () => {
       { source: StockMovementSource.CORRECTION_REVERSAL },
     ])('aceita %s sem motivo', ({ source, ...extra }) => {
       expect(() =>
-        assertValidMovement({ ...base, source, adjustmentReason: null, ...extra }),
+        assertValidMovement({
+          ...base,
+          source,
+          adjustmentReason: null,
+          ...extra,
+        }),
       ).not.toThrow();
     });
 

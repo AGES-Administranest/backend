@@ -145,7 +145,7 @@ const fakeUsers = (map: Record<string, string>) =>
       const id = map[sub];
       if (!id) {
         return Promise.reject(
-          new DomainError('NOT_FOUND', 'USUARIO_NAO_PROVISIONADO', 'no mirror'),
+          new DomainError('NOT_FOUND', 'USER_NOT_PROVISIONED', 'no mirror'),
         );
       }
       return Promise.resolve({ id });

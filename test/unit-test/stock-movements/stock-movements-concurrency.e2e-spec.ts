@@ -45,12 +45,12 @@ describe('StockMovementsService concurrency (e2e, real Postgres)', () => {
     itemId = item.id;
 
     await stockMovementsService.record(userId, {
-     itemId,
-    type: StockMovementType.INBOUND,
-    source: StockMovementSource.MANUAL_PURCHASE,
-    quantity: 1000,
-    unitCost: 10,
-    occurredAt: new Date(),
+      itemId,
+      type: StockMovementType.INBOUND,
+      source: StockMovementSource.MANUAL_PURCHASE,
+      quantity: 1000,
+      unitCost: 10,
+      occurredAt: new Date(),
     });
   });
 
