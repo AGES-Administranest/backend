@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -29,6 +30,14 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
   // The guard is assembled here, and not in SharedAuthModule, because this is
   // the module that can see both halves of it: the verifier and cache from
   // `shared/auth`, and the resolver token from `UsersModule`.
-  providers: [AppService, JwtAuthGuard],
+  //
+  // Registering it as APP_GUARD is what makes "no use without an account" the
+  // default rather than something each controller has to remember. A route is
+  // reachable without a token only by saying so with `@Public()`.
+  providers: [
+    AppService,
+    JwtAuthGuard,
+    { provide: APP_GUARD, useExisting: JwtAuthGuard },
+  ],
 })
 export class AppModule {}

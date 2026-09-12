@@ -1,17 +1,10 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { generateKeyPair, JWTVerifyGetKey, SignJWT } from 'jose';
 
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/infra/prisma/prisma.service';
-import {
-  AUTH_USER_RESOLVER,
-  type AuthUserResolver,
-  CognitoJwtVerifier,
-  JwtAuthGuard,
-  SubIdCache,
-} from '../../src/shared/auth';
+import { CognitoJwtVerifier, SubIdCache } from '../../src/shared/auth';
 import { AllExceptionsFilter } from '../../src/shared/filters/all-exceptions.filter';
 
 export interface TestUser {
@@ -140,21 +133,14 @@ export async function createTestApp(): Promise<TestContext> {
         keys,
       ),
     )
+    // A zero TTL, so an account provisioned in the middle of a test is visible
+    // to the very next request rather than being masked by an entry cached a
+    // moment earlier. The cache itself has its own unit spec.
+    .overrideProvider(SubIdCache)
+    .useValue(new SubIdCache(0, 0))
     .compile();
 
   const app = moduleRef.createNestApplication();
-
-  // The real guard on every route, as `main.ts` will run it. The cache gets a
-  // zero TTL so a user provisioned mid-test is visible to the very next
-  // request instead of being masked by an entry from a moment ago.
-  app.useGlobalGuards(
-    new JwtAuthGuard(
-      app.get(Reflector),
-      app.get(CognitoJwtVerifier),
-      app.get<AuthUserResolver>(AUTH_USER_RESOLVER),
-      new SubIdCache(0, 0),
-    ),
-  );
 
   // Same wiring as src/main.ts: testing against a different configuration than
   // production runs would prove nothing about production.
