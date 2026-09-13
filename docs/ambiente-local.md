@@ -10,6 +10,7 @@ O projeto depende de dois serviços AWS: **Cognito** para autenticação ([ADR-0
 - [Os dois arquivos de variáveis](#os-dois-arquivos-de-variáveis)
 - [Pegando um token](#pegando-um-token)
 - [Login social local](#login-social-local)
+- [E-mails de confirmação](#e-mails-de-confirmação)
 - [Conferindo que está tudo de pé](#conferindo-que-está-tudo-de-pé)
 - [Resetar](#resetar)
 - [Apontando o app mobile para cá](#apontando-o-app-mobile-para-cá)
@@ -166,6 +167,12 @@ curl -X POST -H "Authorization: Bearer $(npm run --silent dev:social-token)" loc
 ```
 
 O script faz por HTTP o mesmo caminho que o navegador do app faria. O desenho, as diferenças para a AWS real e o que falta decidir (a mesma pessoa com conta de senha e conta Google) estão no [ADR-13](ADRs/ADR-13-login-social.md).
+
+**Use um e-mail novo a cada login com Google.** O emulador troca o `sub` da conta federada a partir do segundo login com o mesmo usuário, e a API passa a responder `409` como se fosse outra pessoa com o mesmo e-mail (divergência 6 do ADR-13). Vale para o app e para o `dev:social-token`. Na AWS isso não acontece.
+
+## E-mails de confirmação
+
+**Localmente nenhum e-mail sai da sua máquina** — nem para um endereço real. O MiniStack só registra a mensagem internamente, e o código de confirmação é sempre `123456`; na verdade qualquer código é aceito (divergências no [ADR-12](ADRs/ADR-12-emulacao-local-cognito.md)). Na AWS o Cognito envia o código para o e-mail informado; para uso real, o pool deve mandar pelo SES com domínio verificado, porque o remetente padrão do Cognito tem limite baixo de envios por dia.
 
 **Expo Go num celular físico:** o endereço de retorno do app inclui o IP da sua rede, e o Cognito só aceita endereços cadastrados. Acrescente o seu no `.env` e rode o bootstrap de novo:
 

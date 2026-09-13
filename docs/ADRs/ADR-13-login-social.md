@@ -34,6 +34,7 @@ Depois do login, a sessão é a mesma de uma conta com senha: refresh por `Initi
 3. **O IdToken federado não traz o claim `identities`** e `email_verified` vem como string `"True"`. Nada no backend depende de nenhum dos dois hoje; se passar a depender, testar na AWS.
 4. **Refresh pelo `/oauth2/token` (`grant_type=refresh_token`) falha** para conta federada. O `InitiateAuth REFRESH_TOKEN_AUTH`, que é o que o app usa, funciona.
 5. **Sem gatilhos Lambda de sign-up** (Pre sign-up), o que pesa na decisão abaixo.
+6. **O `sub` da conta federada muda no segundo login.** No primeiro login o MiniStack gera um UUID para o `sub`; nos seguintes, copia os claims do IdP por cima dos atributos — inclusive o `sub` — e o token passa a trazer o `sub` do IdP. Para a API é outra conta com o mesmo e-mail: `POST /auth/session` responde `409` e o app mostra a mensagem de e-mail já usado (verificado no teste ponta a ponta). Na AWS o `sub` é imutável. Localmente, **use um e-mail novo no IdP fake a cada teste de login com Google**, ou apague o usuário `Google_<e-mail>` do pool e a linha do espelho antes de repetir.
 
 `npm run dev:social-token` percorre o fluxo inteiro por HTTP e imprime um IdToken de conta social, para testar a API sem o app.
 
