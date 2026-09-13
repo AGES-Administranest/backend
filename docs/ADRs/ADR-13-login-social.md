@@ -1,22 +1,22 @@
-# ADR-13 — Login social (Google e Apple) pelo Cognito
+# ADR-13 — Login com Google pelo Cognito
 
 **Status:**
 
 - [ ] Aceito
 - [ ] Recusado
 
-**Contexto:** Hoje o app autentica só por e-mail e senha, falando direto com a API do Cognito (`USER_PASSWORD_AUTH`), e o backend valida o IdToken e mantém o espelho local (ADR-02, ADR-11). O time quer oferecer "Entrar com Google" e "Entrar com Apple". Três restrições moldam o desenho: o app é um cliente público (não guarda segredo); a App Store exige Sign in with Apple quando o app oferece outro login social no iOS (guideline 4.8); e todo desenvolvimento precisa rodar sem conta AWS (ADR-12).
+**Contexto:** Hoje o app autentica só por e-mail e senha, falando direto com a API do Cognito (`USER_PASSWORD_AUTH`), e o backend valida o IdToken e mantém o espelho local (ADR-02, ADR-11). O time quer oferecer "Continuar com Google". Duas restrições moldam o desenho: o app é um cliente público (não guarda segredo) e todo desenvolvimento precisa rodar sem conta AWS (ADR-12).
 
-**Opções:** (a) federação no Cognito — Google e Apple cadastrados como provedores do user pool, o app faz Authorization Code + PKCE no domínio do pool; (b) SDKs nativos de Google e Apple no app, e o backend valida os tokens de cada provedor; (c) Cognito Identity Pools com os tokens dos provedores.
+**Opções:** (a) federação no Cognito — Google cadastrado como provedor do user pool, o app faz Authorization Code + PKCE no domínio do pool; (b) SDK nativo do Google no app, e o backend valida também os tokens do Google; (c) Cognito Identity Pools com os tokens dos provedores.
 
-**Decisão:** (a). O Cognito continua sendo o único emissor de token que o backend conhece: uma conta do Google vira um usuário do pool, com `sub` próprio, e o IdToken tem o mesmo `iss`, `aud` e chave de assinatura de uma conta com senha. **O guard, o espelho e o isolamento não mudam** — verificado: token federado passa em `POST /auth/session`, cria o espelho e acessa `/item` e `/supplier`. (b) obrigaria o backend a validar três emissores e o app a manter três fluxos de sessão; (c) entrega credenciais AWS, não o token que a API espera.
+**Decisão:** (a). O Cognito continua sendo o único emissor de token que o backend conhece: uma conta do Google vira um usuário do pool, com `sub` próprio, e o IdToken tem o mesmo `iss`, `aud` e chave de assinatura de uma conta com senha. **O guard, o espelho e o isolamento não mudam** — verificado: token federado passa em `POST /auth/session`, cria o espelho e acessa `/item` e `/supplier`. (b) obrigaria o backend a validar dois emissores e o app a manter dois fluxos de sessão; (c) entrega credenciais AWS, não o token que a API espera.
 
 **Fluxo:**
 
 ```
 app ── /oauth2/authorize?identity_provider=Google&code_challenge=… ──► domínio do pool
                                                                          │ redirect
-                                          Google / Apple (login) ◄───────┘
+                                          Google (login) ◄───────────────┘
                                                                          │
 app ◄── administranest://auth/callback?code=… ◄── /oauth2/idpresponse ◄──┘
 app ── POST /oauth2/token (code + code_verifier) ──► id/access/refresh token
@@ -25,11 +25,11 @@ app ── POST /auth/session (Bearer IdToken) ──► backend: espelho (ADR-0
 
 Depois do login, a sessão é a mesma de uma conta com senha: refresh por `InitiateAuth REFRESH_TOKEN_AUTH` e logout por `RevokeToken`, os dois já usados pelo app. O fluxo `implicit` fica desligado — ele devolveria o token na URL.
 
-**Configuração do app client:** `SupportedIdentityProviders = COGNITO, Google, SignInWithApple`; `AllowedOAuthFlows = code`; escopos `openid email profile`; `CallbackURLs`/`LogoutURLs` com o scheme do app (`administranest://auth/callback`) e, fora de produção, os endereços do Expo Go e do Expo web. O `redirect_uri` enviado pelo app precisa bater **exatamente** com um da lista.
+**Configuração do app client:** `SupportedIdentityProviders = COGNITO, Google`; `AllowedOAuthFlows = code`; escopos `openid email profile`; `CallbackURLs`/`LogoutURLs` com o scheme do app (`administranest://auth/callback`) e, fora de produção, os endereços do Expo Go e do Expo web. O `redirect_uri` enviado pelo app precisa bater **exatamente** com um da lista.
 
-**Emulação local (MiniStack, ADR-12):** o `dev:bootstrap` cria o domínio, os dois provedores e a configuração OAuth do client. Divergências verificadas no MiniStack 1.3.59:
+**Emulação local (MiniStack, ADR-12):** o `dev:bootstrap` cria o domínio, o provedor e a configuração OAuth do client. Divergências verificadas no MiniStack 1.3.59:
 
-1. **Não há os tipos `Google` e `SignInWithApple`, só OIDC genérico.** Os dois são registrados como OIDC **com esses nomes**, apontando para o `oidc-mock` (`mock-oauth2-server`) do Compose. O app manda `identity_provider=Google` igual em produção; só a tela de login é falsa.
+1. **Não há o tipo `Google`, só OIDC genérico.** Ele é registrado como OIDC **com esse nome**, apontando para o `oidc-mock` (`mock-oauth2-server`) do Compose. O app manda `identity_provider=Google` igual em produção; só a tela de login é falsa.
 2. **PKCE não é conferido no login federado.** O `code_verifier` é ignorado; na AWS é obrigatório. Código que esquecer o PKCE passa em local e falha em produção.
 3. **O IdToken federado não traz o claim `identities`** e `email_verified` vem como string `"True"`. Nada no backend depende de nenhum dos dois hoje; se passar a depender, testar na AWS.
 4. **Refresh pelo `/oauth2/token` (`grant_type=refresh_token`) falha** para conta federada. O `InitiateAuth REFRESH_TOKEN_AUTH`, que é o que o app usa, funciona.
@@ -47,7 +47,7 @@ Recomendação: **(i) agora, (ii) quando houver infraestrutura como código** �
 
 **Termos de uso (US25):** o login social pula o formulário de cadastro, onde fica o aceite. O espelho nasce com `termsAcceptedAt = null`; o app deve checar esse campo na resposta de `POST /auth/session` e mostrar o aceite (`POST /auth/terms`) antes de liberar o uso.
 
-**Nome da conta Apple:** a Apple só envia o nome no **primeiro** login, e a pessoa pode esconder o e-mail real (endereço `@privaterelay.appleid.com`). Sem nome, o espelho usa o e-mail (comportamento atual do `provisionFromCognito`).
+**Apple fora do escopo:** Sign in with Apple foi considerado e deixado de fora por decisão do time. Consequência a acompanhar: a App Store exige Sign in with Apple quando o app oferece outro login social no iOS (guideline 4.8) — antes de publicar na App Store, ou ele entra (mesmo desenho: provedor `SignInWithApple` no pool, sem mudança na API), ou o Google sai do iOS.
 
 **Logout:** `RevokeToken` encerra a sessão do app, mas o domínio do pool mantém um cookie de sessão no navegador; sem abrir `/logout`, o próximo "Entrar com Google" pode entrar direto na mesma conta, sem perguntar. O app deve abrir `/logout?client_id=…&logout_uri=…` ao sair de uma conta social.
 
@@ -55,8 +55,7 @@ Recomendação: **(i) agora, (ii) quando houver infraestrutura como código** �
 
 - Domínio do pool (prefixo Cognito ou domínio próprio com certificado no ACM).
 - **Google:** cliente OAuth "Web application" no Google Cloud, com `https://<domínio>/oauth2/idpresponse` como redirect autorizado; provedor `Google` no pool com `client_id`, `client_secret` e escopos `openid email profile`.
-- **Apple:** Services ID, chave de Sign in with Apple (`team_id`, `key_id`, `private_key`) no Apple Developer, com o domínio e o `…/oauth2/idpresponse` cadastrados; provedor `SignInWithApple` com escopos `email name`.
-- Mapeamento de atributos: `email`, `email_verified` e `name` (na Apple, `firstName`/`lastName`).
+- Mapeamento de atributos: `email`, `email_verified` e `name`.
 - App client com a configuração acima e só o scheme do app nas URLs.
 
-**Consequências:** (+) backend sem mudança de código: um emissor, uma validação, o mesmo espelho; (+) o app ganha dois provedores com um fluxo só, sem SDK nativo por provedor (Apple também funciona no Android, pelo navegador); (+) desenvolvível sem conta Google ou Apple; (−) configuração de produção fora do repositório, em três consoles; (−) contas duplicadas por e-mail até a decisão de vinculação; (−) divergências do emulador (itens 2 e 4) que só aparecem na AWS.
+**Consequências:** (+) backend sem mudança de código: um emissor, uma validação, o mesmo espelho; (+) o app ganha o Google sem SDK nativo, e outro provedor futuro entra pelo mesmo fluxo; (+) desenvolvível sem conta Google; (−) configuração de produção fora do repositório, em dois consoles (AWS e Google Cloud); (−) contas duplicadas por e-mail até a decisão de vinculação; (−) divergências do emulador (itens 2 e 4) que só aparecem na AWS.

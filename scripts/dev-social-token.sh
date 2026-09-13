@@ -3,8 +3,8 @@
 # Imprime um IdToken de uma conta de login social — e nada mais, igual ao
 # dev-token.sh, para poder ser usado dentro de outro comando:
 #
-#   npm run dev:social-token                         # Google, ana.google@example.com
-#   npm run dev:social-token -- SignInWithApple bia@icloud.com "Bia Apple"
+#   npm run dev:social-token                         # ana.google@example.com
+#   npm run dev:social-token -- Google bia@gmail.com "Bia Google"
 #   curl -X POST -H "Authorization: Bearer $(npm run --silent dev:social-token)" localhost:3000/auth/session
 #
 # Faz, por HTTP, o caminho que o navegador do app faz (ADR-13):

@@ -26,8 +26,11 @@ CALLBACK_URLS="${COGNITO_CALLBACK_URLS:?defina COGNITO_CALLBACK_URLS}"
 LOGOUT_URLS="${COGNITO_LOGOUT_URLS:?defina COGNITO_LOGOUT_URLS}"
 
 # Os provedores sociais, com o nome que o app manda em `identity_provider`.
-# São os nomes que a AWS reserva para os tipos nativos — ver ADR-13.
-SOCIAL_PROVIDERS=(Google SignInWithApple)
+# É o nome que a AWS reserva para o tipo nativo — ver ADR-13.
+SOCIAL_PROVIDERS=(Google)
+# Provedores que já foram criados por versões anteriores deste script e saíram
+# de escopo. Removidos do pool para não ficarem aceitos no app client.
+RETIRED_PROVIDERS=(SignInWithApple)
 
 ENV_FILE='/workspace/.aws-local.env'
 HOST_ENDPOINT_URL="${HOST_ENDPOINT_URL:-http://localhost:4566}"
@@ -68,11 +71,10 @@ else
   echo "    criado: ${DOMAIN_PREFIX}"
 fi
 
-echo '==> 3/7  Provedores sociais (IdP fake)'
-# Em produção são dos tipos `Google` e `SignInWithApple`, com as credenciais
-# do Google Cloud e da Apple. O MiniStack só federa OIDC genérico, então os
-# dois apontam para o oidc-mock, cada um num issuer próprio. O nome é o que
-# importa: é ele que o app manda, e é igual nos dois ambientes.
+echo '==> 3/7  Provedor social (IdP fake)'
+# Em produção é do tipo `Google`, com as credenciais do Google Cloud. O
+# MiniStack só federa OIDC genérico, então ele aponta para o oidc-mock. O nome
+# é o que importa: é ele que o app manda, e é igual nos dois ambientes.
 #
 # `authorize_url` é aberta pelo navegador (host); `token_url` e `jwks_uri`
 # são chamadas pelo MiniStack (rede do Compose).
@@ -111,6 +113,16 @@ JSON
       --provider-details "${DETAILS}" \
       --attribute-mapping "${ATTRIBUTE_MAPPING}" >/dev/null
     echo "    criado: ${PROVIDER}"
+  fi
+done
+
+for PROVIDER in "${RETIRED_PROVIDERS[@]}"; do
+  if aws cognito-idp describe-identity-provider --user-pool-id "${POOL_ID}" \
+    --provider-name "${PROVIDER}" >/dev/null 2>&1; then
+    aws cognito-idp delete-identity-provider \
+      --user-pool-id "${POOL_ID}" \
+      --provider-name "${PROVIDER}"
+    echo "    removido: ${PROVIDER}"
   fi
 done
 

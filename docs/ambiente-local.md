@@ -60,7 +60,7 @@ Se algum passo falhar isoladamente (ex.: as migrations, porque o schema mudou), 
 | `npm run dev:up`        | Sobe os containers (Postgres, MiniStack e o IdP fake) em background     |
 | `npm run dev:bootstrap` | Cria os recursos AWS. Idempotente — rodar de novo não quebra            |
 | `npm run dev:token`     | Imprime um `IdToken` novo do usuário de teste                           |
-| `npm run dev:social-token` | Imprime um `IdToken` de uma conta de login social (Google/Apple fake) |
+| `npm run dev:social-token` | Imprime um `IdToken` de uma conta de login social (Google fake) |
 | `npm run dev:down`      | Derruba os containers. O estado persiste                                |
 | `npm run dev:reset`     | Derruba **e apaga tudo**: volumes, estado do emulador e o `.env` gerado |
 
@@ -88,7 +88,7 @@ O [`scripts/bootstrap-aws.sh`](../scripts/bootstrap-aws.sh) faz sete coisas, cad
 | --- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
 | 1   | User pool `administranest-local`                       | Login por e-mail (`--username-attributes email`)                                                                           |
 | 2   | Domínio `administranest-local`                         | Na AWS é quem serve `/oauth2/*`; no MiniStack esses caminhos já respondem na 4566, o domínio é só registro                 |
-| 3   | Provedores `Google` e `SignInWithApple`                | Do tipo OIDC, apontando para o `oidc-mock` — o emulador não tem os tipos nativos ([ADR-13](ADRs/ADR-13-login-social.md))   |
+| 3   | Provedor `Google`                                      | Do tipo OIDC, apontando para o `oidc-mock` — o emulador não tem o tipo nativo ([ADR-13](ADRs/ADR-13-login-social.md))      |
 | 4   | App client `administranest-mobile`                     | **Sem client secret** — o app mobile é cliente público: o binário está no celular do usuário, segredo ali não protege nada. Com OAuth `code` e as callback URLs do app |
 | 5   | Bucket com o nome do `S3_BUCKET` do seu `.env`         | Com CORS liberal, porque o app dá `PUT` direto no bucket (ADR-03) e sem CORS o preflight derruba o upload                  |
 | 6   | Usuário `dev@administranest.local` / senha `Dev@12345` | Criado pela via admin: o MiniStack só manda e-mail de confirmação com `SMTP_HOST`, então o sign-up normal ficaria travado  |
@@ -154,13 +154,13 @@ npm run --silent dev:token | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m js
 
 ## Login social local
 
-"Entrar com Google" e "Entrar com Apple" funcionam sem conta no Google nem na Apple. O `oidc-mock` (porta `8090`) faz o papel dos dois: quando o app abre o login do Google, o que aparece é a tela dele. **Digite um e-mail no campo de usuário** — ele vira a identidade da conta; o campo de claims é opcional (ex.: `{"name": "Ana"}`).
+"Continuar com Google" funciona sem conta no Google. O `oidc-mock` (porta `8090`) faz o papel dele: quando o app abre o login do Google, o que aparece é a tela dele. **Digite um e-mail no campo de usuário** — ele vira a identidade da conta; o campo de claims é opcional (ex.: `{"name": "Ana"}`).
 
 Para testar a API sem o app:
 
 ```sh
-npm run --silent dev:social-token                                      # Google, ana.google@example.com
-npm run --silent dev:social-token -- SignInWithApple bia@icloud.com "Bia Apple"
+npm run --silent dev:social-token                                      # ana.google@example.com
+npm run --silent dev:social-token -- Google bia@gmail.com "Bia Google"
 
 curl -X POST -H "Authorization: Bearer $(npm run --silent dev:social-token)" localhost:3000/auth/session
 ```

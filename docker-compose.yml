@@ -28,10 +28,10 @@ services:
     # A imagem já define um healthcheck próprio em /_ministack/health; é ele
     # que o `depends_on: service_healthy` do aws-cli espera.
 
-  # Faz o papel do Google e da Apple no login social local — ver ADR-13.
-  # O MiniStack não implementa os provedores `Google` e `SignInWithApple`, só
-  # OIDC genérico; o bootstrap registra os dois com esses nomes apontando para
-  # cá, então o app pede `identity_provider=Google` igual faria em produção.
+  # Faz o papel do Google no login social local — ver ADR-13.
+  # O MiniStack não implementa o provedor nativo `Google`, só OIDC genérico; o
+  # bootstrap registra um OIDC com esse nome apontando para cá, então o app
+  # pede `identity_provider=Google` igual faria em produção.
   # Na tela de login dele, digite um e-mail no campo de usuário: vira o `sub`
   # e o e-mail da conta.
   oidc-mock:
