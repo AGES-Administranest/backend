@@ -2,7 +2,14 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
-import { body, createTestApp, resetDatabase } from './helpers/test-app';
+import {
+  bearer,
+  body,
+  createTestApp,
+  mintTokens,
+  resetDatabase,
+  TestUser,
+} from './helpers/test-app';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
 
 /**
@@ -24,19 +31,39 @@ describe('users (e2e)', () => {
     cognitoSub: 'sub-ana',
   };
 
+  /**
+   * Every /users route is behind the guard now, so the suite needs somebody to
+   * be. This account is provisioned before each test and makes the calls; the
+   * rows the tests act on are separate from it.
+   */
+  const operator: TestUser = {
+    cognitoSub: 'sub-operator',
+    email: 'operator@example.com',
+    name: 'Operator',
+  };
+
   beforeAll(async () => {
     ({ app, prisma } = await createTestApp());
     http = app.getHttpServer() as App;
+    await mintTokens([operator]);
   });
 
-  beforeEach(() => resetDatabase(prisma));
+  beforeEach(async () => {
+    await resetDatabase(prisma);
+    await request(http)
+      .post('/auth/session')
+      .set('Authorization', bearer(operator))
+      .expect(200);
+  });
 
   afterAll(async () => {
     await app.close();
   });
 
+  const auth = () => bearer(operator);
+
   const create = (payload: Record<string, unknown>) =>
-    request(http).post('/users').send(payload);
+    request(http).post('/users').set('Authorization', auth()).send(payload);
 
   describe('POST /users', () => {
     it('creates a user', async () => {
@@ -99,16 +126,25 @@ describe('users (e2e)', () => {
         cognitoSub: 'sub-bruno',
       }).expect(201);
 
-      const response = await request(http).get('/users').expect(200);
+      const response = await request(http)
+        .get('/users')
+        .set('Authorization', auth())
+        .expect(200);
       const users = response.body as { email: string }[];
 
-      expect(users).toHaveLength(2);
+      // Three, not two: the account making the call is a row like any other.
+      expect(users).toHaveLength(3);
       expect(users[0].email).toBe('bruno@example.com');
     });
 
-    it('is an empty list, not a 404, when there is nobody', async () => {
-      const response = await request(http).get('/users').expect(200);
-      expect(response.body).toEqual([]);
+    it('is a list, not a 404, when nobody else has been created', async () => {
+      const response = await request(http)
+        .get('/users')
+        .set('Authorization', auth())
+        .expect(200);
+
+      const users = response.body as { email: string }[];
+      expect(users.map(user => user.email)).toEqual(['operator@example.com']);
     });
   });
 
@@ -117,13 +153,17 @@ describe('users (e2e)', () => {
       const created = await create(ana).expect(201);
       const id = body(created).id as string;
 
-      const response = await request(http).get(`/users/${id}`).expect(200);
+      const response = await request(http)
+        .get(`/users/${id}`)
+        .set('Authorization', auth())
+        .expect(200);
       expect(body(response).email).toBe('ana@example.com');
     });
 
     it('answers 404 for an id that does not exist', async () => {
       const response = await request(http)
         .get('/users/6f3b7c1e-0000-4000-8000-000000000000')
+        .set('Authorization', auth())
         .expect(404);
 
       expect(body(response)).toMatchObject({
@@ -134,7 +174,10 @@ describe('users (e2e)', () => {
     it('answers 400 for an id that is not a uuid', async () => {
       // ParseUUIDPipe throws before the service is ever reached; the filter
       // still shapes it like every other error.
-      const response = await request(http).get('/users/not-a-uuid').expect(400);
+      const response = await request(http)
+        .get('/users/not-a-uuid')
+        .set('Authorization', auth())
+        .expect(400);
       expect(body(response).code).toBe('INVALID_REQUEST');
     });
   });
@@ -146,6 +189,7 @@ describe('users (e2e)', () => {
 
       const response = await request(http)
         .patch(`/users/${id}`)
+        .set('Authorization', auth())
         .send({ name: 'Ana S. Souza' })
         .expect(200);
 
@@ -156,6 +200,7 @@ describe('users (e2e)', () => {
     it('answers 404 for an id that does not exist', async () => {
       const response = await request(http)
         .patch('/users/6f3b7c1e-0000-4000-8000-000000000000')
+        .set('Authorization', auth())
         .send({ name: 'Ghost' })
         .expect(404);
 
@@ -172,6 +217,7 @@ describe('users (e2e)', () => {
 
       const response = await request(http)
         .patch(`/users/${body(other).id as string}`)
+        .set('Authorization', auth())
         .send({ email: ana.email })
         .expect(409);
 
@@ -184,13 +230,20 @@ describe('users (e2e)', () => {
       const created = await create(ana).expect(201);
       const id = body(created).id as string;
 
-      await request(http).delete(`/users/${id}`).expect(204);
-      await request(http).get(`/users/${id}`).expect(404);
+      await request(http)
+        .delete(`/users/${id}`)
+        .set('Authorization', auth())
+        .expect(204);
+      await request(http)
+        .get(`/users/${id}`)
+        .set('Authorization', auth())
+        .expect(404);
     });
 
     it('answers 404 for an id that does not exist', async () => {
       const response = await request(http)
         .delete('/users/6f3b7c1e-0000-4000-8000-000000000000')
+        .set('Authorization', auth())
         .expect(404);
 
       expect(body(response).code).toBe('USER_NOT_FOUND');
@@ -204,10 +257,14 @@ describe('users (e2e)', () => {
       const created = await create(ana).expect(201);
       const id = body(created).id as string;
 
-      await request(http).delete(`/users/${id}`).expect(204);
+      await request(http)
+        .delete(`/users/${id}`)
+        .set('Authorization', auth())
+        .expect(204);
 
       expect(await prisma.user.findUnique({ where: { id } })).toBeNull();
-      expect(await prisma.user.count()).toBe(0);
+      // Only the account that made the call is left.
+      expect(await prisma.user.count()).toBe(1);
     });
   });
 });

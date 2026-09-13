@@ -8,8 +8,10 @@ import {
   StockMovementSource,
   StockMovementType,
 } from '@prisma/client';
+import request from 'supertest';
+import { App } from 'supertest/types';
 
-import { TestUser } from './test-app';
+import { bearer, TestUser } from './test-app';
 import { PrismaService } from '../../src/infra/prisma/prisma.service';
 
 /**
@@ -18,19 +20,20 @@ import { PrismaService } from '../../src/infra/prisma/prisma.service';
  * write endpoints (which live in another branch anyway).
  */
 
-/** The local mirror the `x-test-user` header resolves to. */
-export async function seedUser(
-  prisma: PrismaService,
+/**
+ * The local mirror, created the way the app creates it: `POST /auth/session`
+ * with the user's token. Its id is the one the guard resolves on every later
+ * request, so the rows seeded under it are the ones that user can see.
+ */
+export async function provisionUser(
+  http: App,
   user: TestUser,
 ): Promise<string> {
-  const created = await prisma.user.create({
-    data: {
-      cognitoSub: user.cognitoSub,
-      email: user.email,
-      name: user.name ?? user.email,
-    },
-  });
-  return created.id;
+  const response = await request(http)
+    .post('/auth/session')
+    .set('Authorization', bearer(user))
+    .expect(200);
+  return (response.body as { id: string }).id;
 }
 
 export function seedItem(

@@ -15,7 +15,17 @@ export const ERROR_CODES = [
   'VALIDATION_ERROR',
   'INVALID_REQUEST',
   'UNAUTHENTICATED',
+  // The two token failures the app has to tell apart: TOKEN_EXPIRED means the
+  // refresh is worth trying, TOKEN_INVALID means send the user to the login
+  // screen. Every other reason a token can be rejected (bad signature, wrong
+  // issuer, wrong audience, unknown key) collapses into TOKEN_INVALID on
+  // purpose: the app would do the same thing for all of them, and naming the
+  // exact reason tells whoever is forging tokens which part to fix. The real
+  // reason goes to the server log.
+  'TOKEN_EXPIRED',
+  'TOKEN_INVALID',
   'FORBIDDEN',
+  'TOO_MANY_REQUESTS',
   'ROUTE_NOT_FOUND',
   'HTTP_ERROR',
   'INTERNAL_SERVER_ERROR',
@@ -30,6 +40,9 @@ export const ERROR_CODES = [
   'DUPLICATED_ITEM_PRESENTATION',
   'INVALID_REFERENCE',
   'ITEM_LOT_UNIT_COST_REQUIRED',
+
+  // supplier
+  'DUPLICATED_SUPPLIER_NAME',
 
   // stock-movements
   'STOCK_QUANTITY_INVALID',

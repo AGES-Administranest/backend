@@ -1,12 +1,15 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
-import { AppModule } from '../../../src/app.module';
 import { PrismaService } from '../../../src/infra/prisma/prisma.service';
-import { AllExceptionsFilter } from '../../../src/shared/filters/all-exceptions.filter';
+import {
+  bearer,
+  createTestApp,
+  mintTokens,
+  TestUser,
+} from '../../helpers/test-app';
 
 interface ItemLotBody {
   id: string;
@@ -26,41 +29,32 @@ describe('ItemLot (e2e)', () => {
   let otherUserId: string;
   let itemId: string;
 
+  const owner: TestUser = {
+    cognitoSub: `e2e-item-lot-${randomUUID()}`,
+    email: `e2e-item-lot-${randomUUID()}@example.com`,
+    name: 'E2E ItemLot Tester',
+  };
+
+  const stranger: TestUser = {
+    cognitoSub: `e2e-item-lot-other-${randomUUID()}`,
+    email: `e2e-item-lot-other-${randomUUID()}@example.com`,
+    name: 'E2E ItemLot Other',
+  };
+
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    ({ app, prisma } = await createTestApp());
+    await mintTokens([owner, stranger]);
 
-    app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
-    app.useGlobalFilters(new AllExceptionsFilter());
-    await app.init();
+    const provision = async (user: TestUser) => {
+      const session = await request(app.getHttpServer())
+        .post('/auth/session')
+        .set('Authorization', bearer(user))
+        .expect(200);
+      return (session.body as { id: string }).id;
+    };
 
-    prisma = moduleFixture.get(PrismaService);
-
-    const user = await prisma.user.create({
-      data: {
-        cognitoSub: `e2e-item-lot-${randomUUID()}`,
-        email: `e2e-item-lot-${randomUUID()}@example.com`,
-        name: 'E2E ItemLot Tester',
-      },
-    });
-    userId = user.id;
-
-    const other = await prisma.user.create({
-      data: {
-        cognitoSub: `e2e-item-lot-other-${randomUUID()}`,
-        email: `e2e-item-lot-other-${randomUUID()}@example.com`,
-        name: 'E2E ItemLot Other',
-      },
-    });
-    otherUserId = other.id;
+    userId = await provision(owner);
+    otherUserId = await provision(stranger);
 
     const item = await prisma.item.create({
       data: {
@@ -96,7 +90,8 @@ describe('ItemLot (e2e)', () => {
     it('cria um novo lote quando não há validade cadastrada (201)', async () => {
       const res = await request(server())
         .post(`/item/${itemId}/lot`)
-        .send({ userId, quantity: 5, expirationDate: '2026-12-31' })
+        .set('Authorization', bearer(owner))
+        .send({ quantity: 5, expirationDate: '2026-12-31' })
         .expect(201);
 
       expect(lotBody(res)).toMatchObject({
@@ -109,7 +104,8 @@ describe('ItemLot (e2e)', () => {
     it('soma na mesma remessa quando a validade é idêntica (201)', async () => {
       const res = await request(server())
         .post(`/item/${itemId}/lot`)
-        .send({ userId, quantity: 3, expirationDate: '2026-12-31' })
+        .set('Authorization', bearer(owner))
+        .send({ quantity: 3, expirationDate: '2026-12-31' })
         .expect(201);
 
       expect(lotBody(res).currentQuantity).toBe('8');
@@ -118,7 +114,8 @@ describe('ItemLot (e2e)', () => {
     it('cria um novo lote quando a validade é diferente (201)', async () => {
       const res = await request(server())
         .post(`/item/${itemId}/lot`)
-        .send({ userId, quantity: 2, expirationDate: '2027-06-30' })
+        .set('Authorization', bearer(owner))
+        .send({ quantity: 2, expirationDate: '2027-06-30' })
         .expect(201);
 
       expect(lotBody(res)).toMatchObject({
@@ -131,16 +128,21 @@ describe('ItemLot (e2e)', () => {
     it('404 quando o item não existe', async () => {
       const res = await request(server())
         .post(`/item/${randomUUID()}/lot`)
-        .send({ userId, quantity: 1 })
+        .set('Authorization', bearer(owner))
+        .send({ quantity: 1 })
         .expect(404);
 
       expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');
     });
 
     it('404 quando o item pertence a outro usuário (isolamento — ADR-11)', async () => {
+      // A real second account, authenticated as itself. It used to be enough to
+      // put someone else's id in the body; now the only identity available is
+      // the one the token carries, and the item simply does not exist for it.
       const res = await request(server())
         .post(`/item/${itemId}/lot`)
-        .send({ userId: otherUserId, quantity: 1 })
+        .set('Authorization', bearer(stranger))
+        .send({ quantity: 1 })
         .expect(404);
 
       expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');
@@ -158,7 +160,8 @@ describe('ItemLot (e2e)', () => {
 
       const res = await request(server())
         .post(`/item/${bareItem.id}/lot`)
-        .send({ userId, quantity: 1 })
+        .set('Authorization', bearer(owner))
+        .send({ quantity: 1 })
         .expect(400);
 
       expect(errorBody(res).code).toBe('ITEM_LOT_UNIT_COST_REQUIRED');

@@ -38,7 +38,7 @@ export class StockHistoryController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryStockHistoryDto,
   ): Promise<StockHistoryPageEntity> {
-    return this.stockHistoryService.listHistory(user, query);
+    return this.stockHistoryService.listHistory(user.id, query);
   }
 
   @Get('summary')
@@ -58,6 +58,6 @@ export class StockHistoryController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: StockPeriodFilterDto,
   ): Promise<StockSummaryEntity> {
-    return this.stockHistoryService.summarize(user, query);
+    return this.stockHistoryService.summarize(user.id, query);
   }
 }

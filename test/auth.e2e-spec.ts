@@ -3,11 +3,11 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 
 import {
-  asUser,
+  bearer,
   body,
   createTestApp,
+  mintTokens,
   resetDatabase,
-  TEST_USER_HEADER,
   TestUser,
 } from './helpers/test-app';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
@@ -31,9 +31,28 @@ describe('auth (e2e)', () => {
     name: 'Ana Souza',
   };
 
+  const bruno: TestUser = {
+    cognitoSub: 'sub-bruno',
+    email: 'bruno@example.com',
+    name: 'Bruno Lima',
+  };
+
   beforeAll(async () => {
     ({ app, prisma } = await createTestApp());
     http = app.getHttpServer() as App;
+
+    await mintTokens(
+      [
+        ana,
+        bruno,
+        { ...ana, email: 'ana.souza@example.com' },
+        { cognitoSub: ana.cognitoSub, email: ana.email },
+        { cognitoSub: 'sub-bare', email: 'bare@example.com' },
+        { cognitoSub: 'sub-other', email: ana.email, name: 'Other' },
+      ],
+      [{}],
+    );
+    await mintTokens([ana], [{ expired: true }, { foreign: true }]);
   });
 
   beforeEach(() => resetDatabase(prisma));
@@ -52,10 +71,40 @@ describe('auth (e2e)', () => {
       expect(await countUsers()).toBe(0);
     });
 
+    it('tells an expired token apart from an invalid one', async () => {
+      const response = await request(http)
+        .post('/auth/session')
+        .set('Authorization', bearer(ana, { expired: true }))
+        .expect(401);
+
+      // The distinction the app acts on: refresh and retry, rather than log in.
+      expect(body(response)).toMatchObject({ code: 'TOKEN_EXPIRED' });
+      expect(await countUsers()).toBe(0);
+    });
+
+    it('rejects a token signed by a key the pool does not publish', async () => {
+      const response = await request(http)
+        .post('/auth/session')
+        .set('Authorization', bearer(ana, { foreign: true }))
+        .expect(401);
+
+      expect(body(response)).toMatchObject({ code: 'TOKEN_INVALID' });
+      expect(await countUsers()).toBe(0);
+    });
+
+    it('rejects something that is not a token at all', async () => {
+      const response = await request(http)
+        .post('/auth/session')
+        .set('Authorization', 'Bearer not-a-jwt')
+        .expect(401);
+
+      expect(body(response)).toMatchObject({ code: 'TOKEN_INVALID' });
+    });
+
     it('creates the mirror on first login', async () => {
       const response = await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       expect(body(response)).toMatchObject({
@@ -71,12 +120,12 @@ describe('auth (e2e)', () => {
     it('is idempotent across repeated logins', async () => {
       const first = await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       const second = await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       expect(body(second).id).toBe(body(first).id);
@@ -88,9 +137,7 @@ describe('auth (e2e)', () => {
       // followed by a write. A fake repository cannot fail this test.
       const responses = await Promise.all(
         Array.from({ length: 8 }, () =>
-          request(http)
-            .post('/auth/session')
-            .set(TEST_USER_HEADER, asUser(ana)),
+          request(http).post('/auth/session').set('Authorization', bearer(ana)),
         ),
       );
 
@@ -107,14 +154,14 @@ describe('auth (e2e)', () => {
     it('refreshes the mirrored e-mail from the token', async () => {
       await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       const response = await request(http)
         .post('/auth/session')
         .set(
-          TEST_USER_HEADER,
-          asUser({ ...ana, email: 'ana.souza@example.com' }),
+          'Authorization',
+          bearer({ ...ana, email: 'ana.souza@example.com' }),
         )
         .expect(200);
 
@@ -125,14 +172,14 @@ describe('auth (e2e)', () => {
     it('keeps the stored name when the token carries no name claim', async () => {
       await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       const response = await request(http)
         .post('/auth/session')
         .set(
-          TEST_USER_HEADER,
-          asUser({ cognitoSub: ana.cognitoSub, email: ana.email }),
+          'Authorization',
+          bearer({ cognitoSub: ana.cognitoSub, email: ana.email }),
         )
         .expect(200);
 
@@ -143,8 +190,8 @@ describe('auth (e2e)', () => {
       const response = await request(http)
         .post('/auth/session')
         .set(
-          TEST_USER_HEADER,
-          asUser({ cognitoSub: 'sub-bare', email: 'bare@example.com' }),
+          'Authorization',
+          bearer({ cognitoSub: 'sub-bare', email: 'bare@example.com' }),
         )
         .expect(200);
 
@@ -154,14 +201,14 @@ describe('auth (e2e)', () => {
     it('conflicts when the e-mail already belongs to another sub', async () => {
       await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       const response = await request(http)
         .post('/auth/session')
         .set(
-          TEST_USER_HEADER,
-          asUser({ cognitoSub: 'sub-other', email: ana.email, name: 'Other' }),
+          'Authorization',
+          bearer({ cognitoSub: 'sub-other', email: ana.email, name: 'Other' }),
         )
         .expect(409);
 
@@ -176,7 +223,7 @@ describe('auth (e2e)', () => {
     const accept = (user: TestUser, body: Record<string, unknown>) =>
       request(http)
         .post('/auth/terms')
-        .set(TEST_USER_HEADER, asUser(user))
+        .set('Authorization', bearer(user))
         .send(body);
 
     it('rejects a request with no authenticated user', async () => {
@@ -201,7 +248,7 @@ describe('auth (e2e)', () => {
     it('persists the date and the version', async () => {
       await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       const before = new Date();
@@ -225,7 +272,7 @@ describe('auth (e2e)', () => {
     it('records the newer version when the text changes', async () => {
       await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       await accept(ana, { termsVersion: '2026-09-01' }).expect(200);
@@ -239,7 +286,7 @@ describe('auth (e2e)', () => {
     it('rejects a missing termsVersion with the shared error shape', async () => {
       await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       const response = await accept(ana, {}).expect(400);
@@ -254,7 +301,7 @@ describe('auth (e2e)', () => {
       // rather than a silently dropped value.
       await request(http)
         .post('/auth/session')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .expect(200);
 
       const response = await accept(ana, {
@@ -268,22 +315,16 @@ describe('auth (e2e)', () => {
 
   describe('isolation between users', () => {
     it('never lets one account write consent onto another', async () => {
-      const bruno: TestUser = {
-        cognitoSub: 'sub-bruno',
-        email: 'bruno@example.com',
-        name: 'Bruno Lima',
-      };
-
       for (const user of [ana, bruno]) {
         await request(http)
           .post('/auth/session')
-          .set(TEST_USER_HEADER, asUser(user))
+          .set('Authorization', bearer(user))
           .expect(200);
       }
 
       await request(http)
         .post('/auth/terms')
-        .set(TEST_USER_HEADER, asUser(ana))
+        .set('Authorization', bearer(ana))
         .send({ termsVersion: '2026-09-01' })
         .expect(200);
 

@@ -27,6 +27,9 @@ import { QueryItemDto } from './dto/query-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { ItemEntity } from './entities/item.entity';
 import { ItemService } from './item.service';
+import { CurrentUser } from '../../shared/auth';
+// `import type` is required by `emitDecoratorMetadata` on a decorated signature.
+import type { AuthenticatedUser } from '../../shared/auth';
 
 @ApiTags('item')
 @Controller('item')
@@ -43,8 +46,8 @@ export class ItemController {
   @ApiUnprocessableEntityResponse({
     description: 'userId or supplierId does not match an existing record',
   })
-  create(@Body() dto: CreateItemDto) {
-    return this.itemService.create(dto);
+  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateItemDto) {
+    return this.itemService.create(user.id, dto);
   }
 
   @Get()
@@ -53,8 +56,11 @@ export class ItemController {
       'Lists stock items for a user: search by name, filter by category, paginated',
   })
   @ApiOkResponse({ type: ItemEntity, isArray: true })
-  findAll(@Query() query: QueryItemDto) {
-    return this.itemService.findAll(query);
+  findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryItemDto,
+  ) {
+    return this.itemService.findAll(user.id, query);
   }
 
   @Get(':id')
@@ -62,8 +68,11 @@ export class ItemController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ItemEntity })
   @ApiNotFoundResponse({ description: 'Item not found' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.itemService.findOne(id);
+  findOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.itemService.findOne(id, user.id);
   }
 
   @Patch(':id')
@@ -75,8 +84,12 @@ export class ItemController {
   @ApiConflictResponse({
     description: 'An item with this name and measurement unit already exists',
   })
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateItemDto) {
-    return this.itemService.update(id, dto);
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateItemDto,
+  ) {
+    return this.itemService.update(id, user.id, dto);
   }
 
   @Delete(':id')
@@ -84,7 +97,10 @@ export class ItemController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: DeleteItemDto })
   @ApiNotFoundResponse({ description: 'Item not found' })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.itemService.remove(id);
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.itemService.remove(id, user.id);
   }
 }

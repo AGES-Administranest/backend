@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ItemCategory } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
@@ -8,7 +8,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   Min,
 } from 'class-validator';
@@ -23,11 +22,9 @@ export type ItemSortField = (typeof ITEM_SORT_FIELDS)[number];
 const toArray = ({ value }: { value: unknown }): unknown[] | undefined =>
   value === undefined ? undefined : Array.isArray(value) ? value : [value];
 
+// No `userId`: the listing is scoped to the token's owner (ADR-11). Accepting
+// it here would have let anyone read another account's inventory.
 export class QueryItemDto {
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  userId!: string;
-
   @ApiPropertyOptional({
     description:
       'Partial, case-insensitive match on the item name. Ignored when shorter than 2 characters.',

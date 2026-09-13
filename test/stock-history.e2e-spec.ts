@@ -7,13 +7,13 @@ import {
 import request from 'supertest';
 import { App } from 'supertest/types';
 
-import { seedItem, seedMovement, seedUser } from './helpers/stock-ledger';
+import { provisionUser, seedItem, seedMovement } from './helpers/stock-ledger';
 import {
-  asUser,
+  bearer,
   body,
   createTestApp,
+  mintTokens,
   resetDatabase,
-  TEST_USER_HEADER,
   TestUser,
 } from './helpers/test-app';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
@@ -77,6 +77,7 @@ describe('stock history (e2e)', () => {
     process.env.PRISMA_LOG_QUERIES = 'true';
     ({ app, prisma } = await createTestApp());
     http = app.getHttpServer() as App;
+    await mintTokens([ana, bruno]);
     (prisma as unknown as QueryEventSource).$on('query', () => {
       statements += 1;
     });
@@ -91,7 +92,7 @@ describe('stock history (e2e)', () => {
 
   const get = (path: string, user?: TestUser) => {
     const req = request(http).get(path);
-    return user ? req.set(TEST_USER_HEADER, asUser(user)) : req;
+    return user ? req.set('Authorization', bearer(user)) : req;
   };
 
   const page = (response: { body: unknown }) =>
@@ -108,7 +109,7 @@ describe('stock history (e2e)', () => {
    * Plus one Ketamine consumption in September, for the item filter.
    */
   async function seedAna() {
-    const anaId = await seedUser(prisma, ana);
+    const anaId = await provisionUser(http, ana);
     const propofol = await seedItem(prisma, anaId, 'Propofol');
     const ketamine = await seedItem(prisma, anaId, 'Ketamine');
     const vetPharma = await prisma.supplier.create({
@@ -202,7 +203,7 @@ describe('stock history (e2e)', () => {
   }
 
   async function seedBruno() {
-    const brunoId = await seedUser(prisma, bruno);
+    const brunoId = await provisionUser(http, bruno);
     const item = await seedItem(prisma, brunoId, 'Propofol');
     const movement = await seedMovement(prisma, brunoId, item.id, {
       type: INBOUND,
@@ -220,8 +221,8 @@ describe('stock history (e2e)', () => {
       expect(body(response)).toMatchObject({ code: 'UNAUTHENTICATED' });
     });
 
-    it('answers 404 with its own code when the local mirror does not exist', async () => {
-      const response = await get('/stock-movements', ana).expect(404);
+    it('answers 401 with its own code when the local mirror does not exist', async () => {
+      const response = await get('/stock-movements', ana).expect(401);
 
       expect(body(response)).toMatchObject({ code: 'USER_NOT_PROVISIONED' });
     });
@@ -412,7 +413,7 @@ describe('stock history (e2e)', () => {
 
     describe('origins are resolved without N+1', () => {
       it('runs the same number of statements for a page of 5 and a page of 20', async () => {
-        const anaId = await seedUser(prisma, ana);
+        const anaId = await provisionUser(http, ana);
         const item = await seedItem(prisma, anaId, 'Propofol');
         // 25 consumptions, each with its own appointment: a per-row lookup
         // would show up as 25 extra statements on the larger page.
@@ -453,9 +454,9 @@ describe('stock history (e2e)', () => {
         const large = await statementsFor(20);
 
         expect(large).toBe(small);
-        // Measured at 8: the user lookup, the page, one load per included
-        // relation (item, appointment, purchase order, supplier) and the
-        // count. A per-request addition shows up here; a per-row one above.
+        // Measured at 8: the guard's user lookup, the page, one load per
+        // included relation (item, appointment, purchase order, supplier) and
+        // the count. A per-request addition shows up here; a per-row one above.
         expect(large).toBeLessThanOrEqual(10);
       });
     });

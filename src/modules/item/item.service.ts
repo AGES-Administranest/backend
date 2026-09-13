@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { Item, MeasurementUnit, Prisma } from '@prisma/client';
+import { MeasurementUnit, Prisma } from '@prisma/client';
 
 import { CreateItemDto } from './dto/create-item.dto';
 import { DeleteItemDto } from './dto/delete-item.dto';
 import { QueryItemDto } from './dto/query-item.dto';
 import { UpdateItemDto } from './dto/update-item.dto';
 import { ItemEntity } from './entities/item.entity';
-import { ItemRepository } from './item.repository';
+import { ItemRepository, type ItemWithNearestLot } from './item.repository';
 import {
   InvalidReferenceError,
   RecordNotFoundError,
@@ -21,9 +21,9 @@ function escapeLike(term: string): string {
 export class ItemService {
   constructor(private readonly itemRepository: ItemRepository) {}
 
-  async findAll(query: QueryItemDto): Promise<ItemEntity[]> {
+  async findAll(userId: string, query: QueryItemDto): Promise<ItemEntity[]> {
     const where: Prisma.ItemWhereInput = {
-      userId: query.userId,
+      userId,
       active: query.active,
       ...(query.category?.length ? { category: { in: query.category } } : {}),
       ...(query.search && query.search.length >= 2
@@ -41,15 +41,15 @@ export class ItemService {
     return items.map(item => this.sanitize(item));
   }
 
-  async findOne(id: string): Promise<ItemEntity> {
-    const item = await this.getOrThrow(id);
+  async findOne(id: string, userId: string): Promise<ItemEntity> {
+    const item = await this.getOrThrow(id, userId);
     return this.sanitize(item);
   }
 
-  async create(dto: CreateItemDto): Promise<ItemEntity> {
-    await this.ensureUniquePresentation(dto.userId, dto.name, dto.unit);
+  async create(userId: string, dto: CreateItemDto): Promise<ItemEntity> {
+    await this.ensureUniquePresentation(userId, dto.name, dto.unit);
     try {
-      const item = await this.itemRepository.create(dto);
+      const item = await this.itemRepository.create({ ...dto, userId });
       return this.sanitize(item);
     } catch (error) {
       if (error instanceof InvalidReferenceError)
@@ -58,12 +58,16 @@ export class ItemService {
     }
   }
 
-  async update(id: string, dto: UpdateItemDto): Promise<ItemEntity> {
-    const existing = await this.getOrThrow(id);
+  async update(
+    id: string,
+    userId: string,
+    dto: UpdateItemDto,
+  ): Promise<ItemEntity> {
+    const existing = await this.getOrThrow(id, userId);
 
     if (dto.name !== undefined || dto.unit !== undefined) {
       await this.ensureUniquePresentation(
-        existing.userId,
+        userId,
         dto.name ?? existing.name,
         dto.unit ?? existing.unit,
         id,
@@ -71,7 +75,8 @@ export class ItemService {
     }
 
     try {
-      const item = await this.itemRepository.update(id, dto);
+      const item = await this.itemRepository.update(id, userId, dto);
+      if (!item) throw this.itemNotFound(id);
       return this.sanitize(item);
     } catch (error) {
       if (error instanceof RecordNotFoundError) throw this.itemNotFound(id);
@@ -81,9 +86,11 @@ export class ItemService {
     }
   }
 
-  async remove(id: string): Promise<DeleteItemDto> {
+  async remove(id: string, userId: string): Promise<DeleteItemDto> {
     try {
-      const item = await this.itemRepository.delete(id);
+      const item = await this.itemRepository.delete(id, userId);
+      // Someone else's item is reported exactly as a missing one.
+      if (!item) throw this.itemNotFound(id);
       return { id: item.id, name: item.name };
     } catch (error) {
       if (error instanceof RecordNotFoundError) throw this.itemNotFound(id);
@@ -91,8 +98,11 @@ export class ItemService {
     }
   }
 
-  private async getOrThrow(id: string): Promise<Item> {
-    const item = await this.itemRepository.findById(id);
+  private async getOrThrow(
+    id: string,
+    userId: string,
+  ): Promise<ItemWithNearestLot> {
+    const item = await this.itemRepository.findById(id, userId);
     if (!item) throw this.itemNotFound(id);
     return item;
   }
@@ -112,7 +122,7 @@ export class ItemService {
     if (existing) throw this.duplicatedPresentation();
   }
 
-  private sanitize(item: Item): ItemEntity {
+  private sanitize(item: ItemWithNearestLot): ItemEntity {
     return {
       id: item.id,
       supplierId: item.supplierId,
@@ -125,6 +135,11 @@ export class ItemService {
       belowMinimum:
         item.minimumStock !== null &&
         item.currentQuantity.lessThanOrEqualTo(item.minimumStock),
+      // `expiration_date` is a DATE column: it has no time and no zone. Sent
+      // as a full timestamp it would read as the previous day for any client
+      // west of UTC, so only the calendar part travels.
+      nearestExpiration:
+        item.lots[0]?.expirationDate?.toISOString().slice(0, 10) ?? null,
       active: item.active,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,

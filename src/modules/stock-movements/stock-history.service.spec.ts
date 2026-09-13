@@ -14,7 +14,6 @@ import { DomainError } from '../../shared/errors/domain-error';
 const { INBOUND, OUTBOUND } = StockMovementType;
 const { MANUAL_PURCHASE, APPOINTMENT, MANUAL_ADJUSTMENT } = StockMovementSource;
 
-const ANA = { cognitoSub: 'sub-ana', email: 'ana@example.com' };
 const ANA_ID = 'user-ana';
 const ITEM_ID = 'item-propofol';
 
@@ -97,7 +96,6 @@ describe('StockHistoryService', () => {
     findForSummary: jest.Mock;
     sumQuantityByTypeBefore: jest.Mock;
   };
-  let usersService: { findByCognitoSub: jest.Mock };
   let service: StockHistoryService;
 
   beforeEach(() => {
@@ -112,20 +110,13 @@ describe('StockHistoryService', () => {
         .fn()
         .mockResolvedValue({ inbound: null, outbound: null }),
     };
-    usersService = {
-      findByCognitoSub: jest.fn().mockResolvedValue({ id: ANA_ID }),
-    };
-    service = new StockHistoryService(
-      repository as never,
-      usersService as never,
-    );
+    service = new StockHistoryService(repository as never);
   });
 
   describe('listHistory', () => {
-    it('scopes every query by the user resolved from the token (ADR-11)', async () => {
-      await service.listHistory(ANA, query());
+    it('scopes every query by the user id it is given (ADR-11)', async () => {
+      await service.listHistory(ANA_ID, query());
 
-      expect(usersService.findByCognitoSub).toHaveBeenCalledWith('sub-ana');
       expect(repository.findPage).toHaveBeenCalledWith(
         ANA_ID,
         expect.anything(),
@@ -136,7 +127,7 @@ describe('StockHistoryService', () => {
 
     it('turns the query string into the repository filter and page request', async () => {
       await service.listHistory(
-        ANA,
+        ANA_ID,
         query({
           itemId: ITEM_ID,
           startDate: '2026-09-01T00:00:00.000Z',
@@ -163,7 +154,7 @@ describe('StockHistoryService', () => {
 
     it('makes a date-only period cover its whole last day', async () => {
       await service.listHistory(
-        ANA,
+        ANA_ID,
         query({ startDate: '2026-09-01', endDate: '2026-09-30' }),
       );
 
@@ -183,7 +174,7 @@ describe('StockHistoryService', () => {
       repository.count.mockResolvedValue(42);
 
       const result = await service.listHistory(
-        ANA,
+        ANA_ID,
         query({ page: 3, limit: 2 }),
       );
 
@@ -200,7 +191,7 @@ describe('StockHistoryService', () => {
       repository.findItemById.mockResolvedValue(null);
 
       await expect(
-        service.listHistory(ANA, query({ itemId: 'item-of-someone-else' })),
+        service.listHistory(ANA_ID, query({ itemId: 'item-of-someone-else' })),
       ).rejects.toMatchObject({
         kind: 'NOT_FOUND',
         code: 'ITEM_NOT_FOUND',
@@ -209,22 +200,9 @@ describe('StockHistoryService', () => {
     });
 
     it('does not look the item up when no item was asked for', async () => {
-      await service.listHistory(ANA, query());
+      await service.listHistory(ANA_ID, query());
 
       expect(repository.findItemById).not.toHaveBeenCalled();
-    });
-
-    it('lets USER_NOT_PROVISIONED from the users module through untouched', async () => {
-      const notProvisioned = new DomainError(
-        'NOT_FOUND',
-        'USER_NOT_PROVISIONED',
-        'no mirror yet',
-      );
-      usersService.findByCognitoSub.mockRejectedValue(notProvisioned);
-
-      await expect(service.listHistory(ANA, query())).rejects.toBe(
-        notProvisioned,
-      );
     });
   });
 
@@ -237,7 +215,7 @@ describe('StockHistoryService', () => {
         outbound: decimal(2),
       });
 
-      const report = await service.summarize(ANA, {
+      const report = await service.summarize(ANA_ID, {
         itemId: ITEM_ID,
         startDate: '2026-09-01',
         endDate: '2026-09-30',
@@ -267,7 +245,7 @@ describe('StockHistoryService', () => {
     it('opens at zero when the period has no start date, without asking the database', async () => {
       repository.findForSummary.mockResolvedValue(september);
 
-      const report = await service.summarize(ANA, { itemId: ITEM_ID });
+      const report = await service.summarize(ANA_ID, { itemId: ITEM_ID });
 
       expect(report.item?.openingBalance).toBe('0');
       expect(report.item?.closingBalance).toBe('4');
@@ -277,7 +255,9 @@ describe('StockHistoryService', () => {
     it('leaves the item block out when no item was asked for', async () => {
       repository.findForSummary.mockResolvedValue(september);
 
-      const report = await service.summarize(ANA, { startDate: '2026-09-01' });
+      const report = await service.summarize(ANA_ID, {
+        startDate: '2026-09-01',
+      });
 
       expect(report.item).toBeNull();
       expect(repository.sumQuantityByTypeBefore).not.toHaveBeenCalled();
@@ -287,7 +267,7 @@ describe('StockHistoryService', () => {
       repository.findItemById.mockResolvedValue(null);
 
       await expect(
-        service.summarize(ANA, { itemId: 'item-of-someone-else' }),
+        service.summarize(ANA_ID, { itemId: 'item-of-someone-else' }),
       ).rejects.toMatchObject({ code: 'ITEM_NOT_FOUND' });
       expect(repository.findForSummary).not.toHaveBeenCalled();
     });

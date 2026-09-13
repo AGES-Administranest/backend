@@ -11,11 +11,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+// No `userId`: the owner comes from the token, never from the request (ADR-11).
 export class CreateItemDto {
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  userId!: string;
-
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
   @IsUUID()

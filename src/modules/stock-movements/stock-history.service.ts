@@ -15,32 +15,27 @@ import {
   StockHistoryRepository,
   StockSummaryRow,
 } from './stock-history.repository';
-import type { AuthenticatedUser } from '../../shared/auth';
 import { DomainError } from '../../shared/errors/domain-error';
 import {
   toPeriodEnd,
   toPeriodStart,
 } from '../../shared/validation/period-bounds';
-import { UsersService } from '../users';
 
 /**
  * Read side of the stock ledger for US12: the paginated history with its
  * origins resolved, and the consolidated summary of a period. Knows nothing
  * about HTTP; failures are `DomainError` (ADR-07). Every query is scoped by
- * the user resolved from the token, never from the request (ADR-11).
+ * the local user id the guard resolved from the token, never by anything in
+ * the request (ADR-11).
  */
 @Injectable()
 export class StockHistoryService {
-  constructor(
-    private readonly repository: StockHistoryRepository,
-    private readonly usersService: UsersService,
-  ) {}
+  constructor(private readonly repository: StockHistoryRepository) {}
 
   async listHistory(
-    authUser: AuthenticatedUser,
+    userId: string,
     query: QueryStockHistoryDto,
   ): Promise<StockHistoryPageEntity> {
-    const userId = await this.resolveUserId(authUser);
     const filter = await this.toFilter(userId, query);
     const pageRequest = { page: query.page, limit: query.limit };
 
@@ -53,10 +48,9 @@ export class StockHistoryService {
   }
 
   async summarize(
-    authUser: AuthenticatedUser,
+    userId: string,
     query: Partial<QueryStockHistoryDto>,
   ): Promise<StockSummaryEntity> {
-    const userId = await this.resolveUserId(authUser);
     const filter = await this.toFilter(userId, query);
     const rows = await this.repository.findForSummary(userId, filter);
 
@@ -87,16 +81,6 @@ export class StockHistoryService {
       from,
     );
     return periodBalance(balanceFromSums(sums.inbound, sums.outbound), rows);
-  }
-
-  /**
-   * The token only carries the Cognito `sub`; the ledger is scoped by the
-   * local `user.id`. `users` owns that table, so the translation goes through
-   * its service (ADR-01) — it answers `USER_NOT_PROVISIONED` on a missing mirror.
-   */
-  private async resolveUserId(authUser: AuthenticatedUser): Promise<string> {
-    const user = await this.usersService.findByCognitoSub(authUser.cognitoSub);
-    return user.id;
   }
 
   /**
