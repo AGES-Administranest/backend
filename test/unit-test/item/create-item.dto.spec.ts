@@ -5,7 +5,6 @@ import { validate } from 'class-validator';
 import { CreateItemDto } from '../../../src/modules/item/dto/create-item.dto';
 
 const validPayload = {
-  userId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
   category: ItemCategory.MEDICATION,
   unit: MeasurementUnit.AMPOULE,
   name: 'Dipirona injetável',
@@ -21,17 +20,15 @@ describe('CreateItemDto', () => {
     expect(await errorsFor({})).toHaveLength(0);
   });
 
-  it('rejeita userId ausente', async () => {
+  it('rejeita userId no payload — o dono vem do token (ADR-11)', async () => {
     const dto = plainToInstance(CreateItemDto, {
       ...validPayload,
-      userId: undefined,
+      userId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
     });
-    const errors = await validate(dto);
-    expect(errors.some(e => e.property === 'userId')).toBe(true);
-  });
-
-  it('rejeita userId que não é UUID', async () => {
-    const errors = await errorsFor({ userId: 'nao-e-um-uuid' });
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
     expect(errors.some(e => e.property === 'userId')).toBe(true);
   });
 
