@@ -1,12 +1,15 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
-import { AppModule } from '../../../src/app.module';
 import { PrismaService } from '../../../src/infra/prisma/prisma.service';
-import { AllExceptionsFilter } from '../../../src/shared/filters/all-exceptions.filter';
+import {
+  bearer,
+  createTestApp,
+  mintTokens,
+  TestUser,
+} from '../../helpers/test-app';
 
 interface ItemBody {
   id: string;
@@ -27,31 +30,24 @@ describe('Item (e2e)', () => {
   let prisma: PrismaService;
   let userId: string;
 
+  const owner: TestUser = {
+    cognitoSub: `e2e-item-${randomUUID()}`,
+    email: `e2e-item-${randomUUID()}@example.com`,
+    name: 'E2E Item Tester',
+  };
+
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    ({ app, prisma } = await createTestApp());
+    await mintTokens([owner]);
 
-    app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
-    app.useGlobalFilters(new AllExceptionsFilter());
-    await app.init();
-
-    prisma = moduleFixture.get(PrismaService);
-    const user = await prisma.user.create({
-      data: {
-        cognitoSub: `e2e-item-${randomUUID()}`,
-        email: `e2e-item-${randomUUID()}@example.com`,
-        name: 'E2E Item Tester',
-      },
-    });
-    userId = user.id;
+    // The mirror is created the way the app creates it, rather than written
+    // straight to the table: these routes are behind the guard now, and the
+    // id they scope to is the one the guard resolves from the token.
+    const session = await request(app.getHttpServer())
+      .post('/auth/session')
+      .set('Authorization', bearer(owner))
+      .expect(200);
+    userId = (session.body as { id: string }).id;
   });
 
   afterAll(async () => {
@@ -70,8 +66,8 @@ describe('Item (e2e)', () => {
     it('cria um item (201) sem expor userId na resposta', async () => {
       const res = await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'MEDICATION',
           unit: 'AMPOULE',
           name: 'Dipirona injetável e2e',
@@ -89,7 +85,8 @@ describe('Item (e2e)', () => {
     it('rejeita payload inválido (400) com a lista de campos', async () => {
       const res = await request(server())
         .post('/item')
-        .send({ userId, category: 'INVALID', unit: 'AMPOULE', name: 'A' })
+        .set('Authorization', bearer(owner))
+        .send({ category: 'INVALID', unit: 'AMPOULE', name: 'A' })
         .expect(400);
 
       const body = errorBody(res);
@@ -105,8 +102,8 @@ describe('Item (e2e)', () => {
     it('rejeita presentação duplicada (409)', async () => {
       await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'MEDICATION',
           unit: 'VIAL',
           name: 'Item duplicado e2e',
@@ -115,8 +112,8 @@ describe('Item (e2e)', () => {
 
       const res = await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'MEDICATION',
           unit: 'VIAL',
           name: 'Item duplicado e2e',
@@ -126,18 +123,23 @@ describe('Item (e2e)', () => {
       expect(errorBody(res).code).toBe('DUPLICATED_ITEM_PRESENTATION');
     });
 
-    it('rejeita userId que não corresponde a um registro (422)', async () => {
+    it('rejeita um userId enviado no corpo em vez de o aceitar', async () => {
+      // The owner comes from the token now. `forbidNonWhitelisted` turns an
+      // app that still sends the old field into a loud 400 rather than
+      // silently ignoring it — which is the point: the value would have been
+      // a way to write into somebody else's account.
       const res = await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
           userId: randomUUID(),
           category: 'MEDICATION',
           unit: 'AMPOULE',
           name: 'Item fantasma e2e',
         })
-        .expect(422);
+        .expect(400);
 
-      expect(errorBody(res).code).toBe('INVALID_REFERENCE');
+      expect(errorBody(res).code).toBe('VALIDATION_ERROR');
     });
   });
 
@@ -145,8 +147,8 @@ describe('Item (e2e)', () => {
     it('busca por nome e filtra por categoria (200)', async () => {
       await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'MEDICATION',
           unit: 'AMPOULE',
           name: 'Cetamina e2e listagem',
@@ -155,7 +157,8 @@ describe('Item (e2e)', () => {
 
       const res = await request(server())
         .get('/item')
-        .query({ userId, search: 'Cetamina e2e', category: 'MEDICATION' })
+        .set('Authorization', bearer(owner))
+        .query({ search: 'Cetamina e2e', category: 'MEDICATION' })
         .expect(200);
 
       expect(listBody(res)).toEqual(
@@ -165,30 +168,21 @@ describe('Item (e2e)', () => {
       );
     });
 
-    it('não retorna itens de outro usuário (isolamento — ADR-11)', async () => {
-      const other = await prisma.user.create({
-        data: {
-          cognitoSub: `e2e-item-other-${randomUUID()}`,
-          email: `e2e-item-other-${randomUUID()}@example.com`,
-          name: 'E2E Item Other',
-        },
-      });
-
-      const res = await request(server())
+    it('ignora um userId na query — a listagem é sempre do dono do token', async () => {
+      // Previously `userId` was a query parameter, so changing it read another
+      // account's inventory. It is rejected outright now.
+      await request(server())
         .get('/item')
-        .query({ userId: other.id })
-        .expect(200);
-
-      expect(listBody(res)).toHaveLength(0);
-
-      await prisma.user.delete({ where: { id: other.id } });
+        .set('Authorization', bearer(owner))
+        .query({ userId: randomUUID() })
+        .expect(400);
     });
 
     it('não inativos não aparecem na listagem (soft delete)', async () => {
       const created = await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'DISPOSABLE',
           unit: 'UNIT',
           name: 'Item inativo e2e listagem',
@@ -197,18 +191,21 @@ describe('Item (e2e)', () => {
 
       await request(server())
         .delete(`/item/${itemBody(created).id}`)
+        .set('Authorization', bearer(owner))
         .expect(200);
 
       const res = await request(server())
         .get('/item')
-        .query({ userId, search: 'Item inativo e2e listagem' })
+        .set('Authorization', bearer(owner))
+        .query({ search: 'Item inativo e2e listagem' })
         .expect(200);
 
       expect(listBody(res)).toHaveLength(0);
 
       const withInactive = await request(server())
         .get('/item')
-        .query({ userId, search: 'Item inativo e2e listagem', active: false })
+        .set('Authorization', bearer(owner))
+        .query({ search: 'Item inativo e2e listagem', active: false })
         .expect(200);
 
       expect(listBody(withInactive)).toHaveLength(1);
@@ -217,7 +214,8 @@ describe('Item (e2e)', () => {
     it('respeita o limit como teto de resultados', async () => {
       const res = await request(server())
         .get('/item')
-        .query({ userId, page: 1, limit: 1 })
+        .set('Authorization', bearer(owner))
+        .query({ page: 1, limit: 1 })
         .expect(200);
 
       expect(listBody(res)).toHaveLength(1);
@@ -226,18 +224,20 @@ describe('Item (e2e)', () => {
     it('busca com menos de 2 caracteres é ignorada (retorna tudo)', async () => {
       const all = await request(server())
         .get('/item')
-        .query({ userId })
+        .set('Authorization', bearer(owner))
+        .query({})
         .expect(200);
       const filtered = await request(server())
         .get('/item')
-        .query({ userId, search: 'a' })
+        .set('Authorization', bearer(owner))
+        .query({ search: 'a' })
         .expect(200);
 
       expect(listBody(filtered)).toHaveLength(listBody(all).length);
     });
 
-    it('400 quando userId não é informado', async () => {
-      await request(server()).get('/item').expect(400);
+    it('401 sem token — a listagem não é acessível sem autenticação', async () => {
+      await request(server()).get('/item').expect(401);
     });
   });
 
@@ -272,7 +272,8 @@ describe('Item (e2e)', () => {
     const listed = async (name: string) => {
       const res = await request(server())
         .get('/item')
-        .query({ userId, search: name })
+        .set('Authorization', bearer(owner))
+        .query({ search: name })
         .expect(200);
       return (res.body as ItemBody[]).find(item => item.name === name);
     };
@@ -320,8 +321,8 @@ describe('Item (e2e)', () => {
     it('busca um item (200)', async () => {
       const created = await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'DISPOSABLE',
           unit: 'UNIT',
           name: 'Seringa e2e',
@@ -330,6 +331,7 @@ describe('Item (e2e)', () => {
 
       const res = await request(server())
         .get(`/item/${itemBody(created).id}`)
+        .set('Authorization', bearer(owner))
         .expect(200);
 
       expect(itemBody(res).name).toBe('Seringa e2e');
@@ -338,6 +340,7 @@ describe('Item (e2e)', () => {
     it('404 quando o item não existe', async () => {
       const res = await request(server())
         .get(`/item/${randomUUID()}`)
+        .set('Authorization', bearer(owner))
         .expect(404);
 
       expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');
@@ -348,8 +351,8 @@ describe('Item (e2e)', () => {
     it('atualiza parcialmente (200)', async () => {
       const created = await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'ANESTHETIC',
           unit: 'ML',
           name: 'Anestésico e2e',
@@ -358,6 +361,7 @@ describe('Item (e2e)', () => {
 
       const res = await request(server())
         .patch(`/item/${itemBody(created).id}`)
+        .set('Authorization', bearer(owner))
         .send({ currentQuantity: 5 })
         .expect(200);
 
@@ -369,6 +373,7 @@ describe('Item (e2e)', () => {
     it('404 quando o item não existe', async () => {
       const res = await request(server())
         .patch(`/item/${randomUUID()}`)
+        .set('Authorization', bearer(owner))
         .send({ currentQuantity: 1 })
         .expect(404);
 
@@ -380,8 +385,8 @@ describe('Item (e2e)', () => {
     it('inativa o item e devolve id+name (200)', async () => {
       const created = await request(server())
         .post('/item')
+        .set('Authorization', bearer(owner))
         .send({
-          userId,
           category: 'DISPOSABLE',
           unit: 'BOX',
           name: 'Item pra deletar e2e',
@@ -390,6 +395,7 @@ describe('Item (e2e)', () => {
 
       const res = await request(server())
         .delete(`/item/${itemBody(created).id}`)
+        .set('Authorization', bearer(owner))
         .expect(200);
 
       expect(res.body).toEqual({
@@ -401,6 +407,7 @@ describe('Item (e2e)', () => {
     it('404 quando o item não existe', async () => {
       const res = await request(server())
         .delete(`/item/${randomUUID()}`)
+        .set('Authorization', bearer(owner))
         .expect(404);
 
       expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');

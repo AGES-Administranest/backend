@@ -6,13 +6,15 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiTags,
-  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { QuerySupplierDto } from './dto/query-supplier.dto';
 import { SupplierEntity } from './entities/supplier.entity';
 import { SupplierService } from './supplier.service';
+import { CurrentUser } from '../../shared/auth';
+// `import type` is required by `emitDecoratorMetadata` on a decorated signature.
+import type { AuthenticatedUser } from '../../shared/auth';
 
 @ApiTags('supplier')
 @Controller('supplier')
@@ -26,11 +28,11 @@ export class SupplierController {
   @ApiConflictResponse({
     description: 'A supplier with this name already exists',
   })
-  @ApiUnprocessableEntityResponse({
-    description: 'userId does not match an existing record',
-  })
-  create(@Body() dto: CreateSupplierDto) {
-    return this.supplierService.create(dto);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateSupplierDto,
+  ) {
+    return this.supplierService.create(user.id, dto);
   }
 
   @Get()
@@ -38,7 +40,10 @@ export class SupplierController {
     summary: "Lists a user's suppliers: search by name, paginated",
   })
   @ApiOkResponse({ type: SupplierEntity, isArray: true })
-  findAll(@Query() query: QuerySupplierDto) {
-    return this.supplierService.findAll(query);
+  findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QuerySupplierDto,
+  ) {
+    return this.supplierService.findAll(user.id, query);
   }
 }

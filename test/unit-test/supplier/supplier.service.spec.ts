@@ -23,7 +23,6 @@ const supplier = (overrides: Partial<Supplier> = {}): Supplier => ({
 
 const query = (overrides: Partial<QuerySupplierDto> = {}) =>
   Object.assign(new QuerySupplierDto(), {
-    userId: 'user-1',
     active: true,
     page: 1,
     limit: 100,
@@ -51,7 +50,7 @@ describe('SupplierService', () => {
     it("lists the user's suppliers without leaking userId", async () => {
       repository.findMany.mockResolvedValue([supplier()]);
 
-      const result = await service.findAll(query());
+      const result = await service.findAll('user-1', query());
 
       expect(result).toHaveLength(1);
       expect(result.every(s => !('userId' in s))).toBe(true);
@@ -65,7 +64,7 @@ describe('SupplierService', () => {
     it('ignores a search shorter than 2 characters', async () => {
       repository.findMany.mockResolvedValue([]);
 
-      await service.findAll(query({ search: 'a' }));
+      await service.findAll('user-1', query({ search: 'a' }));
 
       const [where] = repository.findMany.mock.calls[0] as [
         Record<string, unknown>,
@@ -76,7 +75,7 @@ describe('SupplierService', () => {
     it('escapes % and _ typed into the search', async () => {
       repository.findMany.mockResolvedValue([]);
 
-      await service.findAll(query({ search: '50%_off' }));
+      await service.findAll('user-1', query({ search: '50%_off' }));
 
       expect(repository.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -91,7 +90,6 @@ describe('SupplierService', () => {
   describe('create', () => {
     const dto = (overrides: Partial<CreateSupplierDto> = {}) =>
       Object.assign(new CreateSupplierDto(), {
-        userId: 'user-1',
         name: 'Distribuidora VetSul',
         ...overrides,
       });
@@ -99,16 +97,20 @@ describe('SupplierService', () => {
     it('creates the supplier when the name is free', async () => {
       repository.create.mockResolvedValue(supplier());
 
-      const result = await service.create(dto());
+      const result = await service.create('user-1', dto());
 
       expect(result.name).toBe('Distribuidora VetSul');
-      expect(repository.create).toHaveBeenCalled();
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1' }),
+      );
     });
 
     it('refuses a name the user already registered', async () => {
       repository.findByName.mockResolvedValue(supplier());
 
-      await expect(service.create(dto())).rejects.toBeInstanceOf(DomainError);
+      await expect(service.create('user-1', dto())).rejects.toBeInstanceOf(
+        DomainError,
+      );
       expect(repository.create).not.toHaveBeenCalled();
     });
   });

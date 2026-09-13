@@ -4,10 +4,11 @@ describe('ItemRepository', () => {
   let prisma: {
     item: {
       findMany: jest.Mock;
-      findUnique: jest.Mock;
+      findFirst: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
     };
+    $transaction: jest.Mock;
   };
   let repository: ItemRepository;
 
@@ -15,10 +16,13 @@ describe('ItemRepository', () => {
     prisma = {
       item: {
         findMany: jest.fn().mockResolvedValue([]),
-        findUnique: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn().mockResolvedValue({ id: 'item-1' }),
         create: jest.fn().mockResolvedValue({}),
         update: jest.fn().mockResolvedValue({}),
       },
+      // Owner-scoped writes run inside a transaction; the callback gets the
+      // same mock as its client.
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     repository = new ItemRepository(prisma as never);
   });
@@ -45,13 +49,17 @@ describe('ItemRepository', () => {
     });
 
     it.each([
-      ['findById', () => repository.findById('item-1'), 'findUnique'],
+      ['findById', () => repository.findById('item-1', 'user-1'), 'findFirst'],
       ['create', () => repository.create({ name: 'x' } as never), 'create'],
-      ['update', () => repository.update('item-1', { name: 'x' }), 'update'],
+      [
+        'update',
+        () => repository.update('item-1', 'user-1', { name: 'x' }),
+        'update',
+      ],
     ])('travels on %s too', async (_label, call, method) => {
       await call();
 
-      const [args] = prisma.item[method as 'findUnique'].mock.calls[0] as [
+      const [args] = prisma.item[method as 'findFirst'].mock.calls[0] as [
         { include?: unknown },
       ];
 

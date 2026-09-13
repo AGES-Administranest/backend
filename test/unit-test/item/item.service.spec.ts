@@ -68,7 +68,6 @@ describe('ItemService', () => {
   describe('findAll', () => {
     const query = (overrides: Partial<QueryItemDto> = {}) =>
       Object.assign(new QueryItemDto(), {
-        userId: 'user-1',
         active: true,
         sort: 'name',
         page: 1,
@@ -79,7 +78,7 @@ describe('ItemService', () => {
     it('lista os itens do usuário sem expor userId', async () => {
       repository.findMany.mockResolvedValue([item(), item({ id: 'item-2' })]);
 
-      const result = await service.findAll(query());
+      const result = await service.findAll('user-1', query());
 
       expect(result).toHaveLength(2);
       expect(result.every(i => !('userId' in i))).toBe(true);
@@ -95,6 +94,7 @@ describe('ItemService', () => {
       repository.findMany.mockResolvedValue([item()]);
 
       await service.findAll(
+        'user-1',
         query({ search: 'a', category: [ItemCategory.MEDICATION] }),
       );
 
@@ -111,7 +111,7 @@ describe('ItemService', () => {
       ];
       expect(where).not.toHaveProperty('name');
 
-      await service.findAll(query({ search: 'Dipirona' }));
+      await service.findAll('user-1', query({ search: 'Dipirona' }));
 
       expect(repository.findMany).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -126,7 +126,7 @@ describe('ItemService', () => {
     it('escapa % e _ digitados na busca', async () => {
       repository.findMany.mockResolvedValue([]);
 
-      await service.findAll(query({ search: '50%_off' }));
+      await service.findAll('user-1', query({ search: '50%_off' }));
 
       expect(repository.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -141,7 +141,7 @@ describe('ItemService', () => {
     it('só retorna inativos quando active=false é pedido explicitamente', async () => {
       repository.findMany.mockResolvedValue([]);
 
-      await service.findAll(query({ active: false }));
+      await service.findAll('user-1', query({ active: false }));
 
       expect(repository.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ active: false }),
@@ -155,6 +155,7 @@ describe('ItemService', () => {
       repository.findMany.mockResolvedValue([]);
 
       await service.findAll(
+        'user-1',
         query({ page: 3, limit: 10, sort: 'currentQuantity' }),
       );
 
@@ -172,7 +173,7 @@ describe('ItemService', () => {
       repository.findByPresentation.mockResolvedValue(null);
       repository.create.mockResolvedValue(item());
 
-      const result = await service.create(createDto());
+      const result = await service.create('user-1', createDto());
 
       expect(repository.create).toHaveBeenCalled();
       expect(result).not.toHaveProperty('userId');
@@ -182,9 +183,11 @@ describe('ItemService', () => {
     it('rejeita item com nome+unidade já cadastrados para o usuário', async () => {
       repository.findByPresentation.mockResolvedValue(item());
 
-      await expect(service.create(createDto())).rejects.toMatchObject({
-        code: 'DUPLICATED_ITEM_PRESENTATION',
-      } satisfies Partial<DomainError>);
+      await expect(service.create('user-1', createDto())).rejects.toMatchObject(
+        {
+          code: 'DUPLICATED_ITEM_PRESENTATION',
+        } satisfies Partial<DomainError>,
+      );
       expect(repository.create).not.toHaveBeenCalled();
     });
 
@@ -192,16 +195,17 @@ describe('ItemService', () => {
       repository.findByPresentation.mockResolvedValue(null);
       repository.create.mockRejectedValue(new InvalidReferenceError('userId'));
 
-      await expect(service.create(createDto())).rejects.toMatchObject({
-        code: 'INVALID_REFERENCE',
-      } satisfies Partial<DomainError>);
+      await expect(service.create('user-1', createDto())).rejects.toMatchObject(
+        {
+          code: 'INVALID_REFERENCE',
+        } satisfies Partial<DomainError>,
+      );
     });
   });
 
   describe('nearestExpiration', () => {
     const listQuery = () =>
       Object.assign(new QueryItemDto(), {
-        userId: 'user-1',
         active: true,
         sort: 'name',
         page: 1,
@@ -215,7 +219,7 @@ describe('ItemService', () => {
         }),
       ]);
 
-      const [result] = await service.findAll(listQuery());
+      const [result] = await service.findAll('user-1', listQuery());
 
       expect(result.nearestExpiration).toBe('2027-03-31');
     });
@@ -223,7 +227,7 @@ describe('ItemService', () => {
     it('is null when the item has no lot carrying an expiration', async () => {
       repository.findMany.mockResolvedValue([item({ lots: [] })]);
 
-      const [result] = await service.findAll(listQuery());
+      const [result] = await service.findAll('user-1', listQuery());
 
       expect(result.nearestExpiration).toBeNull();
     });
@@ -235,7 +239,7 @@ describe('ItemService', () => {
         }),
       );
 
-      const result = await service.findOne('item-1');
+      const result = await service.findOne('item-1', 'user-1');
 
       expect(result.nearestExpiration).toBe('2026-12-01');
     });
@@ -245,7 +249,7 @@ describe('ItemService', () => {
     it('lança NOT_FOUND quando o item não existe', async () => {
       repository.findById.mockResolvedValue(null);
 
-      await expect(service.findOne('missing')).rejects.toMatchObject({
+      await expect(service.findOne('missing', 'user-1')).rejects.toMatchObject({
         code: 'ITEM_NOT_FOUND',
       } satisfies Partial<DomainError>);
     });
@@ -253,7 +257,7 @@ describe('ItemService', () => {
     it('não expõe userId na resposta', async () => {
       repository.findById.mockResolvedValue(item());
 
-      const result = await service.findOne('item-1');
+      const result = await service.findOne('item-1', 'user-1');
 
       expect(result).not.toHaveProperty('userId');
     });
@@ -267,7 +271,7 @@ describe('ItemService', () => {
       );
 
       await expect(
-        service.update('item-1', { name: 'Novo nome' }),
+        service.update('item-1', 'user-1', { name: 'Novo nome' }),
       ).rejects.toMatchObject({
         code: 'DUPLICATED_ITEM_PRESENTATION',
       } satisfies Partial<DomainError>);
@@ -279,7 +283,7 @@ describe('ItemService', () => {
         item({ currentQuantity: new Decimal(3) }),
       );
 
-      await service.update('item-1', { currentQuantity: 3 });
+      await service.update('item-1', 'user-1', { currentQuantity: 3 });
 
       expect(repository.findByPresentation).not.toHaveBeenCalled();
     });
@@ -288,7 +292,7 @@ describe('ItemService', () => {
       repository.findById.mockResolvedValue(null);
 
       await expect(
-        service.update('missing', { currentQuantity: 1 }),
+        service.update('missing', 'user-1', { currentQuantity: 1 }),
       ).rejects.toMatchObject({
         code: 'ITEM_NOT_FOUND',
       } satisfies Partial<DomainError>);
@@ -299,7 +303,7 @@ describe('ItemService', () => {
     it('inativa o item e devolve id+name', async () => {
       repository.delete.mockResolvedValue(item({ active: false }));
 
-      const result = await service.remove('item-1');
+      const result = await service.remove('item-1', 'user-1');
 
       expect(result).toEqual({ id: 'item-1', name: 'Dipirona injetável' });
     });
@@ -307,7 +311,7 @@ describe('ItemService', () => {
     it('lança NOT_FOUND quando o item não existe', async () => {
       repository.delete.mockRejectedValue(new RecordNotFoundError());
 
-      await expect(service.remove('missing')).rejects.toMatchObject({
+      await expect(service.remove('missing', 'user-1')).rejects.toMatchObject({
         code: 'ITEM_NOT_FOUND',
       } satisfies Partial<DomainError>);
     });

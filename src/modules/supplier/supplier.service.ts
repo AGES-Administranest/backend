@@ -16,9 +16,12 @@ function escapeLike(term: string): string {
 export class SupplierService {
   constructor(private readonly supplierRepository: SupplierRepository) {}
 
-  async findAll(query: QuerySupplierDto): Promise<SupplierEntity[]> {
+  async findAll(
+    userId: string,
+    query: QuerySupplierDto,
+  ): Promise<SupplierEntity[]> {
     const where: Prisma.SupplierWhereInput = {
-      userId: query.userId,
+      userId,
       active: query.active,
       ...(query.search && query.search.length >= 2
         ? { name: { contains: escapeLike(query.search), mode: 'insensitive' } }
@@ -33,15 +36,18 @@ export class SupplierService {
     return suppliers.map(supplier => this.sanitize(supplier));
   }
 
-  async create(dto: CreateSupplierDto): Promise<SupplierEntity> {
-    const existing = await this.supplierRepository.findByName(
-      dto.userId,
-      dto.name,
-    );
+  async create(
+    userId: string,
+    dto: CreateSupplierDto,
+  ): Promise<SupplierEntity> {
+    const existing = await this.supplierRepository.findByName(userId, dto.name);
     if (existing) throw this.duplicatedName();
 
     try {
-      const supplier = await this.supplierRepository.create(dto);
+      const supplier = await this.supplierRepository.create({
+        ...dto,
+        userId,
+      });
       return this.sanitize(supplier);
     } catch (error) {
       if (error instanceof InvalidReferenceError)
