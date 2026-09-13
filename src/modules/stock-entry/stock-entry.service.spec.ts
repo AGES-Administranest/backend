@@ -73,7 +73,7 @@ describe('StockEntryService — upload confirmation', () => {
 
   it('rejects when nothing was uploaded', async () => {
     await expect(confirm()).rejects.toMatchObject({
-      code: 'PEDIDO_UPLOAD_NAO_CONCLUIDO',
+      code: 'INVOICE_UPLOAD_NOT_FINISHED',
       kind: 'CONFLICT',
     });
   });
@@ -93,7 +93,7 @@ describe('StockEntryService — upload confirmation', () => {
     storage.put(KEY, { contentLength: 2483911, contentType: 'image/jpeg' });
 
     await expect(confirm()).rejects.toMatchObject({
-      code: 'PEDIDO_UPLOAD_DIVERGENTE',
+      code: 'INVOICE_UPLOAD_MISMATCH',
     });
   });
 
@@ -102,7 +102,7 @@ describe('StockEntryService — upload confirmation', () => {
     storage.put(KEY, { contentLength: 1, contentType: 'application/pdf' });
 
     await expect(confirm()).rejects.toMatchObject({
-      code: 'PEDIDO_NAO_ENCONTRADO',
+      code: 'INVOICE_NOT_FOUND',
       kind: 'NOT_FOUND',
     });
   });

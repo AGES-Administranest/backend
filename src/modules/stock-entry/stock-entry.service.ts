@@ -93,7 +93,7 @@ export class StockEntryService {
     );
 
     if (existing) {
-      // AFTER MIGRATION: 409 `PEDIDO_NAO_EDITAVEL` when `status` is not DRAFT,
+      // AFTER MIGRATION: 409 `INVOICE_NOT_EDITABLE` when `status` is not DRAFT,
       // or when `extraction_status` is PROCESSING or SUCCESS.
       await this.updateDocument(purchaseInvoiceId, key, dto);
       return;
@@ -179,7 +179,7 @@ export class StockEntryService {
   private notFound(id: string) {
     return new DomainError(
       'NOT_FOUND',
-      'PEDIDO_NAO_ENCONTRADO',
+      'INVOICE_NOT_FOUND',
       `Purchase invoice ${id} not found`,
       { id },
     );
@@ -200,7 +200,7 @@ export class StockEntryService {
   private uploadNotFinished(id: string) {
     return new DomainError(
       'CONFLICT',
-      'PEDIDO_UPLOAD_NAO_CONCLUIDO',
+      'INVOICE_UPLOAD_NOT_FINISHED',
       'No document was found for this purchase invoice',
       { id },
     );
@@ -209,7 +209,7 @@ export class StockEntryService {
   private uploadMismatch(declared: string, stored?: string) {
     return new DomainError(
       'CONFLICT',
-      'PEDIDO_UPLOAD_DIVERGENTE',
+      'INVOICE_UPLOAD_MISMATCH',
       'The stored document does not match what was declared',
       { declared, stored: stored ?? null },
     );
@@ -218,7 +218,7 @@ export class StockEntryService {
   private duplicateFile() {
     return new DomainError(
       'CONFLICT',
-      'PEDIDO_ARQUIVO_DUPLICADO',
+      'INVOICE_FILE_DUPLICATED',
       'This file was already uploaded',
     );
   }

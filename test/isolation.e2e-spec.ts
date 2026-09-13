@@ -194,7 +194,7 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
         'b'.repeat(64),
       ).expect(404);
 
-      expect(body(response)).toMatchObject({ code: 'PEDIDO_NAO_ENCONTRADO' });
+      expect(body(response)).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
 
       // The id collided on the primary key: the fallback must not take the
       // row over, nor rewrite its document.
