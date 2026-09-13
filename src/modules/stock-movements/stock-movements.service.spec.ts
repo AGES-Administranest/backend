@@ -15,7 +15,6 @@ import { CreateStockPurchaseDto } from './dto/create-stock-purchase.dto';
 import { StockMovementsRepository } from './stock-movements.repository';
 import { StockMovementsService } from './stock-movements.service';
 import { DomainError } from '../../shared/errors/domain-error';
-import { UsersService } from '../users';
 
 const decimal = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value);
 
@@ -139,24 +138,10 @@ class FakeRepository {
   }
 }
 
-const fakeUsers = (map: Record<string, string>) =>
-  ({
-    findByCognitoSub: (sub: string) => {
-      const id = map[sub];
-      if (!id) {
-        return Promise.reject(
-          new DomainError('NOT_FOUND', 'USER_NOT_PROVISIONED', 'no mirror'),
-        );
-      }
-      return Promise.resolve({ id });
-    },
-  }) as unknown as UsersService;
-
-const build = (users: Record<string, string> = { 'sub-ana': 'user-ana' }) => {
+const build = () => {
   const repository = new FakeRepository();
   const service = new StockMovementsService(
     repository as unknown as StockMovementsRepository,
-    fakeUsers(users),
   );
   return { repository, service };
 };
@@ -181,10 +166,8 @@ const purchaseDto = (
   ...over,
 });
 
-const ana: { cognitoSub: string; email: string } = {
-  cognitoSub: 'sub-ana',
-  email: 'ana@example.com',
-};
+/** The local user id the guard resolves from the token (`user.id`). */
+const ana = 'user-ana';
 
 describe('StockMovementsService.registerAdjustment (US11)', () => {
   it('records an OUTBOUND MANUAL_ADJUSTMENT that reduces the balance', async () => {
@@ -247,17 +230,11 @@ describe('StockMovementsService.registerAdjustment (US11)', () => {
   });
 
   it("does not let a user adjust another user's item (ADR-11)", async () => {
-    const { repository, service } = build({
-      'sub-ana': 'user-ana',
-      'sub-bob': 'user-bob',
-    });
+    const { repository, service } = build();
     repository.seedItem({ id: 'item-1', userId: 'user-bob' });
     await service.record('user-bob', inbound('item-1', 10));
 
-    const rejected = service.registerAdjustment(
-      { cognitoSub: 'sub-ana', email: 'ana@example.com' },
-      dto(),
-    );
+    const rejected = service.registerAdjustment(ana, dto());
 
     await expect(rejected).rejects.toMatchObject({
       kind: 'NOT_FOUND',
@@ -397,10 +374,7 @@ describe('StockMovementsService.registerPurchase (manual purchase entry)', () =>
   });
 
   it("does not let a user buy into another user's item (ADR-11)", async () => {
-    const { repository, service } = build({
-      'sub-ana': 'user-ana',
-      'sub-bob': 'user-bob',
-    });
+    const { repository, service } = build();
     repository.seedItem({ id: 'item-1', userId: 'user-bob' });
 
     await expect(

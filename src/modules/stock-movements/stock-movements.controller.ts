@@ -39,7 +39,7 @@ export class StockMovementsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStockAdjustmentDto,
   ) {
-    return this.stockMovementsService.registerAdjustment(user, dto);
+    return this.stockMovementsService.registerAdjustment(user.id, dto);
   }
 
   @Post('purchases')
@@ -61,6 +61,6 @@ export class StockMovementsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStockPurchaseDto,
   ) {
-    return this.stockMovementsService.registerPurchase(user, dto);
+    return this.stockMovementsService.registerPurchase(user.id, dto);
   }
 }
