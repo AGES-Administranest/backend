@@ -14,6 +14,7 @@
     "dev:setup": "docker compose up -d --wait && npm run dev:bootstrap && npx prisma migrate dev",
     "dev:bootstrap": "docker compose --profile bootstrap run --rm aws-cli /scripts/bootstrap-aws.sh",
     "dev:token": "docker compose --profile bootstrap run --rm aws-cli /scripts/dev-token.sh",
+    "dev:social-token": "docker compose --profile bootstrap run --rm aws-cli /scripts/dev-social-token.sh",
     "dev:down": "docker compose down",
     "dev:reset": "docker compose down -v && docker compose run --rm --no-deps aws-cli -c \"rm -rf /workspace/docker/ministack-data\" && rm -f .aws-local.env",
     "format": "prettier --write .",
