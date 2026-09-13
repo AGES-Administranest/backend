@@ -19,9 +19,7 @@ import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
 import { CreateStockPurchaseDto } from './dto/create-stock-purchase.dto';
 import { StockMovementEntity } from './entities/stock-movement.entity';
 import { StockMovementsRepository } from './stock-movements.repository';
-import type { AuthenticatedUser } from '../../shared/auth';
 import { DomainError } from '../../shared/errors/domain-error';
-import { UsersService } from '../users';
 
 /** Everything the central ledger needs to record one movement. */
 export interface RecordMovementInput {
@@ -63,10 +61,7 @@ export interface RecordMovementResult {
  */
 @Injectable()
 export class StockMovementsService {
-  constructor(
-    private readonly repository: StockMovementsRepository,
-    private readonly usersService: UsersService,
-  ) {}
+  constructor(private readonly repository: StockMovementsRepository) {}
 
   async record(
     userId: string,
@@ -207,12 +202,10 @@ export class StockMovementsService {
    * flagged `needsAdjustment`, the flag is cleared once the movement lands.
    */
   async registerAdjustment(
-    authUser: AuthenticatedUser,
+    userId: string,
     dto: CreateStockAdjustmentDto,
   ): Promise<StockMovementEntity> {
-    const user = await this.usersService.findByCognitoSub(authUser.cognitoSub);
-
-    const item = await this.repository.findItemById(user.id, dto.itemId);
+    const item = await this.repository.findItemById(userId, dto.itemId);
     if (!item) throw this.itemNotFound(dto.itemId);
 
     const quantity = assertPositiveQuantity(dto.quantity);
@@ -221,7 +214,7 @@ export class StockMovementsService {
     const unitCost = item.defaultUnitCost ?? new Prisma.Decimal(0);
 
     const { movement } = await this.record(
-      user.id,
+      userId,
       {
         itemId: dto.itemId,
         type: StockMovementType.OUTBOUND,
@@ -250,12 +243,10 @@ export class StockMovementsService {
    * until the financial module exists.
    */
   async registerPurchase(
-    authUser: AuthenticatedUser,
+    userId: string,
     dto: CreateStockPurchaseDto,
   ): Promise<StockMovementEntity> {
-    const user = await this.usersService.findByCognitoSub(authUser.cognitoSub);
-
-    const item = await this.repository.findItemById(user.id, dto.itemId);
+    const item = await this.repository.findItemById(userId, dto.itemId);
     if (!item) throw this.itemNotFound(dto.itemId);
 
     const occurredAt = new Date(dto.date);
@@ -270,7 +261,7 @@ export class StockMovementsService {
 
     if (dto.supplierId) {
       const supplier = await this.repository.findSupplierById(
-        user.id,
+        userId,
         dto.supplierId,
       );
       if (!supplier) {
@@ -286,7 +277,7 @@ export class StockMovementsService {
     const unitCost = new Prisma.Decimal(dto.unitValue);
 
     const { movement } = await this.record(
-      user.id,
+      userId,
       {
         itemId: dto.itemId,
         type: StockMovementType.INBOUND,
@@ -298,13 +289,12 @@ export class StockMovementsService {
         notes: dto.notes ?? null,
       },
       {
-        // Latest purchase price wins; the price history stays in the ledger's
-        // `unitCost` column. Reactivates the item if it had been deactivated.
-        // Runs inside record()'s own lock/transaction — a failure here rolls
-        // back the movement too (fixes review point #4).
+        // Latest purchase price wins only if this purchase is not older than
+        // the most recent inbound already recorded — a backdated entry must
+        // not overwrite a newer price (review point #4).
         additionalWrites: async tx => {
           const movements = await this.repository.findMovementsByItem(
-            user.id,
+            userId,
             dto.itemId,
             tx,
           );

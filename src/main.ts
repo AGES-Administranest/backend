@@ -42,7 +42,17 @@ async function bootstrap() {
       .addTag('users', 'Gerenciamento de usuários')
       .addTag('stock-movements', 'Movimentações de estoque e ajustes manuais')
       .addTag('item', 'Estoque de insumos e medicamentos')
+      .addTag('supplier', 'Fornecedores do usuário')
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
+      // Without this the page is unusable now that the guard is global: every
+      // request from /docs would answer 401 with nowhere to put a token.
+      // `npm run dev:token` prints one to paste into Authorize.
+      .addBearerAuth({
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Cognito IdToken — npm run dev:token',
+      })
       .build();
 
     SwaggerModule.setup('docs', app, () =>

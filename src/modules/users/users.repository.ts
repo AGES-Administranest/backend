@@ -27,6 +27,7 @@ export class UsersRepository {
     return runQuery(() => this.prisma.user.findUnique({ where: { id } }));
   }
 
+  /** On the request path for every authenticated call — `cognito_sub` is unique. */
   findByCognitoSub(cognitoSub: string): Promise<User | null> {
     return runQuery(() =>
       this.prisma.user.findUnique({ where: { cognitoSub } }),
