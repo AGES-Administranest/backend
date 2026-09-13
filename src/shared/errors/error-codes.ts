@@ -53,6 +53,11 @@ export const ERROR_CODES = [
   'PEDIDO_NAO_EDITAVEL',
   'PEDIDO_ARQUIVO_DUPLICADO',
   'INVOICE_FILE_TOO_LARGE',
+  // The app said the upload finished, but HeadObject found no object: it
+  // reissues the presigned POST and resends, without losing the draft.
+  'PEDIDO_UPLOAD_NAO_CONCLUIDO',
+  // The object is there, but does not match what was declared and signed.
+  'PEDIDO_UPLOAD_DIVERGENTE',
 
   // seu módulo entra aqui
 ] as const;

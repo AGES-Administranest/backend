@@ -17,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
+import { UploadConfirmationResponseDto } from './dto/upload-confirmation-response.dto';
 import { UploadUrlResponseDto } from './dto/upload-url-response.dto';
 import { StockEntryService } from './stock-entry.service';
 import { CurrentUser } from '../../shared/auth';
@@ -52,5 +53,27 @@ export class StockEntryController {
     @Body() dto: CreateUploadUrlDto,
   ): Promise<UploadUrlResponseDto> {
     return this.stockEntryService.createUploadUrl(user.id, id, dto);
+  }
+
+  @Post(':id/uploaded')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Confirms that the document reached the bucket',
+    description:
+      'The app calls this after S3 answers 204. The API verifies the object ' +
+      'with HeadObject rather than trusting the client. Becomes ' +
+      'POST /extrair once extraction runs on the server.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: UploadConfirmationResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiConflictResponse({
+    description: 'No object at the key, or it diverges from what was declared',
+  })
+  confirmUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<UploadConfirmationResponseDto> {
+    return this.stockEntryService.confirmUpload(user.id, id);
   }
 }
