@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiConflictResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -39,6 +40,9 @@ export class StockEntryController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: UploadUrlResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiNotFoundResponse({
+    description: 'The id belongs to another account (ADR-11)',
+  })
   @ApiConflictResponse({
     description: 'Invoice is not a draft, or extraction already started',
   })
@@ -47,6 +51,6 @@ export class StockEntryController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateUploadUrlDto,
   ): Promise<UploadUrlResponseDto> {
-    return this.stockEntryService.createUploadUrl(user.cognitoSub, id, dto);
+    return this.stockEntryService.createUploadUrl(user.id, id, dto);
   }
 }

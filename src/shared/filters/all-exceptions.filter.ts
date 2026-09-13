@@ -33,10 +33,11 @@ const STATUS_BY_KIND: Record<ErrorKind, number> = {
 
 /** Errors NestJS itself throws (unknown route, guard, ParseUUIDPipe…). */
 const CODE_BY_STATUS: Record<number, ErrorCode> = {
-  [HttpStatus.BAD_REQUEST]: 'REQUISICAO_INVALIDA',
-  [HttpStatus.UNAUTHORIZED]: 'NAO_AUTENTICADO',
-  [HttpStatus.FORBIDDEN]: 'SEM_PERMISSAO',
-  [HttpStatus.NOT_FOUND]: 'ROTA_NAO_ENCONTRADA',
+  [HttpStatus.BAD_REQUEST]: 'INVALID_REQUEST',
+  [HttpStatus.UNAUTHORIZED]: 'UNAUTHENTICATED',
+  [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
+  [HttpStatus.NOT_FOUND]: 'ROUTE_NOT_FOUND',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
 };
 
 interface TranslatedError {
@@ -102,16 +103,26 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (Array.isArray(messages)) {
       return {
         statusCode,
-        code: 'VALIDACAO_INVALIDA',
+        code: 'VALIDATION_ERROR',
         message: 'Invalid request',
         details: { fields: messages.map((field: unknown) => String(field)) },
       };
     }
 
+    const code = CODE_BY_STATUS[statusCode] ?? 'HTTP_ERROR';
+
     return {
       statusCode,
-      code: CODE_BY_STATUS[statusCode] ?? 'ERRO_HTTP',
-      message: typeof messages === 'string' ? messages : exception.message,
+      code,
+      // The throttler's own message is the class name ("ThrottlerException:
+      // Too Many Requests"), which says more about our stack than about what
+      // the caller should do.
+      message:
+        code === 'TOO_MANY_REQUESTS'
+          ? 'Too many requests. Try again shortly.'
+          : typeof messages === 'string'
+            ? messages
+            : exception.message,
     };
   }
 
@@ -119,7 +130,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private internalError(): TranslatedError {
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      code: 'ERRO_INTERNO',
+      code: 'INTERNAL_SERVER_ERROR',
       message: 'Internal server error',
     };
   }

@@ -12,20 +12,41 @@
  */
 export const ERROR_CODES = [
   // Transversais: nascem no filtro global, valem para qualquer rota.
-  'VALIDACAO_INVALIDA',
-  'REQUISICAO_INVALIDA',
-  'NAO_AUTENTICADO',
-  'SEM_PERMISSAO',
-  'ROTA_NAO_ENCONTRADA',
-  'ERRO_HTTP',
-  'ERRO_INTERNO',
+  'VALIDATION_ERROR',
+  'INVALID_REQUEST',
+  'UNAUTHENTICATED',
+  // The two token failures the app has to tell apart: TOKEN_EXPIRED means the
+  // refresh is worth trying, TOKEN_INVALID means send the user to the login
+  // screen. Every other reason a token can be rejected (bad signature, wrong
+  // issuer, wrong audience, unknown key) collapses into TOKEN_INVALID on
+  // purpose: the app would do the same thing for all of them, and naming the
+  // exact reason tells whoever is forging tokens which part to fix. The real
+  // reason goes to the server log.
+  'TOKEN_EXPIRED',
+  'TOKEN_INVALID',
+  'FORBIDDEN',
+  'TOO_MANY_REQUESTS',
+  'ROUTE_NOT_FOUND',
+  'HTTP_ERROR',
+  'INTERNAL_SERVER_ERROR',
 
   // users
-  'USUARIO_NAO_ENCONTRADO',
-  'USUARIO_EMAIL_JA_CADASTRADO',
-  // Own code, not a plain 404: the app reacts by calling POST /auth/session
-  // and retrying, instead of showing "not found" to the user.
-  'USUARIO_NAO_PROVISIONADO',
+  'USER_NOT_FOUND',
+  'USER_EMAIL_ALREADY_REGISTERED',
+  'USER_NOT_PROVISIONED',
+
+  // item
+  'ITEM_NOT_FOUND',
+  'DUPLICATED_ITEM_PRESENTATION',
+  'INVALID_REFERENCE',
+  'ITEM_LOT_UNIT_COST_REQUIRED',
+
+  // supplier
+  'DUPLICATED_SUPPLIER_NAME',
+
+  // stock-movements
+  'STOCK_QUANTITY_INVALID',
+  'STOCK_REASON_ADJUSTMENT_INVALID',
 
   // stock-entry (purchase invoices)
   'PEDIDO_NAO_ENCONTRADO',

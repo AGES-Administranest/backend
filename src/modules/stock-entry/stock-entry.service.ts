@@ -8,7 +8,6 @@ import { StockEntryRepository } from './stock-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DocumentStorage } from '../../infra/storage';
 import { DomainError } from '../../shared/errors/domain-error';
-import { UsersService } from '../users';
 
 /**
  * Written against today's schema, before the US10 migration. Every comment
@@ -20,25 +19,22 @@ import { UsersService } from '../users';
 export class StockEntryService {
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
-    private readonly usersService: UsersService,
     private readonly documentStorage: DocumentStorage,
   ) {}
 
+  /** `userId` is the local id the guard resolved from the token, never the body. */
   async createUploadUrl(
-    cognitoSub: string,
+    userId: string,
     purchaseInvoiceId: string,
     dto: CreateUploadUrlDto,
   ): Promise<UploadUrlResponseDto> {
-    const user = await this.usersService.findByCognitoSub(cognitoSub);
-    if (!user) throw this.notProvisioned();
-
     // Before signing anything (§7.3): the presigned POST pins
     // `content-length-range` to this exact size, so past the limit S3 would
     // reject the upload itself — late, and with an error the app cannot read.
     if (dto.fileBytesSize > MAX_FILE_BYTES_SIZE) throw this.fileTooLarge(dto);
 
-    const key = buildDocumentKey(user.id, purchaseInvoiceId);
-    await this.saveDocumentMetadata(user.id, purchaseInvoiceId, key, dto);
+    const key = buildDocumentKey(userId, purchaseInvoiceId);
+    await this.saveDocumentMetadata(userId, purchaseInvoiceId, key, dto);
 
     // AFTER MIGRATION: stamp `upload_requested_at`, which is what the sweep
     // uses to find drafts whose upload never arrived.
@@ -167,14 +163,6 @@ export class StockEntryService {
       'CONFLICT',
       'PEDIDO_ARQUIVO_DUPLICADO',
       'This file was already uploaded',
-    );
-  }
-
-  private notProvisioned() {
-    return new DomainError(
-      'NOT_FOUND',
-      'USUARIO_NAO_PROVISIONADO',
-      'The authenticated user has no local mirror yet. Call POST /auth/session first.',
     );
   }
 }
