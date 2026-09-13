@@ -17,6 +17,7 @@ interface ItemBody {
   category?: string;
   unit?: string;
   currentQuantity?: string;
+  nearestExpiration?: string | null;
 }
 
 interface ErrorBody {
@@ -50,6 +51,7 @@ describe('Item (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.itemLot.deleteMany({ where: { item: { userId } } });
     await prisma.item.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
     await app.close();
@@ -236,6 +238,82 @@ describe('Item (e2e)', () => {
 
     it('401 sem token — a listagem não é acessível sem autenticação', async () => {
       await request(server()).get('/item').expect(401);
+    });
+  });
+
+  describe('nearestExpiration', () => {
+    const lot = (
+      itemId: string,
+      expirationDate: string | null,
+      currentQuantity: number,
+    ) =>
+      prisma.itemLot.create({
+        data: {
+          itemId,
+          expirationDate: expirationDate ? new Date(expirationDate) : null,
+          unitCost: 10,
+          currentQuantity,
+          receivedOn: new Date('2026-01-01'),
+        },
+      });
+
+    const createItem = async (name: string) => {
+      const item = await prisma.item.create({
+        data: {
+          userId,
+          name,
+          category: 'MEDICATION',
+          unit: 'AMPOULE',
+        },
+      });
+      return item.id;
+    };
+
+    const listed = async (name: string) => {
+      const res = await request(server())
+        .get('/item')
+        .set('Authorization', bearer(owner))
+        .query({ search: name })
+        .expect(200);
+      return (res.body as ItemBody[]).find(item => item.name === name);
+    };
+
+    it('returns the earliest expiration among the lots still in stock', async () => {
+      const id = await createItem('Nearest e2e ordering');
+      await lot(id, '2028-05-10', 5);
+      await lot(id, '2027-03-31', 5);
+      await lot(id, '2029-01-01', 5);
+
+      const item = await listed('Nearest e2e ordering');
+
+      expect(item?.nearestExpiration).toBe('2027-03-31');
+    });
+
+    it('ignores lots that ran out of stock', async () => {
+      const id = await createItem('Nearest e2e empty lot');
+      await lot(id, '2026-02-01', 0);
+      await lot(id, '2030-09-09', 4);
+
+      const item = await listed('Nearest e2e empty lot');
+
+      expect(item?.nearestExpiration).toBe('2030-09-09');
+    });
+
+    it('is null when no lot carries an expiration', async () => {
+      const id = await createItem('Nearest e2e no date');
+      await lot(id, null, 7);
+
+      const item = await listed('Nearest e2e no date');
+
+      expect(item?.nearestExpiration).toBeNull();
+    });
+
+    it('is null for an item with no lots at all', async () => {
+      await createItem('Nearest e2e no lots');
+
+      const item = await listed('Nearest e2e no lots');
+
+      expect(item?.nearestExpiration).toBeNull();
     });
   });
 

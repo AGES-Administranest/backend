@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { AuthModule } from './modules/auth';
 import { ItemModule } from './modules/item/item.module';
+import { SupplierModule } from './modules/supplier/supplier.module';
 import { UsersModule } from './modules/users/users.module';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
 
@@ -32,6 +33,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     SharedAuthModule,
     UsersModule,
     ItemModule,
+    SupplierModule,
     AuthModule,
   ],
   controllers: [AppController],

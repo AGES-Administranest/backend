@@ -4,6 +4,31 @@ import { Item, MeasurementUnit, Prisma } from '@prisma/client';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
+/**
+ * The lot that expires first among those still holding stock.
+ *
+ * It is what the app shows beside an item, so it travels with every read
+ * instead of forcing one request per item. `take: 1` keeps it to a single
+ * extra query for the whole page, served by the `[itemId, expirationDate]`
+ * index. Empty lots are excluded: a depleted lot's date says nothing about
+ * what is in stock today.
+ */
+const NEAREST_LOT = {
+  lots: {
+    where: {
+      expirationDate: { not: null },
+      currentQuantity: { gt: 0 },
+    },
+    orderBy: { expirationDate: 'asc' },
+    take: 1,
+    select: { expirationDate: true },
+  },
+} satisfies Prisma.ItemInclude;
+
+export type ItemWithNearestLot = Item & {
+  lots: { expirationDate: Date | null }[];
+};
+
 @Injectable()
 export class ItemRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -13,9 +38,15 @@ export class ItemRepository {
     orderBy: Prisma.ItemOrderByWithRelationInput = { name: 'asc' },
     skip?: number,
     take?: number,
-  ): Promise<Item[]> {
+  ): Promise<ItemWithNearestLot[]> {
     return runQuery(() =>
-      this.prisma.item.findMany({ where, orderBy, skip, take }),
+      this.prisma.item.findMany({
+        where,
+        orderBy,
+        skip,
+        take,
+        include: NEAREST_LOT,
+      }),
     );
   }
 
@@ -26,9 +57,12 @@ export class ItemRepository {
    * never existed, so the response cannot be used to probe for other people's
    * records.
    */
-  findById(id: string, userId: string): Promise<Item | null> {
+  findById(id: string, userId: string): Promise<ItemWithNearestLot | null> {
     return runQuery(() =>
-      this.prisma.item.findFirst({ where: { id, userId } }),
+      this.prisma.item.findFirst({
+        where: { id, userId },
+        include: NEAREST_LOT,
+      }),
     );
   }
 
@@ -51,8 +85,10 @@ export class ItemRepository {
     );
   }
 
-  create(data: Prisma.ItemUncheckedCreateInput): Promise<Item> {
-    return runQuery(() => this.prisma.item.create({ data }));
+  create(data: Prisma.ItemUncheckedCreateInput): Promise<ItemWithNearestLot> {
+    return runQuery(() =>
+      this.prisma.item.create({ data, include: NEAREST_LOT }),
+    );
   }
 
   /**
@@ -67,7 +103,7 @@ export class ItemRepository {
     id: string,
     userId: string,
     data: Prisma.ItemUncheckedUpdateInput,
-  ): Promise<Item | null> {
+  ): Promise<ItemWithNearestLot | null> {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
         const owned = await tx.item.findFirst({
@@ -76,7 +112,7 @@ export class ItemRepository {
         });
         if (!owned) return null;
 
-        return tx.item.update({ where: { id }, data });
+        return tx.item.update({ where: { id }, data, include: NEAREST_LOT });
       }),
     );
   }
