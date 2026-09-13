@@ -70,9 +70,10 @@ export class StockMovementsRepository {
   applyInboundPurchaseToItem(
     itemId: string,
     unitCost: Prisma.Decimal,
+    tx?: Prisma.TransactionClient,
   ): Promise<Item> {
     return runQuery(() =>
-      this.prisma.item.update({
+      (tx ?? this.prisma).item.update({
         where: { id: itemId },
         data: { defaultUnitCost: unitCost, active: true },
       }),

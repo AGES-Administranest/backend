@@ -71,7 +71,11 @@ export class StockMovementsService {
   async record(
     userId: string,
     input: RecordMovementInput,
-    options: { allowNegativeBalance?: boolean } = {},
+    options: {
+      allowNegativeBalance?: boolean;
+      clearsNeedsAdjustment?: boolean;
+      additionalWrites?: (tx: Prisma.TransactionClient) => Promise<void>;
+    } = {},
   ): Promise<RecordMovementResult> {
     assertValidMovement({
       type: input.type,
@@ -111,6 +115,8 @@ export class StockMovementsService {
             type: input.type,
             source: input.source,
             adjustmentReason: input.adjustmentReason ?? null,
+            appointmentId: input.appointmentId ?? null,
+            purchaseOrderId: input.purchaseOrderId ?? null,
             quantity: new Prisma.Decimal(input.quantity),
             unitCost: new Prisma.Decimal(input.unitCost),
             occurredAt: input.occurredAt,
@@ -126,9 +132,23 @@ export class StockMovementsService {
           tx,
         );
 
-        const needsAdjustment = balanceRequiresAdjustment(resultingBalance);
-        if (needsAdjustment) {
+        const balanceIsNegative = balanceRequiresAdjustment(resultingBalance);
+        let needsAdjustment = lockedItem.needsAdjustment;
+
+        if (balanceIsNegative && !lockedItem.needsAdjustment) {
+          needsAdjustment = true;
           await this.repository.setItemNeedsAdjustment(input.itemId, true, tx);
+        } else if (
+          !balanceIsNegative &&
+          lockedItem.needsAdjustment &&
+          options.clearsNeedsAdjustment
+        ) {
+          needsAdjustment = false;
+          await this.repository.setItemNeedsAdjustment(input.itemId, false, tx);
+        }
+
+        if (options.additionalWrites) {
+          await options.additionalWrites(tx);
         }
 
         const belowMinimum =
@@ -151,30 +171,34 @@ export class StockMovementsService {
    * `item.currentQuantity` if it drifted. Useful in tests and in support when
    * investigating a suspected divergence between the ledger and the cache.
    */
-  async reconcileItemBalance(
-    userId: string,
-    itemId: string,
-  ): Promise<{
-    previousBalance: Prisma.Decimal;
-    reconciledBalance: Prisma.Decimal;
-    wasDivergent: boolean;
-  }> {
-    const item = await this.repository.findItemById(userId, itemId);
-    if (!item) throw this.itemNotFound(itemId);
+  async reconcileItemBalance(userId: string, itemId: string) {
+    return this.repository.recordWithLock(itemId, async (tx, lockedItem) => {
+      if (!lockedItem || lockedItem.userId !== userId)
+        throw this.itemNotFound(itemId);
 
-    const movements = await this.repository.findMovementsByItem(userId, itemId);
-    const reconciledBalance = stockBalance(movements);
-    const previousBalance = item.currentQuantity;
-    const wasDivergent = !previousBalance.equals(reconciledBalance);
+      const movements = await this.repository.findMovementsByItem(
+        userId,
+        itemId,
+        tx,
+      );
+      const reconciledBalance = stockBalance(movements);
+      const previousBalance = lockedItem.currentQuantity;
+      const wasDivergent = !previousBalance.equals(reconciledBalance);
 
-    if (wasDivergent) {
-      await this.repository.updateItemQuantity(itemId, reconciledBalance);
-      if (balanceRequiresAdjustment(reconciledBalance)) {
-        await this.repository.setItemNeedsAdjustment(itemId, true);
+      if (wasDivergent) {
+        await this.repository.updateItemQuantity(itemId, reconciledBalance, tx);
+        const needsAdjustment = balanceRequiresAdjustment(reconciledBalance);
+        if (needsAdjustment !== lockedItem.needsAdjustment) {
+          await this.repository.setItemNeedsAdjustment(
+            itemId,
+            needsAdjustment,
+            tx,
+          );
+        }
       }
-    }
 
-    return { previousBalance, reconciledBalance, wasDivergent };
+      return { previousBalance, reconciledBalance, wasDivergent };
+    });
   }
 
   /**
@@ -196,20 +220,20 @@ export class StockMovementsService {
     // "custo unitário do item no momento" (US11): the item's current unit cost.
     const unitCost = item.defaultUnitCost ?? new Prisma.Decimal(0);
 
-    const { movement } = await this.record(user.id, {
-      itemId: dto.itemId,
-      type: StockMovementType.OUTBOUND,
-      source: StockMovementSource.MANUAL_ADJUSTMENT,
-      adjustmentReason: dto.adjustmentReason,
-      quantity,
-      unitCost,
-      occurredAt: new Date(dto.date),
-      notes: dto.notes ?? null,
-    });
-
-    if (item.needsAdjustment) {
-      await this.repository.setItemNeedsAdjustment(dto.itemId, false);
-    }
+    const { movement } = await this.record(
+      user.id,
+      {
+        itemId: dto.itemId,
+        type: StockMovementType.OUTBOUND,
+        source: StockMovementSource.MANUAL_ADJUSTMENT,
+        adjustmentReason: dto.adjustmentReason,
+        quantity,
+        unitCost,
+        occurredAt: new Date(dto.date),
+        notes: dto.notes ?? null,
+      },
+      { clearsNeedsAdjustment: true },
+    );
 
     return StockMovementEntity.fromModel(movement);
   }
@@ -261,20 +285,48 @@ export class StockMovementsService {
 
     const unitCost = new Prisma.Decimal(dto.unitValue);
 
-    const { movement } = await this.record(user.id, {
-      itemId: dto.itemId,
-      type: StockMovementType.INBOUND,
-      source: StockMovementSource.MANUAL_PURCHASE,
-      quantity: dto.quantity,
-      unitCost,
-      occurredAt,
-      supplierId: dto.supplierId ?? null,
-      notes: dto.notes ?? null,
-    });
+    const { movement } = await this.record(
+      user.id,
+      {
+        itemId: dto.itemId,
+        type: StockMovementType.INBOUND,
+        source: StockMovementSource.MANUAL_PURCHASE,
+        quantity: dto.quantity,
+        unitCost,
+        occurredAt,
+        supplierId: dto.supplierId ?? null,
+        notes: dto.notes ?? null,
+      },
+      {
+        // Latest purchase price wins; the price history stays in the ledger's
+        // `unitCost` column. Reactivates the item if it had been deactivated.
+        // Runs inside record()'s own lock/transaction — a failure here rolls
+        // back the movement too (fixes review point #4).
+        additionalWrites: async tx => {
+          const movements = await this.repository.findMovementsByItem(
+            user.id,
+            dto.itemId,
+            tx,
+          );
 
-    // Latest purchase price wins; the price history stays in the ledger's
-    // `unitCost` column. Reactivates the item if it had been deactivated.
-    await this.repository.applyInboundPurchaseToItem(dto.itemId, unitCost);
+          const lastPurchase = movements
+            .filter(m => m.type === StockMovementType.INBOUND)
+            .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())[0];
+
+          const isLatestPrice =
+            !lastPurchase ||
+            occurredAt.getTime() >= lastPurchase.occurredAt.getTime();
+
+          if (isLatestPrice) {
+            await this.repository.applyInboundPurchaseToItem(
+              dto.itemId,
+              unitCost,
+              tx,
+            );
+          }
+        },
+      },
+    );
 
     return StockMovementEntity.fromModel(movement);
   }
