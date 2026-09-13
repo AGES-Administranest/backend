@@ -217,8 +217,6 @@ Um `rm -rf docker/ministack-data` direto seria mais simples — e falha. O MiniS
 
 ## Apontando o app mobile para cá
 
-> Isto está **documentado, não implementado** — o `client-mobile` ainda não tem código de autenticação.
-
 O app autentica **direto no Cognito** e manda o token para a API (ADR-02). Como React Native roda JavaScript, ele usa o mesmo `@aws-sdk/client-cognito-identity-provider` do backend — só muda o endereço, porque `localhost` dentro de um emulador é o próprio emulador, não a sua máquina:
 
 | Onde o app roda  | Endpoint do MiniStack         | Endpoint da API               |
@@ -228,6 +226,27 @@ O app autentica **direto no Cognito** e manda o token para a API (ADR-02). Como 
 | Celular físico   | `http://<IP-da-sua-LAN>:4566` | `http://<IP-da-sua-LAN>:3000` |
 
 O `10.0.2.2` é um endereço especial do emulador do Android que aponta para o host. Para celular físico, descubra seu IP com `ip addr | grep 'inet 192'` e garanta que celular e computador estão no mesmo Wi-Fi.
+
+Esses três endereços vão no `.env` do **client-mobile** (`EXPO_PUBLIC_COGNITO_ENDPOINT`, `EXPO_PUBLIC_COGNITO_OAUTH_URL` e `EXPO_PUBLIC_API_URL`). Se você mudou o `MINISTACK_PORT`, use a porta nova nos dois primeiros.
+
+### Celular físico: o `AWS_ENDPOINT_URL` daqui também muda
+
+O upload da nota (US10) não passa pela API: ela só assina a policy, e **o celular POSTa direto no bucket**. A URL desse POST não sai do `.env` do app — sai daqui, porque é o endereço com que este backend montou o cliente S3 (`s3-document-storage.ts`) que volta no campo `url` da resposta. Com `localhost`, o celular tenta subir o arquivo contra si mesmo.
+
+Então, para testar em aparelho físico, no `.env` **deste** repositório:
+
+```
+AWS_ENDPOINT_URL=http://<IP-da-sua-LAN>:4566
+```
+
+Funciona porque o backend roda fora do Docker (`npm run start:dev`) e alcança o próprio IP da LAN; a mesma variável serve para o `HeadObject` dele e para a URL que o celular recebe. A porta já sai publicada em `0.0.0.0`, então do lado do Docker não falta nada — o que costuma faltar é liberar o firewall do host.
+
+**Trocar o host não invalida a assinatura.** No presigned POST o que é assinado é o policy document (bucket, key, Content-Type, content-length-range), não o Host — ao contrário do presigned GET/PUT, em que o endereço entra na query string.
+
+Dois avisos para o mesmo cenário:
+
+- **Login social em aparelho físico só funciona com túnel**, porque os redirects do `oidc-mock` apontam para `localhost` (mesma limitação registrada em "E-mails de confirmação"). Login por e-mail e senha funciona normal.
+- **`COGNITO_ISSUER` não é afetado** pela troca de endereço: o emulador emite o issuer da AWS real, e é isso que o bootstrap grava. Ver ADR-12.
 
 ## Explorando na mão
 
