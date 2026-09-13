@@ -5,16 +5,11 @@ import {
   IsEnum,
   IsOptional,
   IsString,
-  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
 
 export class CreateSupplierDto {
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  userId!: string;
-
   @ApiProperty({ example: 'Distribuidora VetSul' })
   @IsString()
   @MinLength(2)
