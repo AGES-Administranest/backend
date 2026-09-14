@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { AuthModule } from './modules/auth';
 import { ItemModule } from './modules/item/item.module';
+import { StockMovementsModule } from './modules/stock-movements';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { UsersModule } from './modules/users/users.module';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
@@ -35,6 +36,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     ItemModule,
     SupplierModule,
     AuthModule,
+    StockMovementsModule,
   ],
   controllers: [AppController],
   // The guard is assembled here, and not in SharedAuthModule, because this is

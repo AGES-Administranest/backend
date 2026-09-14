@@ -10,6 +10,7 @@ const { Decimal } = Prisma;
 
 import { CreateItemLotDto } from '../../../src/modules/item/dto/create-item-lot.dto';
 import { ItemLotService } from '../../../src/modules/item/item-lot.service';
+import { StockMovementsService } from '../../../src/modules/stock-movements';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const item = (overrides: Partial<Item> = {}): Item => ({
@@ -51,23 +52,41 @@ const createDto = (
     ...overrides,
   });
 
+type LotStub = (tx: unknown) => Promise<{ lotId: string; unitCost?: unknown }>;
+
+/** Stands in for the Prisma transaction client the ledger passes down. */
+const TX = {} as never;
+
 describe('ItemLotService', () => {
   let repository: {
     findItemForUser: jest.Mock;
     findByExpiration: jest.Mock;
-    addToLot: jest.Mock;
+    addQuantity: jest.Mock;
     createLot: jest.Mock;
   };
+  let stockMovements: { record: jest.Mock };
   let service: ItemLotService;
 
   beforeEach(() => {
     repository = {
       findItemForUser: jest.fn(),
       findByExpiration: jest.fn(),
-      addToLot: jest.fn(),
+      addQuantity: jest.fn(),
       createLot: jest.fn(),
     };
-    service = new ItemLotService(repository as never);
+    // Receiving a lot is a stock movement, so the lot rules now run inside the
+    // ledger's transaction. The stub stands in for that transaction: it calls
+    // the resolver the service handed it, exactly as the real service does.
+    stockMovements = {
+      record: jest.fn(
+        async (_userId: string, input: { resolveLot?: LotStub }) =>
+          input.resolveLot ? { lot: await input.resolveLot(TX) } : {},
+      ),
+    };
+    service = new ItemLotService(
+      repository as never,
+      stockMovements as unknown as StockMovementsService,
+    );
   });
 
   it('lança NOT_FOUND quando o item não existe ou não pertence ao usuário', async () => {
@@ -97,7 +116,7 @@ describe('ItemLotService', () => {
     const existingLot = lot();
     repository.findItemForUser.mockResolvedValue(item());
     repository.findByExpiration.mockResolvedValue(existingLot);
-    repository.addToLot.mockResolvedValue(
+    repository.addQuantity.mockResolvedValue(
       lot({ currentQuantity: new Decimal(10) }),
     );
 
@@ -107,7 +126,7 @@ describe('ItemLotService', () => {
       createDto({ expirationDate: '2026-12-31' }),
     );
 
-    expect(repository.addToLot).toHaveBeenCalledWith(existingLot, 'user-1', 5);
+    expect(repository.addQuantity).toHaveBeenCalledWith(existingLot.id, 5, TX);
     expect(repository.createLot).not.toHaveBeenCalled();
     expect(result.currentQuantity).toEqual(new Decimal(10));
   });
@@ -125,8 +144,8 @@ describe('ItemLotService', () => {
 
     expect(repository.createLot).toHaveBeenCalledWith(
       'item-1',
-      'user-1',
       expect.objectContaining({ quantity: 5, unitCost: 10 }),
+      TX,
     );
     expect(result.id).toBe('lot-2');
   });
@@ -142,8 +161,8 @@ describe('ItemLotService', () => {
 
     expect(repository.createLot).toHaveBeenCalledWith(
       'item-1',
-      'user-1',
       expect.objectContaining({ unitCost: 7.5 }),
+      TX,
     );
   });
 
@@ -159,5 +178,50 @@ describe('ItemLotService', () => {
       code: 'ITEM_LOT_UNIT_COST_REQUIRED',
     } satisfies Partial<DomainError>);
     expect(repository.createLot).not.toHaveBeenCalled();
+  });
+
+  it('records the entry through the stock ledger, never on its own', async () => {
+    repository.findItemForUser.mockResolvedValue(item());
+    repository.findByExpiration.mockResolvedValue(null);
+    repository.createLot.mockResolvedValue(lot({ id: 'lot-9' }));
+
+    await service.create('item-1', 'user-1', createDto({ unitCost: 12 }));
+
+    // ADR-10: `stock_movement` and `item.current_quantity` have exactly one
+    // writer, and this module is not it.
+    expect(stockMovements.record).toHaveBeenCalledTimes(1);
+    const [userId, input] = stockMovements.record.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(userId).toBe('user-1');
+    expect(input).toMatchObject({
+      itemId: 'item-1',
+      type: 'INBOUND',
+      source: 'MANUAL_PURCHASE',
+      quantity: 5,
+      unitCost: 12,
+    });
+  });
+
+  it('prices the movement with the existing lot cost, not the item default', async () => {
+    // Topping up a lot bought at 4 does not become stock worth the item's
+    // current price: the movement has to carry what this stock actually cost.
+    repository.findItemForUser.mockResolvedValue(
+      item({ defaultUnitCost: new Decimal(10) }),
+    );
+    repository.findByExpiration.mockResolvedValue(
+      lot({ unitCost: new Decimal(4) }),
+    );
+    repository.addQuantity.mockResolvedValue(lot());
+
+    await service.create('item-1', 'user-1', createDto());
+
+    const resolved = (
+      await (stockMovements.record.mock.results[0].value as Promise<{
+        lot: { unitCost: Prisma.Decimal };
+      }>)
+    ).lot;
+    expect(resolved.unitCost).toEqual(new Decimal(4));
   });
 });

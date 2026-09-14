@@ -168,6 +168,69 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('stock-movements', () => {
+    const today = () => new Date().toISOString();
+
+    it('refuses an adjustment on another account item, and moves no quantity', async () => {
+      const anaItem = await createItem(ana, 'Dipirona da Ana');
+      await request(http)
+        .post('/stock-movement/purchase')
+        .set('Authorization', bearer(ana))
+        .send({ itemId: anaItem, quantity: 10, unitValue: 5, date: today() })
+        .expect(201);
+
+      const response = await request(http)
+        .post('/stock-movement/adjustment')
+        .set('Authorization', bearer(bruno))
+        .send({ itemId: anaItem, quantity: 3, reason: 'LOSS' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'ITEM_NOT_FOUND' });
+      expect((await readAsOwner(ana, anaItem)).currentQuantity).toBe('10');
+      expect(await prisma.stockMovement.count()).toBe(1);
+    });
+
+    it('refuses a purchase into another account item, and moves no quantity', async () => {
+      const anaItem = await createItem(ana, 'Dipirona da Ana');
+
+      const response = await request(http)
+        .post('/stock-movement/purchase')
+        .set('Authorization', bearer(bruno))
+        .send({ itemId: anaItem, quantity: 10, unitValue: 5, date: today() })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'ITEM_NOT_FOUND' });
+      expect((await readAsOwner(ana, anaItem)).currentQuantity).toBe('0');
+      expect(await prisma.stockMovement.count()).toBe(0);
+    });
+
+    it('treats another account supplier as one that does not exist', async () => {
+      const brunoItem = await createItem(bruno, 'Cetamina do Bruno');
+      const supplier = await request(http)
+        .post('/supplier')
+        .set('Authorization', bearer(ana))
+        .send({ name: 'Distribuidora da Ana' })
+        .expect(201);
+
+      // Same answer as a random id, so the response cannot confirm that the
+      // supplier exists in someone else's account.
+      const response = await request(http)
+        .post('/stock-movement/purchase')
+        .set('Authorization', bearer(bruno))
+        .send({
+          itemId: brunoItem,
+          supplierId: body(supplier).id,
+          quantity: 10,
+          unitValue: 5,
+          date: today(),
+        })
+        .expect(422);
+
+      expect(body(response)).toMatchObject({ code: 'SUPPLIER_NOT_FOUND' });
+      expect(await prisma.stockMovement.count()).toBe(0);
+    });
+  });
+
   describe('users', () => {
     it('keeps each account terms consent to itself', async () => {
       await request(http)
