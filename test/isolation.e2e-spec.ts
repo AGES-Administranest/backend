@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
@@ -165,6 +166,66 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
         where: { id: brunoItem },
       });
       expect(stored.userId).not.toBe(anaRow.id);
+    });
+  });
+
+  describe('stock-entry', () => {
+    const uploadRequest = (fileHash: string) => ({
+      filename: 'nota.pdf',
+      fileMimeType: 'application/pdf',
+      fileHash,
+      fileBytesSize: 1024,
+    });
+
+    /** The app picks the invoice id, so a draft is born on the first issue. */
+    const issueUploadUrl = (user: TestUser, invoiceId: string, hash: string) =>
+      request(http)
+        .post(`/stock-entries/${invoiceId}/upload-url`)
+        .set('Authorization', bearer(user))
+        .send(uploadRequest(hash));
+
+    it('answers 404, not 403, when issuing an upload url for another account invoice, and leaves it untouched', async () => {
+      const invoiceId = randomUUID();
+      await issueUploadUrl(ana, invoiceId, 'a'.repeat(64)).expect(200);
+
+      const response = await issueUploadUrl(
+        bruno,
+        invoiceId,
+        'b'.repeat(64),
+      ).expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
+
+      // The id collided on the primary key: the fallback must not take the
+      // row over, nor rewrite its document.
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      const stored = await prisma.purchaseInvoice.findUniqueOrThrow({
+        where: { id: invoiceId },
+      });
+      expect(stored.userId).toBe(anaRow.id);
+      expect(stored.fileHash).toBe('a'.repeat(64));
+      expect(stored.fileUrl).toBe(
+        `users/${anaRow.id}/purchase-invoices/${invoiceId}/original`,
+      );
+    });
+
+    it('cannot claim an invoice for another account by sending a userId', async () => {
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      const invoiceId = randomUUID();
+
+      await request(http)
+        .post(`/stock-entries/${invoiceId}/upload-url`)
+        .set('Authorization', bearer(bruno))
+        .send({ ...uploadRequest('c'.repeat(64)), userId: anaRow.id })
+        .expect(400);
+
+      expect(
+        await prisma.purchaseInvoice.count({ where: { id: invoiceId } }),
+      ).toBe(0);
     });
   });
 

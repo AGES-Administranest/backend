@@ -7,11 +7,13 @@
 // does not support COMMENT ON natively).
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [pg_trgm, unaccent]
 }
 
 enum ClientType {
@@ -169,6 +171,43 @@ enum ItemCategory {
   @@map("item_category_enum")
 }
 
+enum PurchaseInvoiceStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+
+  @@map("purchase_invoice_status_enum")
+}
+
+enum ExtractionStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  MANUAL
+  CANCELLED_ORPHAN
+
+  @@map("extraction_status_enum")
+}
+
+enum ExtractionFailureReason {
+  UNREADABLE
+  NO_TABLE_FOUND
+  TIMEOUT
+  UNSUPPORTED_FORMAT
+
+  @@map("extraction_failure_reason_enum")
+}
+
+enum ExtractionJobStatus {
+  QUEUED
+  PROCESSING
+  DONE
+  FAILED
+
+  @@map("extraction_job_status_enum")
+}
+
 /// Identity and owner of all data. No admin role: the system is for individual
 /// use by the professional, with no confirmed need for multi-user support.
 model User {
@@ -187,9 +226,9 @@ model User {
   privacyAcceptedAt DateTime? @map("privacy_accepted_at") @db.Timestamptz(6)
   termsVersion      String?   @map("terms_version")
 
-  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt  DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   clients             Client[]
   appointments        Appointment[]
@@ -367,6 +406,8 @@ model Item {
   @@index([userId, name])
   @@index([userId, active])
   @@index([userId, needsAdjustment])
+  /// supports word_similarity()/<% for item matching
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "item_name_trgm_idx", type: Gin)
   @@map("item")
 }
 
@@ -536,44 +577,91 @@ model PurchaseOrder {
 }
 
 model PurchaseInvoice {
-  id            String    @id @default(uuid()) @db.Uuid
-  userId        String    @map("user_id") @db.Uuid
-  supplierId    String?   @map("supplier_id") @db.Uuid
-  number        String?
-  issueDate     DateTime? @map("issue_date") @db.Date
-  totalAmount   Decimal?  @map("total_amount") @db.Decimal(14, 2)
-  /// storage URL — PDF or photo
-  fileUrl       String    @map("file_url")
-  fileMimeType  String?   @map("file_mime_type")
-  fileHash      String?   @unique @map("file_hash")
-  rawExtraction Json?     @map("raw_extraction")
-  reviewedAt    DateTime? @map("reviewed_at") @db.Timestamptz(6)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  supplierId  String?   @map("supplier_id") @db.Uuid
+  number      String?
+  issueDate   DateTime? @map("issue_date") @db.Date
+  totalAmount Decimal?  @map("total_amount") @db.Decimal(14, 2)
+
+  status           PurchaseInvoiceStatus    @default(DRAFT)
+  extractionStatus ExtractionStatus         @default(PENDING) @map("extraction_status")
+  failureReason    ExtractionFailureReason? @map("failure_reason")
+
+  /// Holds the object's deterministic KEY, not a signed URL: the
+  /// presigned POST expires, the key does not. The name is kept for
+  /// compatibility. Now nullable — the draft is born before any object exists
+  /// in the bucket.
+  fileUrl       String? @map("file_url")
+  /// original name declared by the app, for display only
+  fileName      String? @map("file_name")
+  /// declared by the app and pinned in the presigned policy
+  fileMimeType  String? @map("file_mime_type")
+  fileBytesSize Int?    @map("file_bytes_size")
+  fileHash      String? @map("file_hash")
+  rawExtraction Json?   @map("raw_extraction")
+
+  uploadRequestedAt DateTime? @map("upload_requested_at") @db.Timestamptz(6)
+  uploadedAt        DateTime? @map("uploaded_at") @db.Timestamptz(6)
+  /// "data checked by the user" — in this US it is also the moment of
+  /// confirmation, which is why there is no `confirmed_at`
+  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  correctedAt       DateTime? @map("corrected_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   user           User                  @relation(fields: [userId], references: [id])
   supplier       Supplier?             @relation(fields: [supplierId], references: [id])
   lines          PurchaseInvoiceLine[]
   financialEntry FinancialEntry?
+  extractionJob  ExtractionJob?
 
+  /// was a global UNIQUE: two users with the same PDF collided
+  @@unique([userId, fileHash])
   @@index([userId, issueDate])
+  @@index([extractionStatus, uploadRequestedAt])
   @@map("purchase_invoice")
+}
+
+model ExtractionJob {
+  id                String              @id @default(uuid()) @db.Uuid
+  purchaseInvoiceId String              @unique @map("purchase_invoice_id") @db.Uuid
+  status            ExtractionJobStatus @default(QUEUED)
+  attempts          Int                 @default(0)
+  /// startedAt plus a time limit is the way out for a job stuck in PROCESSING
+  /// after a Node restart (ADR-05)
+  startedAt         DateTime?           @map("started_at") @db.Timestamptz(6)
+  finishedAt        DateTime?           @map("finished_at") @db.Timestamptz(6)
+  lastError         String?             @map("last_error")
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
+
+  @@index([status, createdAt])
+  @@map("extraction_job")
 }
 
 /// item_id is optional: the OCR may return a line that does not match any
 /// registered item.
 model PurchaseInvoiceLine {
-  id                String  @id @default(uuid()) @db.Uuid
-  purchaseInvoiceId String  @map("purchase_invoice_id") @db.Uuid
-  itemId            String? @map("item_id") @db.Uuid
+  id                String   @id @default(uuid()) @db.Uuid
+  purchaseInvoiceId String   @map("purchase_invoice_id") @db.Uuid
+  itemId            String?  @map("item_id") @db.Uuid
   /// the lot created by this purchase
-  lotId             String? @map("lot_id") @db.Uuid
+  lotId             String?  @map("lot_id") @db.Uuid
   /// text exactly as it came on the invoice, even without a match to a
   /// registered item
   description       String
-  quantity          Decimal @db.Decimal(14, 3)
-  unitCost          Decimal @map("unit_cost") @db.Decimal(14, 4)
+  quantity          Decimal  @db.Decimal(14, 3)
+  unitCost          Decimal  @map("unit_cost") @db.Decimal(14, 4)
+  /// line total exactly as it came on the invoice
+  totalValue        Decimal? @map("total_value") @db.Decimal(14, 2)
+  /// quantity x unit_cost ~= total_value — this is what measures
+  /// confidence, not a model score
+  arithmeticCheck   Boolean? @map("arithmetic_check")
+  matchConfidence   Decimal? @map("match_confidence") @db.Decimal(4, 3)
 
   purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
   item            Item?           @relation(fields: [itemId], references: [id])

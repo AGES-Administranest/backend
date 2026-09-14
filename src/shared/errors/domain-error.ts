@@ -19,7 +19,8 @@ export type ErrorKind =
   | 'INVALID_INPUT'
   | 'INVALID_REFERENCE'
   | 'UNAUTHORIZED'
-  | 'FORBIDDEN';
+  | 'FORBIDDEN'
+  | 'PAYLOAD_TOO_LARGE';
 
 export class DomainError extends Error {
   /**
