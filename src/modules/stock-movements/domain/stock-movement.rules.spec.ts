@@ -179,6 +179,42 @@ describe('stock-movement rules', () => {
       expect(error.kind).toBe('INVALID_INPUT');
     });
 
+    it('requires a note when the reason is OTHER', () => {
+      const error = catchDomainError(() =>
+        assertValidMovement({
+          ...base,
+          source: StockMovementSource.MANUAL_ADJUSTMENT,
+          adjustmentReason: AdjustmentReason.OTHER,
+          notes: null,
+        }),
+      );
+      // "Other" with no note is a history entry nobody can audit later.
+      expect(error.code).toBe('STOCK_REASON_ADJUSTMENT_INVALID');
+    });
+
+    it('does not accept whitespace as the note for OTHER', () => {
+      const error = catchDomainError(() =>
+        assertValidMovement({
+          ...base,
+          source: StockMovementSource.MANUAL_ADJUSTMENT,
+          adjustmentReason: AdjustmentReason.OTHER,
+          notes: '   ',
+        }),
+      );
+      expect(error.code).toBe('STOCK_REASON_ADJUSTMENT_INVALID');
+    });
+
+    it('accepts OTHER once it carries a note', () => {
+      expect(() =>
+        assertValidMovement({
+          ...base,
+          source: StockMovementSource.MANUAL_ADJUSTMENT,
+          adjustmentReason: AdjustmentReason.OTHER,
+          notes: 'dropped during transport',
+        }),
+      ).not.toThrow();
+    });
+
     it('rejeita motivo em origem que não é ajuste', () => {
       const error = catchDomainError(() =>
         assertValidMovement({
@@ -277,6 +313,35 @@ describe('stock-movement rules', () => {
           allowNegativeBalance: false,
         }),
       ).toThrow(DomainError);
+    });
+
+    it('says how much is still available, because the app shows that number', () => {
+      expect.assertions(2);
+      try {
+        assertSufficientBalance(5, outboundOf(8), {
+          allowNegativeBalance: false,
+        });
+      } catch (error) {
+        expect((error as DomainError).code).toBe('INSUFFICIENT_STOCK');
+        expect((error as DomainError).details).toMatchObject({
+          available: '5',
+          requested: '8',
+        });
+      }
+    });
+
+    it('reports nothing available when the balance is already in the red', () => {
+      expect.assertions(1);
+      try {
+        assertSufficientBalance(-2, outboundOf(1), {
+          allowNegativeBalance: false,
+        });
+      } catch (error) {
+        // Not "-2 available": there is no negative amount of stock to take.
+        expect((error as DomainError).details).toMatchObject({
+          available: '0',
+        });
+      }
     });
 
     it('allows a negative resulting balance when explicitly authorized', () => {

@@ -1,43 +1,69 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AdjustmentReason } from '@prisma/client';
+import { Transform } from 'class-transformer';
 import {
-  IsDateString,
   IsEnum,
-  IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsPositive,
   IsString,
   IsUUID,
-  ValidateIf,
+  MaxLength,
 } from 'class-validator';
 
 /**
- * Input for `POST /stock-movements/adjustments` (US11).
+ * Normalizes an enum value written in the client's own spelling.
  *
- * The direction is fixed — a manual adjustment here is always an outbound loss.
- * `notes` is only required when the reason is `OTHER`: without it the history
- * cannot say what the "other" was.
+ * The API answers in the Prisma spelling (`LOSS`, `MANUAL_ADJUSTMENT`) — one
+ * canonical vocabulary, the same one `GET /item` already returns. On the way in
+ * it also accepts the camelCase the mobile app uses (`manualAdjustment`), which
+ * costs one regex here and spares every client a mapping layer for values that
+ * are otherwise identical.
+ */
+export const toEnumValue = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string'
+    ? value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()
+    : value;
+
+/**
+ * Input for `POST /stock-movement/adjustment` (US11).
+ *
+ * Deliberately small: the screen that sends this picks an item, an amount and a
+ * reason, and nothing else. Direction (always outbound), origin, cost and
+ * timestamp are the server's to decide — a loss is not an event the client gets
+ * to price or backdate.
  */
 export class CreateStockAdjustmentDto {
+  @ApiProperty({ format: 'uuid' })
   @IsUUID()
   itemId!: string;
 
-  /** Positive magnitude to remove from the balance. */
+  @ApiProperty({
+    description: 'Positive amount to take out of the balance',
+    example: 2,
+  })
   @IsNumber({ maxDecimalPlaces: 3 })
   @IsPositive()
   quantity!: number;
 
+  @ApiProperty({
+    enum: AdjustmentReason,
+    description: 'Why the stock was lost. Accepted in either case.',
+  })
+  @Transform(toEnumValue)
   @IsEnum(AdjustmentReason)
-  adjustmentReason!: AdjustmentReason;
+  reason!: AdjustmentReason;
 
-  /** When the loss happened. */
-  @IsDateString()
-  date!: string;
-
-  @ValidateIf(
-    (dto: CreateStockAdjustmentDto) =>
-      dto.adjustmentReason === AdjustmentReason.OTHER,
-  )
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Free text. Required when reason is OTHER — that requirement is a domain ' +
+      'rule (it holds for every caller of the ledger, not just this route), so a ' +
+      'missing one comes back as STOCK_REASON_ADJUSTMENT_INVALID, not as a ' +
+      'field validation error.',
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  notes?: string;
+  @MaxLength(500)
+  notes?: string | null;
 }

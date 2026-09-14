@@ -135,6 +135,7 @@ export class ItemService {
       belowMinimum:
         item.minimumStock !== null &&
         item.currentQuantity.lessThanOrEqualTo(item.minimumStock),
+      needsAdjustment: item.needsAdjustment,
       // `expiration_date` is a DATE column: it has no time and no zone. Sent
       // as a full timestamp it would read as the previous day for any client
       // west of UTC, so only the calendar part travels.

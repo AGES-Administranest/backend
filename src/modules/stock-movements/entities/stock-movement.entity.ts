@@ -1,61 +1,112 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   AdjustmentReason,
-  StockMovement,
+  MeasurementUnit,
   StockMovementSource,
   StockMovementType,
 } from '@prisma/client';
 
 /**
- * The shape of a stock movement as the API returns it. `Decimal` columns are
- * serialized as strings so no precision is lost on the wire.
+ * Shown when the movement came out of an appointment, so the history can offer
+ * a link back to it.
  */
-export class StockMovementEntity {
-  /** Identificador único da movimentação */
+export class MovementAppointmentEntity {
+  @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  /** Item movimentado */
+  @ApiProperty({
+    description:
+      'Ready to display: "procedure — patient". Falls back to whichever of the ' +
+      'two the appointment has, since both are optional on an appointment.',
+    example: 'Orquiectomia — Mel',
+  })
+  label!: string;
+
+  @ApiProperty({ nullable: true })
+  procedureName!: string | null;
+
+  @ApiProperty({ nullable: true })
+  patientName!: string | null;
+}
+
+/**
+ * A stock movement as the API returns it.
+ *
+ * `Decimal` columns travel as strings, the same convention `GET /item` follows:
+ * a quantity of `10.005` does not survive a round trip through a JavaScript
+ * number, and stock arithmetic is exactly where that matters.
+ */
+export class StockMovementEntity {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ format: 'uuid' })
   itemId!: string;
 
-  /** Lote de origem, quando aplicável */
+  @ApiProperty({
+    description:
+      "The item's current name. The ledger does not snapshot it, so renaming " +
+      'an item relabels its past movements — the movement still points at the ' +
+      'same item, which is what the history is about.',
+  })
+  itemName!: string;
+
+  @ApiProperty({ enum: MeasurementUnit })
+  unit!: MeasurementUnit;
+
+  @ApiProperty({ format: 'uuid', nullable: true })
   lotId!: string | null;
 
-  /** Fornecedor da entrada, quando informado (ex.: `source = MANUAL_PURCHASE`) */
+  @ApiProperty({ format: 'uuid', nullable: true })
   supplierId!: string | null;
 
-  /** Sentido da movimentação (INBOUND soma, OUTBOUND subtrai) */
+  @ApiProperty({
+    enum: StockMovementType,
+    description: 'INBOUND adds to the balance, OUTBOUND subtracts',
+  })
   type!: StockMovementType;
 
-  /** Origem da movimentação */
+  @ApiProperty({ enum: StockMovementSource })
   source!: StockMovementSource;
 
-  /** Motivo do ajuste — preenchido apenas quando `source = MANUAL_ADJUSTMENT` */
+  @ApiProperty({
+    enum: AdjustmentReason,
+    nullable: true,
+    description:
+      'Always present when source is MANUAL_ADJUSTMENT, never otherwise',
+  })
   adjustmentReason!: AdjustmentReason | null;
 
-  /** Magnitude sempre positiva; o sinal no saldo vem de `type` */
+  @ApiProperty({
+    type: String,
+    example: '2.000',
+    description: 'Always positive — the sign comes from `type`',
+  })
   quantity!: string;
 
-  /** Custo unitário registrado no momento da movimentação */
+  @ApiProperty({
+    type: String,
+    example: '19.9000',
+    description: 'Cost of ONE unit, not the line total',
+  })
   unitCost!: string;
 
-  /** Data em que a movimentação ocorreu */
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    description: 'ISO 8601 in UTC (trailing Z)',
+  })
   occurredAt!: Date;
 
-  /** Observações livres */
-  notes!: string | null;
+  @ApiProperty({ format: 'uuid', nullable: true })
+  appointmentId!: string | null;
 
-  static fromModel(movement: StockMovement): StockMovementEntity {
-    return {
-      id: movement.id,
-      itemId: movement.itemId,
-      lotId: movement.lotId,
-      supplierId: movement.supplierId,
-      type: movement.type,
-      source: movement.source,
-      adjustmentReason: movement.adjustmentReason,
-      quantity: movement.quantity.toString(),
-      unitCost: movement.unitCost.toString(),
-      occurredAt: movement.occurredAt,
-      notes: movement.notes,
-    };
-  }
+  @ApiProperty({ format: 'uuid', nullable: true })
+  purchaseOrderId!: string | null;
+
+  @ApiPropertyOptional({ type: MovementAppointmentEntity, nullable: true })
+  appointment!: MovementAppointmentEntity | null;
+
+  @ApiProperty({ nullable: true })
+  notes!: string | null;
 }

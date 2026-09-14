@@ -33,7 +33,9 @@
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "test:item": "jest --config ./test/unit-test/item/jest.config.json",
     "test:supplier": "jest --config ./test/unit-test/supplier/jest.config.json",
-    "test:db": "bash scripts/test-db.sh"
+    "test:stock": "jest --config ./test/unit-test/stock-movements/jest.config.json --runInBand",
+    "test:db": "bash scripts/test-db.sh",
+    "stock:smoke": "ts-node -r tsconfig-paths/register scripts/stock-ledger-smoke.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

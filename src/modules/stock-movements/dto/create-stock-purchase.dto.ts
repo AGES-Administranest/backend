@@ -8,7 +8,7 @@ import {
 } from 'class-validator';
 
 /**
- * Input for `POST /stock-movements/purchases` (manual purchase entry).
+ * Input for `POST /stock-movement/purchase` (manual purchase entry).
  *
  * For purchases with no order/invoice to import (over-the-counter, a supplier
  * that issues no PDF). The direction is fixed — a manual purchase is always an

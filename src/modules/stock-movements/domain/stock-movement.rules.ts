@@ -39,6 +39,7 @@ export interface MovementShape extends MovementLike {
   adjustmentReason?: AdjustmentReason | null;
   appointmentId?: string | null;
   purchaseOrderId?: string | null;
+  notes?: string | null;
 }
 
 /**
@@ -98,22 +99,37 @@ export function balanceRequiresAdjustment(balance: DecimalInput): boolean {
   return toDecimal(balance).isNegative();
 }
 
+/**
+ * Guards the balance against an outbound bigger than what is in stock.
+ *
+ * `allowNegativeBalance` is the explicit authorization the US10 correction
+ * reversal needs: it has to go through even when it drives the balance below
+ * zero, because the reversal is undoing stock that was never physically there.
+ * Every ordinary outbound is blocked instead.
+ *
+ * @returns the balance the item is left with.
+ * @throws DomainError `INSUFFICIENT_STOCK`, carrying the balance still
+ * available in `details.available` — the app interpolates that number.
+ */
 export function assertSufficientBalance(
   currentBalance: DecimalInput,
   movement: MovementLike,
   options: { allowNegativeBalance: boolean },
 ): Decimal {
-  const resultingBalance = toDecimal(currentBalance).plus(
-    signedQuantity(movement),
-  );
+  const balanceBefore = toDecimal(currentBalance);
+  const resultingBalance = balanceBefore.plus(signedQuantity(movement));
 
   if (resultingBalance.isNegative() && !options.allowNegativeBalance) {
     throw new DomainError(
-      'INVALID_INPUT',
-      'STOCK_ADJUSTMENT_NEGATIVE_BALANCE',
+      'CONFLICT',
+      'INSUFFICIENT_STOCK',
       "This movement would leave the item with a negative balance. Check the item's current balance before recording it.",
       {
-        currentBalance: toDecimal(currentBalance).toString(),
+        // What the caller can still take out. Never negative: an item already
+        // in the red has nothing available, not a negative amount of it.
+        available: Prisma.Decimal.max(balanceBefore, 0).toString(),
+        requested: toDecimal(movement.quantity).toString(),
+        currentBalance: balanceBefore.toString(),
         resultingBalance: resultingBalance.toString(),
       },
     );
@@ -149,6 +165,20 @@ export function assertValidMovement(movement: MovementShape): void {
       'STOCK_REASON_ADJUSTMENT_INVALID',
       'adjustmentReason is only valid when source = MANUAL_ADJUSTMENT',
       { source: movement.source },
+    );
+  }
+
+  // `OTHER` says nothing on its own: without the note the history shows an
+  // adjustment whose reason is literally "other", which no one can audit later.
+  if (
+    movement.adjustmentReason === AdjustmentReason.OTHER &&
+    (movement.notes == null || movement.notes.trim() === '')
+  ) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_REASON_ADJUSTMENT_INVALID',
+      'An adjustment with reason OTHER requires a note describing what happened',
+      { adjustmentReason: movement.adjustmentReason },
     );
   }
 

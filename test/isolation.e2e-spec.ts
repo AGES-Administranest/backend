@@ -174,20 +174,15 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     it('refuses an adjustment on another account item, and moves no quantity', async () => {
       const anaItem = await createItem(ana, 'Dipirona da Ana');
       await request(http)
-        .post('/stock-movements/purchases')
+        .post('/stock-movement/purchase')
         .set('Authorization', bearer(ana))
         .send({ itemId: anaItem, quantity: 10, unitValue: 5, date: today() })
         .expect(201);
 
       const response = await request(http)
-        .post('/stock-movements/adjustments')
+        .post('/stock-movement/adjustment')
         .set('Authorization', bearer(bruno))
-        .send({
-          itemId: anaItem,
-          quantity: 3,
-          adjustmentReason: 'LOSS',
-          date: today(),
-        })
+        .send({ itemId: anaItem, quantity: 3, reason: 'LOSS' })
         .expect(404);
 
       expect(body(response)).toMatchObject({ code: 'ITEM_NOT_FOUND' });
@@ -199,7 +194,7 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       const anaItem = await createItem(ana, 'Dipirona da Ana');
 
       const response = await request(http)
-        .post('/stock-movements/purchases')
+        .post('/stock-movement/purchase')
         .set('Authorization', bearer(bruno))
         .send({ itemId: anaItem, quantity: 10, unitValue: 5, date: today() })
         .expect(404);
@@ -220,7 +215,7 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       // Same answer as a random id, so the response cannot confirm that the
       // supplier exists in someone else's account.
       const response = await request(http)
-        .post('/stock-movements/purchases')
+        .post('/stock-movement/purchase')
         .set('Authorization', bearer(bruno))
         .send({
           itemId: brunoItem,

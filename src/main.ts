@@ -40,7 +40,10 @@ async function bootstrap() {
       .setDescription('Documentação da API do projeto AGES')
       .setVersion('1.0')
       .addTag('users', 'Gerenciamento de usuários')
-      .addTag('stock-movements', 'Movimentações de estoque e ajustes manuais')
+      .addTag(
+        'stock-movement',
+        'Stock ledger: history, manual adjustments, purchases and counts',
+      )
       .addTag('item', 'Estoque de insumos e medicamentos')
       .addTag('supplier', 'Fornecedores do usuário')
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
