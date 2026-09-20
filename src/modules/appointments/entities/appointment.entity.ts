@@ -25,5 +25,4 @@ export class AppointmentEntity {
   createdAt!: Date;
   updatedAt!: Date;
   deletedAt!: Date | null;
-
 }

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { AppointmentStatus, Prisma, Species } from '@prisma/client';
+import { Prisma, Species } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsDate,
@@ -80,11 +80,6 @@ export class CreateAppointmentDto {
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   weightKg?: number;
-
-  @ApiPropertyOptional({ enum: AppointmentStatus, default: AppointmentStatus.SCHEDULED })
-  @IsOptional()
-  @IsEnum(AppointmentStatus)
-  status?: AppointmentStatus;
 
   @ApiPropertyOptional({ example: 'Patient fasted for 8 hours.' })
   @IsOptional()

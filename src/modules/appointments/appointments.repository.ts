@@ -1,14 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { Appointment, Prisma } from '@prisma/client';
 
-import { runQuery } from '../../infra/prisma/prisma-errors';
+import { InvalidReferenceError, runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
 @Injectable()
-export class AppointmentRepository {
+export class AppointmentsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  findMany(where: Prisma.AppointmentWhereInput, skip?: number, take?: number) {
+  findMany(
+    where: Prisma.AppointmentWhereInput,
+    skip: number,
+    take: number,
+  ): Promise<Appointment[]> {
     return runQuery(() =>
       this.prisma.appointment.findMany({
         where,
@@ -27,8 +31,16 @@ export class AppointmentRepository {
     );
   }
 
-  create(data: Prisma.AppointmentUncheckedCreateInput): Promise<Appointment> {
-    return runQuery(() => this.prisma.appointment.create({ data }));
+  create(
+    data: Prisma.AppointmentUncheckedCreateInput,
+    userId: string,
+  ): Promise<Appointment> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        await this.ensureClientBelongsToUser(tx, data.clientId, userId);
+        return tx.appointment.create({ data });
+      }),
+    );
   }
 
   update(
@@ -44,6 +56,7 @@ export class AppointmentRepository {
         });
         if (!owned) return null;
 
+        await this.ensureClientBelongsToUser(tx, data.clientId, userId);
         return tx.appointment.update({ where: { id }, data });
       }),
     );
@@ -51,5 +64,19 @@ export class AppointmentRepository {
 
   delete(id: string, userId: string): Promise<Appointment | null> {
     return this.update(id, userId, { deletedAt: new Date() });
+  }
+
+  private async ensureClientBelongsToUser(
+    tx: Prisma.TransactionClient,
+    clientId: unknown,
+    userId: string,
+  ): Promise<void> {
+    if (typeof clientId !== 'string') return;
+
+    const client = await tx.client.findFirst({
+      where: { id: clientId, userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!client) throw new InvalidReferenceError('clientId');
   }
 }

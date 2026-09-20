@@ -4,17 +4,14 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
-  DefaultValuePipe,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
-  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -22,8 +19,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { AppointmentService } from './appointment.service';
+import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { AppointmentEntity } from './entities/appointment.entity';
 import { CurrentUser } from '../../shared/auth';
@@ -31,65 +29,53 @@ import type { AuthenticatedUser } from '../../shared/auth';
 
 @ApiTags('appointments')
 @Controller('appointments')
-export class AppointmentController {
-  constructor(private readonly appointmentService: AppointmentService) {}
+export class AppointmentsController {
+  constructor(private readonly appointmentsService: AppointmentsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Creates an appointment or procedure record' })
+  @ApiOperation({ summary: 'Create a completed appointment or procedure' })
   @ApiCreatedResponse({ type: AppointmentEntity })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
-  create(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateAppointmentDto,
-  ) {
-    return this.appointmentService.create(user.id, dto);
+  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateAppointmentDto) {
+    return this.appointmentsService.create(user.id, dto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Lists appointments and procedures for the user' })
+  @ApiOperation({ summary: 'List appointments and procedures by date' })
   @ApiOkResponse({ type: AppointmentEntity, isArray: true })
-  findAll(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
-    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
-  ) {
-    return this.appointmentService.findAll(user.id, page, limit);
+  findAll(@CurrentUser() user: AuthenticatedUser, @Query() query: QueryAppointmentDto) {
+    return this.appointmentsService.findAll(user.id, query);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Finds an appointment or procedure by id' })
+  @ApiOperation({ summary: 'Find an appointment or procedure by id' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: AppointmentEntity })
   @ApiNotFoundResponse({ description: 'Appointment not found' })
-  findOne(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.appointmentService.findOne(id, user.id);
+  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.appointmentsService.findOne(id, user.id);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Partially updates an appointment or procedure' })
+  @ApiOperation({ summary: 'Partially update an appointment or procedure' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: AppointmentEntity })
+  @ApiBadRequestResponse({ description: 'Invalid payload' })
   @ApiNotFoundResponse({ description: 'Appointment not found' })
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAppointmentDto,
   ) {
-    return this.appointmentService.update(id, user.id, dto);
+    return this.appointmentsService.update(id, user.id, dto);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Soft deletes an appointment or procedure' })
+  @ApiOperation({ summary: 'Soft delete an appointment or procedure' })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiNoContentResponse()
+  @ApiOkResponse({ type: AppointmentEntity })
   @ApiNotFoundResponse({ description: 'Appointment not found' })
-  remove(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.appointmentService.remove(id, user.id);
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.appointmentsService.remove(id, user.id);
   }
 }
