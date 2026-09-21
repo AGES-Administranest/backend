@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { StorageModule } from './infra/storage';
 import { AuthModule } from './modules/auth';
+import { ClientModule } from './modules/client';
 import { ItemModule } from './modules/item/item.module';
 import { StockEntryModule } from './modules/stock-entry';
 import { SupplierModule } from './modules/supplier/supplier.module';
@@ -37,6 +38,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     UsersModule,
     ItemModule,
     SupplierModule,
+    ClientModule,
     AuthModule,
     StockEntryModule,
   ],
