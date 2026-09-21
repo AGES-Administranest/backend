@@ -187,9 +187,9 @@ model User {
   privacyAcceptedAt DateTime? @map("privacy_accepted_at") @db.Timestamptz(6)
   termsVersion      String?   @map("terms_version")
 
-  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt  DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   clients             Client[]
   appointments        Appointment[]
@@ -424,7 +424,7 @@ model StockMovement {
   /// source APPOINTMENT: consumption during the appointment.
   /// This is the only model for procedure↔item linkage (see ADR-10) — there is
   /// no separate AppointmentItem; every consumed item must exist in Item.
-  appointmentId String? @map("appointment_id") @db.Uuid
+  appointmentId         String?             @map("appointment_id") @db.Uuid
   /// source ORDER_IMPORT: inbound generated when receiving a purchase order
   purchaseOrderId       String?             @map("purchase_order_id") @db.Uuid
   /// source when the inbound came from an invoice line (OCR)
