@@ -86,6 +86,12 @@ export class CreateAppointmentDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @ApiPropertyOptional({ example: 'ASA II' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  asa?: string;
 }
 
 export type AppointmentDecimalInput = Prisma.Decimal | number;

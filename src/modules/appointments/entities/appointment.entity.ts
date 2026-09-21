@@ -21,6 +21,8 @@ export class AppointmentEntity {
   weightKg!: Prisma.Decimal | null;
 
   notes!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, example: 'ASA II' })
+  asa!: string | null;
   status!: AppointmentStatus;
   createdAt!: Date;
   updatedAt!: Date;
