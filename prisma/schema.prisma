@@ -421,8 +421,10 @@ model StockMovement {
   /// snapshot of the lot cost at the time of the movement
   unitCost              Decimal             @map("unit_cost") @db.Decimal(14, 4)
   occurredAt            DateTime            @map("occurred_at") @db.Timestamptz(6)
-  /// source APPOINTMENT: consumption during the appointment
-  appointmentId         String?             @map("appointment_id") @db.Uuid
+  /// source APPOINTMENT: consumption during the appointment.
+  /// This is the only model for procedure↔item linkage (see ADR-10) — there is
+  /// no separate AppointmentItem; every consumed item must exist in Item.
+  appointmentId String? @map("appointment_id") @db.Uuid
   /// source ORDER_IMPORT: inbound generated when receiving a purchase order
   purchaseOrderId       String?             @map("purchase_order_id") @db.Uuid
   /// source when the inbound came from an invoice line (OCR)
