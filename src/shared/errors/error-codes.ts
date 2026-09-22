@@ -44,6 +44,10 @@ export const ERROR_CODES = [
   // supplier
   'DUPLICATED_SUPPLIER_NAME',
 
+  // client
+  'CLIENT_NOT_FOUND',
+  'DUPLICATED_CLIENT_NAME',
+
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
