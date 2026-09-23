@@ -16,6 +16,11 @@ import {
 } from 'class-validator';
 
 export class CreateAppointmentDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  clientGeneratedId?: string;
+
   @ApiPropertyOptional({
     enum: AppointmentStatus,
     default: AppointmentStatus.SCHEDULED,

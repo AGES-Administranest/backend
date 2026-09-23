@@ -287,8 +287,9 @@ model Client {
 /// financial_entry with source=APPOINTMENT.
 model Appointment {
   id              String            @id @default(uuid()) @db.Uuid
-  userId          String            @map("user_id") @db.Uuid
-  clientId        String?           @map("client_id") @db.Uuid
+  userId            String            @map("user_id") @db.Uuid
+  clientGeneratedId String?           @map("client_generated_id") @db.Uuid
+  clientId          String?           @map("client_id") @db.Uuid
   /// free text — no dedicated procedure catalog
   procedureName   String?           @map("procedure_name")
   startsAt        DateTime          @map("starts_at") @db.Timestamptz(6)
@@ -320,6 +321,7 @@ model Appointment {
   stockMovements StockMovement[]
   financialEntry FinancialEntry?
 
+  @@unique([userId, clientGeneratedId])
   @@index([userId, startsAt])
   @@index([userId, status, startsAt])
   @@index([userId, clientId])

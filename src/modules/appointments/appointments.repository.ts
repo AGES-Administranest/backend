@@ -12,6 +12,7 @@ import {
 
 import {
   InvalidReferenceError,
+  UniqueConstraintError,
   runQuery,
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -20,6 +21,17 @@ import { reversalType } from '../stock-movements';
 @Injectable()
 export class AppointmentsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  findByClientGeneratedId(
+    clientGeneratedId: string,
+    userId: string,
+  ): Promise<Appointment | null> {
+    return runQuery(() =>
+      this.prisma.appointment.findFirst({
+        where: { clientGeneratedId, userId, deletedAt: null },
+      }),
+    );
+  }
 
   findMany(
     where: Prisma.AppointmentWhereInput,
@@ -47,14 +59,28 @@ export class AppointmentsRepository {
   create(
     data: Prisma.AppointmentUncheckedCreateInput,
     userId: string,
-  ): Promise<Appointment> {
-    return runQuery(() =>
-      this.prisma.$transaction(async tx => {
-        await this.ensureClientBelongsToUser(tx, data.clientId, userId);
-        const appointment = await tx.appointment.create({ data });
+  ): Promise<{ appointment: Appointment; created: boolean }> {
+    return runQuery(async () => {
+      try {
+        return await this.prisma.$transaction(async tx => {
+          if (data.clientGeneratedId) {
+            const existing = await tx.appointment.findFirst({
+              where: {
+                clientGeneratedId: data.clientGeneratedId,
+                userId,
+                deletedAt: null,
+              },
+            });
+            if (existing) return { appointment: existing, created: false };
+          }
 
-        if (appointment.status === AppointmentStatus.COMPLETED) {
-          if (appointment.amount !== null) {
+          await this.ensureClientBelongsToUser(tx, data.clientId, userId);
+          const appointment = await tx.appointment.create({ data });
+
+          if (
+            appointment.status === AppointmentStatus.COMPLETED &&
+            appointment.amount !== null
+          ) {
             await this.upsertFinancialEntry(
               tx,
               appointment,
@@ -62,11 +88,23 @@ export class AppointmentsRepository {
               appointment.amount,
             );
           }
-        }
 
-        return appointment;
-      }),
-    );
+          return { appointment, created: true };
+        });
+      } catch (error) {
+        if (error instanceof UniqueConstraintError && data.clientGeneratedId) {
+          const existing = await this.prisma.appointment.findFirst({
+            where: {
+              clientGeneratedId: data.clientGeneratedId,
+              userId,
+              deletedAt: null,
+            },
+          });
+          if (existing) return { appointment: existing, created: false };
+        }
+        throw error;
+      }
+    });
   }
 
   update(

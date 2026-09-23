@@ -3,6 +3,7 @@ import { AppointmentStatus, Prisma, Species } from '@prisma/client';
 
 export class AppointmentEntity {
   id!: string;
+  clientGeneratedId!: string | null;
   clientId!: string | null;
   procedureName!: string | null;
   startsAt!: Date;

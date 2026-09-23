@@ -51,7 +51,7 @@ describe('AppointmentsService', () => {
     const dto = Object.assign(new CreateAppointmentDto(), {
       startsAt: new Date('2026-09-19T10:00:00.000Z'),
     });
-    repository.create.mockResolvedValue(appointment());
+    repository.create.mockResolvedValue({ appointment: appointment(), created: true });
 
     const result = await service.create('user-1', dto);
 
@@ -69,9 +69,10 @@ describe('AppointmentsService', () => {
       status: AppointmentStatus.COMPLETED,
       amount: 250,
     });
-    repository.create.mockResolvedValue(
-      appointment({ status: AppointmentStatus.COMPLETED, amount: 250 }),
-    );
+    repository.create.mockResolvedValue({
+      appointment: appointment({ status: AppointmentStatus.COMPLETED, amount: 250 }),
+      created: true,
+    });
 
     const result = await service.create('user-1', dto);
 

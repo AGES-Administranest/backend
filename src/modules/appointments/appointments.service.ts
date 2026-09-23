@@ -53,22 +53,54 @@ export class AppointmentsService {
     userId: string,
     dto: CreateAppointmentDto,
   ): Promise<AppointmentEntity> {
+    const result = await this.createWithResult(userId, dto);
+    return result.appointment;
+  }
+
+  async createWithResult(
+    userId: string,
+    dto: CreateAppointmentDto,
+  ): Promise<{ appointment: AppointmentEntity; created: boolean }> {
     this.validateDates(dto.startsAt, dto.endsAt);
     this.validateAmount(
       dto.status ?? AppointmentStatus.SCHEDULED,
       dto.amount ?? null,
     );
     try {
-      const appointment = await this.appointmentsRepository.create(
+      const result = await this.appointmentsRepository.create(
         { ...dto, userId, status: dto.status ?? AppointmentStatus.SCHEDULED },
         userId,
       );
-      return this.sanitize(appointment);
+      return { appointment: this.sanitize(result.appointment), created: result.created };
     } catch (error) {
       if (error instanceof InvalidReferenceError)
         throw this.invalidReference(error.field);
       throw error;
     }
+  }
+
+  async sync(
+    userId: string,
+    appointments: CreateAppointmentDto[],
+  ): Promise<AppointmentEntity[]> {
+    const results: AppointmentEntity[] = [];
+
+    for (const dto of appointments) {
+      if (dto.clientGeneratedId) {
+        const existing = await this.appointmentsRepository.findByClientGeneratedId(
+          dto.clientGeneratedId,
+          userId,
+        );
+        if (existing) {
+          results.push(await this.update(existing.id, userId, dto));
+          continue;
+        }
+      }
+
+      results.push((await this.createWithResult(userId, dto)).appointment);
+    }
+
+    return results;
   }
 
   async update(

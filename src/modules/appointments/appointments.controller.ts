@@ -3,11 +3,14 @@ import {
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
+  ParseArrayPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -18,6 +21,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -39,8 +43,24 @@ export class AppointmentsController {
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateAppointmentDto,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.appointmentsService.create(user.id, dto);
+    return this.appointmentsService.createWithResult(user.id, dto).then(result => {
+      response.status(result.created ? HttpStatus.CREATED : HttpStatus.OK);
+      return result.appointment;
+    });
+  }
+
+  @Post('sync')
+  @ApiOperation({ summary: 'Synchronize appointments created or edited offline' })
+  @ApiOkResponse({ type: AppointmentEntity, isArray: true })
+  @ApiBadRequestResponse({ description: 'Invalid payload' })
+  sync(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ParseArrayPipe({ items: CreateAppointmentDto }))
+    appointments: CreateAppointmentDto[],
+  ) {
+    return this.appointmentsService.sync(user.id, appointments);
   }
 
   @Get()
