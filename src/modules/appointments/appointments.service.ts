@@ -6,14 +6,22 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { AppointmentEntity } from './entities/appointment.entity';
-import { InvalidReferenceError, RecordNotFoundError } from '../../infra/prisma/prisma-errors';
+import {
+  InvalidReferenceError,
+  RecordNotFoundError,
+} from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private readonly appointmentsRepository: AppointmentsRepository) {}
+  constructor(
+    private readonly appointmentsRepository: AppointmentsRepository,
+  ) {}
 
-  async findAll(userId: string, query: QueryAppointmentDto): Promise<AppointmentEntity[]> {
+  async findAll(
+    userId: string,
+    query: QueryAppointmentDto,
+  ): Promise<AppointmentEntity[]> {
     const where: Prisma.AppointmentWhereInput = {
       userId,
       status: query.status,
@@ -41,16 +49,24 @@ export class AppointmentsService {
     return this.sanitize(appointment);
   }
 
-  async create(userId: string, dto: CreateAppointmentDto): Promise<AppointmentEntity> {
+  async create(
+    userId: string,
+    dto: CreateAppointmentDto,
+  ): Promise<AppointmentEntity> {
     this.validateDates(dto.startsAt, dto.endsAt);
+    this.validateAmount(
+      dto.status ?? AppointmentStatus.SCHEDULED,
+      dto.amount ?? null,
+    );
     try {
       const appointment = await this.appointmentsRepository.create(
-        { ...dto, userId, status: AppointmentStatus.COMPLETED },
+        { ...dto, userId, status: dto.status ?? AppointmentStatus.SCHEDULED },
         userId,
       );
       return this.sanitize(appointment);
     } catch (error) {
-      if (error instanceof InvalidReferenceError) throw this.invalidReference(error.field);
+      if (error instanceof InvalidReferenceError)
+        throw this.invalidReference(error.field);
       throw error;
     }
   }
@@ -62,18 +78,25 @@ export class AppointmentsService {
   ): Promise<AppointmentEntity> {
     const existing = await this.appointmentsRepository.findById(id, userId);
     if (!existing) throw this.notFound(id);
+    const status = dto.status ?? existing.status;
     this.validateDates(
       dto.startsAt ?? existing.startsAt,
       dto.endsAt ?? existing.endsAt ?? undefined,
     );
+    this.validateAmount(status, dto.amount ?? existing.amount);
 
     try {
-      const appointment = await this.appointmentsRepository.update(id, userId, dto);
+      const appointment = await this.appointmentsRepository.update(
+        id,
+        userId,
+        dto,
+      );
       if (!appointment) throw this.notFound(id);
       return this.sanitize(appointment);
     } catch (error) {
       if (error instanceof RecordNotFoundError) throw this.notFound(id);
-      if (error instanceof InvalidReferenceError) throw this.invalidReference(error.field);
+      if (error instanceof InvalidReferenceError)
+        throw this.invalidReference(error.field);
       throw error;
     }
   }
@@ -95,6 +118,19 @@ export class AppointmentsService {
     }
   }
 
+  private validateAmount(
+    status: AppointmentStatus,
+    amount: number | Prisma.Decimal | null,
+  ): void {
+    if (status === AppointmentStatus.COMPLETED && amount === null) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'INVALID_REQUEST',
+        'amount is required for completed appointments',
+      );
+    }
+  }
+
   private sanitize(appointment: Appointment): AppointmentEntity {
     const { userId, ...result } = appointment;
     void userId;
@@ -102,7 +138,12 @@ export class AppointmentsService {
   }
 
   private notFound(id: string): DomainError {
-    return new DomainError('NOT_FOUND', 'APPOINTMENT_NOT_FOUND', `Appointment ${id} not found`, { id });
+    return new DomainError(
+      'NOT_FOUND',
+      'APPOINTMENT_NOT_FOUND',
+      `Appointment ${id} not found`,
+      { id },
+    );
   }
 
   private invalidReference(field?: string): DomainError {

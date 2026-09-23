@@ -1,7 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { Appointment, Prisma } from '@prisma/client';
+import {
+  Appointment,
+  AppointmentStatus,
+  EntryNature,
+  EntryScope,
+  EntrySource,
+  Prisma,
+} from '@prisma/client';
 
-import { InvalidReferenceError, runQuery } from '../../infra/prisma/prisma-errors';
+import {
+  InvalidReferenceError,
+  runQuery,
+} from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
 @Injectable()
@@ -38,7 +48,20 @@ export class AppointmentsRepository {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
         await this.ensureClientBelongsToUser(tx, data.clientId, userId);
-        return tx.appointment.create({ data });
+        const appointment = await tx.appointment.create({ data });
+
+        if (appointment.status === AppointmentStatus.COMPLETED) {
+          if (appointment.amount !== null) {
+            await this.upsertFinancialEntry(
+              tx,
+              appointment,
+              userId,
+              appointment.amount,
+            );
+          }
+        }
+
+        return appointment;
       }),
     );
   }
@@ -52,12 +75,37 @@ export class AppointmentsRepository {
       this.prisma.$transaction(async tx => {
         const owned = await tx.appointment.findFirst({
           where: { id, userId, deletedAt: null },
-          select: { id: true },
+          include: { financialEntry: true },
         });
         if (!owned) return null;
 
         await this.ensureClientBelongsToUser(tx, data.clientId, userId);
-        return tx.appointment.update({ where: { id }, data });
+        const appointment = await tx.appointment.update({
+          where: { id },
+          data,
+        });
+
+        if (appointment.status === AppointmentStatus.COMPLETED) {
+          if (appointment.amount !== null) {
+            await this.upsertFinancialEntry(
+              tx,
+              appointment,
+              userId,
+              appointment.amount,
+              owned.financialEntry?.id,
+            );
+          }
+        } else if (
+          owned.financialEntry &&
+          owned.financialEntry.deletedAt === null
+        ) {
+          await tx.financialEntry.update({
+            where: { id: owned.financialEntry.id },
+            data: { deletedAt: new Date() },
+          });
+        }
+
+        return appointment;
       }),
     );
   }
@@ -78,5 +126,44 @@ export class AppointmentsRepository {
       select: { id: true },
     });
     if (!client) throw new InvalidReferenceError('clientId');
+  }
+
+  private async upsertFinancialEntry(
+    tx: Prisma.TransactionClient,
+    appointment: Appointment,
+    userId: string,
+    amount: Prisma.Decimal,
+    financialEntryId?: string,
+  ): Promise<void> {
+    const category = await tx.financialCategory.findFirst({
+      where: {
+        userId: null,
+        name: 'Professional fees',
+        nature: EntryNature.INCOME,
+        active: true,
+      },
+      select: { id: true },
+    });
+
+    if (!category) throw new Error('Professional fees category is not seeded');
+
+    const data = {
+      nature: EntryNature.INCOME,
+      scope: EntryScope.PROFESSIONAL,
+      categoryId: category.id,
+      description: appointment.procedureName ?? 'Procedimento',
+      amount,
+      accrualDate: appointment.startsAt,
+      source: EntrySource.APPOINTMENT,
+      appointmentId: appointment.id,
+      deletedAt: null,
+    };
+
+    if (financialEntryId) {
+      await tx.financialEntry.update({ where: { id: financialEntryId }, data });
+      return;
+    }
+
+    await tx.financialEntry.create({ data: { ...data, userId } });
   }
 }

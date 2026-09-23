@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Prisma, Species } from '@prisma/client';
+import { AppointmentStatus, Prisma, Species } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsDate,
@@ -16,6 +16,14 @@ import {
 } from 'class-validator';
 
 export class CreateAppointmentDto {
+  @ApiPropertyOptional({
+    enum: AppointmentStatus,
+    default: AppointmentStatus.SCHEDULED,
+  })
+  @IsOptional()
+  @IsEnum(AppointmentStatus)
+  status: AppointmentStatus = AppointmentStatus.SCHEDULED;
+
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
   @IsUUID()

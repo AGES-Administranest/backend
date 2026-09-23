@@ -33,17 +33,23 @@ export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a completed appointment or procedure' })
+  @ApiOperation({ summary: 'Create an appointment or procedure' })
   @ApiCreatedResponse({ type: AppointmentEntity })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateAppointmentDto) {
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateAppointmentDto,
+  ) {
     return this.appointmentsService.create(user.id, dto);
   }
 
   @Get()
   @ApiOperation({ summary: 'List appointments and procedures by date' })
   @ApiOkResponse({ type: AppointmentEntity, isArray: true })
-  findAll(@CurrentUser() user: AuthenticatedUser, @Query() query: QueryAppointmentDto) {
+  findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryAppointmentDto,
+  ) {
     return this.appointmentsService.findAll(user.id, query);
   }
 
@@ -52,7 +58,10 @@ export class AppointmentsController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: AppointmentEntity })
   @ApiNotFoundResponse({ description: 'Appointment not found' })
-  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+  findOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.appointmentsService.findOne(id, user.id);
   }
 
@@ -75,7 +84,10 @@ export class AppointmentsController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: AppointmentEntity })
   @ApiNotFoundResponse({ description: 'Appointment not found' })
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.appointmentsService.remove(id, user.id);
   }
 }

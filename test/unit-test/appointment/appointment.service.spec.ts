@@ -1,7 +1,7 @@
 import { AppointmentStatus, Species } from '@prisma/client';
 
-import { AppointmentService } from '../../../src/modules/appointment/appointment.service';
-import { CreateAppointmentDto } from '../../../src/modules/appointment/dto/create-appointment.dto';
+import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
+import { CreateAppointmentDto } from '../../../src/modules/appointments/dto/create-appointment.dto';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const appointment = (overrides: Record<string, unknown> = {}) => ({
@@ -26,7 +26,7 @@ const appointment = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-describe('AppointmentService', () => {
+describe('AppointmentsService', () => {
   let repository: {
     findMany: jest.Mock;
     findById: jest.Mock;
@@ -34,7 +34,7 @@ describe('AppointmentService', () => {
     update: jest.Mock;
     delete: jest.Mock;
   };
-  let service: AppointmentService;
+  let service: AppointmentsService;
 
   beforeEach(() => {
     repository = {
@@ -44,23 +44,42 @@ describe('AppointmentService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     };
-    service = new AppointmentService(repository as never);
+    service = new AppointmentsService(repository as never);
   });
 
-  it('creates scheduled records and preserves the status transition field', async () => {
+  it('creates scheduled records by default', async () => {
+    const dto = Object.assign(new CreateAppointmentDto(), {
+      startsAt: new Date('2026-09-19T10:00:00.000Z'),
+    });
+    repository.create.mockResolvedValue(appointment());
+
+    const result = await service.create('user-1', dto);
+
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-1', status: AppointmentStatus.SCHEDULED }),
+      'user-1',
+    );
+    expect(result.status).toBe(AppointmentStatus.SCHEDULED);
+    expect(result).not.toHaveProperty('userId');
+  });
+
+  it('preserves an explicitly completed status when an amount is provided', async () => {
     const dto = Object.assign(new CreateAppointmentDto(), {
       startsAt: new Date('2026-09-19T10:00:00.000Z'),
       status: AppointmentStatus.COMPLETED,
+      amount: 250,
     });
-    repository.create.mockResolvedValue(appointment({ status: AppointmentStatus.COMPLETED }));
+    repository.create.mockResolvedValue(
+      appointment({ status: AppointmentStatus.COMPLETED, amount: 250 }),
+    );
 
     const result = await service.create('user-1', dto);
 
     expect(repository.create).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1', status: AppointmentStatus.COMPLETED }),
+      'user-1',
     );
     expect(result.status).toBe(AppointmentStatus.COMPLETED);
-    expect(result).not.toHaveProperty('userId');
   });
 
   it('reports another user appointment as not found', async () => {
