@@ -33,6 +33,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "test:item": "jest --config ./test/unit-test/item/jest.config.json",
     "test:supplier": "jest --config ./test/unit-test/supplier/jest.config.json",
+    "test:client": "jest --config ./test/unit-test/client/jest.config.json",
     "test:db": "bash scripts/test-db.sh"
   },
   "dependencies": {
