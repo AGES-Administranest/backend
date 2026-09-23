@@ -6,6 +6,8 @@ import {
   EntryScope,
   EntrySource,
   Prisma,
+  StockMovementSource,
+  StockMovementType,
 } from '@prisma/client';
 
 import {
@@ -13,6 +15,7 @@ import {
   runQuery,
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { reversalType } from '../stock-movements';
 
 @Injectable()
 export class AppointmentsRepository {
@@ -111,7 +114,70 @@ export class AppointmentsRepository {
   }
 
   delete(id: string, userId: string): Promise<Appointment | null> {
-    return this.update(id, userId, { deletedAt: new Date() });
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const appointment = await tx.appointment.findFirst({
+          where: { id, userId, deletedAt: null },
+        });
+        if (!appointment) return null;
+
+        const deletedAt = new Date();
+        const financialEntry = await tx.financialEntry.findUnique({
+          where: { appointmentId: id },
+        });
+        if (financialEntry && financialEntry.deletedAt === null) {
+          await tx.financialEntry.update({
+            where: { id: financialEntry.id },
+            data: { deletedAt },
+          });
+        }
+
+        const movements = await tx.stockMovement.findMany({
+          where: { appointmentId: id, deletedAt: null },
+        });
+        for (const movement of movements) {
+          await tx.stockMovement.create({
+            data: {
+              userId,
+              itemId: movement.itemId,
+              lotId: movement.lotId,
+              type: reversalType(movement.type),
+              source: StockMovementSource.CORRECTION_REVERSAL,
+              quantity: movement.quantity,
+              unitCost: movement.unitCost,
+              occurredAt: deletedAt,
+              appointmentId: id,
+              notes: `Reversal of stock movement ${movement.id}`,
+            },
+          });
+          await tx.item.update({
+            where: { id: movement.itemId },
+            data: {
+              currentQuantity:
+                movement.type === StockMovementType.INBOUND
+                  ? { decrement: movement.quantity }
+                  : { increment: movement.quantity },
+            },
+          });
+          if (movement.lotId) {
+            await tx.itemLot.update({
+              where: { id: movement.lotId },
+              data: {
+                currentQuantity:
+                  movement.type === StockMovementType.INBOUND
+                    ? { decrement: movement.quantity }
+                    : { increment: movement.quantity },
+              },
+            });
+          }
+        }
+
+        return tx.appointment.update({
+          where: { id },
+          data: { deletedAt },
+        });
+      }),
+    );
   }
 
   private async ensureClientBelongsToUser(

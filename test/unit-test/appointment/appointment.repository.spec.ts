@@ -12,7 +12,14 @@ describe('AppointmentsRepository', () => {
     };
     client: { findFirst: jest.Mock };
     financialCategory: { findFirst: jest.Mock };
-    financialEntry: { create: jest.Mock; update: jest.Mock };
+    financialEntry: {
+      create: jest.Mock;
+      update: jest.Mock;
+      findUnique: jest.Mock;
+    };
+    stockMovement: { findMany: jest.Mock; create: jest.Mock };
+    item: { update: jest.Mock };
+    itemLot: { update: jest.Mock };
     $transaction: jest.Mock;
   };
   let repository: AppointmentsRepository;
@@ -42,7 +49,14 @@ describe('AppointmentsRepository', () => {
       financialEntry: {
         create: jest.fn(),
         update: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(null),
       },
+      stockMovement: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+      },
+      item: { update: jest.fn() },
+      itemLot: { update: jest.fn() },
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     repository = new AppointmentsRepository(prisma as never);
@@ -91,5 +105,43 @@ describe('AppointmentsRepository', () => {
       source: 'APPOINTMENT',
       appointmentId: 'appointment-1',
     });
+  });
+
+  it('soft-deletes the financial entry and reverses linked stock movements', async () => {
+    const financialEntry = {
+      id: 'financial-entry-1',
+      appointmentId: 'appointment-1',
+      deletedAt: null,
+    };
+    const movement = {
+      id: 'movement-1',
+      userId: 'user-1',
+      itemId: 'item-1',
+      lotId: 'lot-1',
+      type: 'OUTBOUND',
+      quantity: new Prisma.Decimal(2),
+      unitCost: new Prisma.Decimal(15),
+      deletedAt: null,
+    };
+    prisma.financialEntry.findUnique.mockResolvedValue(financialEntry);
+    prisma.stockMovement.findMany.mockResolvedValue([movement]);
+
+    const result = await repository.delete('appointment-1', 'user-1');
+
+    expect(result?.deletedAt).toBeInstanceOf(Date);
+    expect(prisma.financialEntry.findUnique).toHaveBeenCalledWith({
+      where: { appointmentId: 'appointment-1' },
+    });
+    expect(prisma.financialEntry.update).toHaveBeenCalledTimes(1);
+    expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
+    expect(prisma.item.update).toHaveBeenCalledWith({
+      where: { id: 'item-1' },
+      data: { currentQuantity: { increment: new Prisma.Decimal(2) } },
+    });
+    expect(prisma.itemLot.update).toHaveBeenCalledWith({
+      where: { id: 'lot-1' },
+      data: { currentQuantity: { increment: new Prisma.Decimal(2) } },
+    });
+    expect(prisma.appointment.update).toHaveBeenCalledTimes(1);
   });
 });
