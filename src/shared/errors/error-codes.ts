@@ -61,6 +61,7 @@ export const ERROR_CODES = [
 
   // appointments
   'APPOINTMENT_NOT_FOUND',
+  'APPOINTMENT_TIME_CONFLICT',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Appointment, AppointmentStatus, Prisma } from '@prisma/client';
 
 import { AppointmentsRepository } from './appointments.repository';
+import { AppointmentTimeConflictError } from './appointment-time-conflict.error';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
@@ -73,6 +74,8 @@ export class AppointmentsService {
       );
       return { appointment: this.sanitize(result.appointment), created: result.created };
     } catch (error) {
+      if (error instanceof AppointmentTimeConflictError)
+        throw this.timeConflict();
       if (error instanceof InvalidReferenceError)
         throw this.invalidReference(error.field);
       throw error;
@@ -184,6 +187,14 @@ export class AppointmentsService {
       'INVALID_REFERENCE',
       'The provided reference does not exist or is invalid',
       { field },
+    );
+  }
+
+  private timeConflict(): DomainError {
+    return new DomainError(
+      'CONFLICT',
+      'APPOINTMENT_TIME_CONFLICT',
+      'The appointment time conflicts with an existing appointment',
     );
   }
 }

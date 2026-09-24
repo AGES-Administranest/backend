@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -40,6 +41,7 @@ export class AppointmentsController {
   @ApiOperation({ summary: 'Create an appointment or procedure' })
   @ApiCreatedResponse({ type: AppointmentEntity })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
+  @ApiConflictResponse({ description: 'Appointment time conflicts' })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateAppointmentDto,
