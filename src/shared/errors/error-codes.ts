@@ -63,7 +63,9 @@ export const ERROR_CODES = [
   // The object is there, but does not match what was declared and signed.
   'INVOICE_UPLOAD_MISMATCH',
 
-  // seu módulo entra aqui
+  // appointments
+  'APPOINTMENT_NOT_FOUND',
+  'APPOINTMENT_TIME_CONFLICT',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
