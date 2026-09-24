@@ -4,12 +4,32 @@ import { Client } from '@prisma/client';
 import { ClientEntity } from './client.entity';
 import { ClientRepository } from './client.repository';
 import { CreateClientDto } from './dto/create-client.dto';
+import { DeleteClientDto } from './dto/delete-client.dto';
+import { QueryClientDto } from './dto/query-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { RecordNotFoundError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 @Injectable()
 export class ClientService {
   constructor(private readonly clientRepository: ClientRepository) {}
+
+  async findAll(
+    userId: string,
+    query: QueryClientDto,
+  ): Promise<ClientEntity[]> {
+    const clients = await this.clientRepository.findMany({
+      userId,
+      ...(query.type ? { type: query.type } : {}),
+    });
+    return clients.map(client => this.sanitize(client));
+  }
+
+  async findOne(id: string, userId: string): Promise<ClientEntity> {
+    const client = await this.clientRepository.findById(id, userId);
+    if (!client) throw this.clientNotFound(id);
+    return this.sanitize(client);
+  }
 
   async create(userId: string, dto: CreateClientDto): Promise<ClientEntity> {
     const existing = await this.clientRepository.findByName(userId, dto.name);
@@ -33,9 +53,26 @@ export class ClientService {
       if (existing) throw this.duplicatedName();
     }
 
-    const client = await this.clientRepository.update(id, userId, dto);
-    if (!client) throw this.clientNotFound(id);
-    return this.sanitize(client);
+    try {
+      const client = await this.clientRepository.update(id, userId, dto);
+      if (!client) throw this.clientNotFound(id);
+      return this.sanitize(client);
+    } catch (error) {
+      if (error instanceof RecordNotFoundError) throw this.clientNotFound(id);
+      throw error;
+    }
+  }
+
+  async remove(id: string, userId: string): Promise<DeleteClientDto> {
+    try {
+      const client = await this.clientRepository.delete(id, userId);
+      // Someone else's client is reported exactly as a missing one.
+      if (!client) throw this.clientNotFound(id);
+      return { id: client.id, name: client.name };
+    } catch (error) {
+      if (error instanceof RecordNotFoundError) throw this.clientNotFound(id);
+      throw error;
+    }
   }
 
   private sanitize(client: Client): ClientEntity {
