@@ -39,6 +39,7 @@ describe('ClientService', () => {
     findMany: jest.Mock;
     findById: jest.Mock;
     findByName: jest.Mock;
+    findByTaxId: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
     delete: jest.Mock;
@@ -50,6 +51,7 @@ describe('ClientService', () => {
       findMany: jest.fn().mockResolvedValue([]),
       findById: jest.fn(),
       findByName: jest.fn().mockResolvedValue(null),
+      findByTaxId: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -123,6 +125,48 @@ describe('ClientService', () => {
       );
       expect(repository.create).not.toHaveBeenCalled();
     });
+
+    describe('tax id', () => {
+      const withCnpj: CreateClientDto = {
+        ...dto,
+        taxId: '12345678000190',
+        taxIdType: 'CNPJ',
+      };
+
+      it("checks the tax id against the owner's clients", async () => {
+        repository.create.mockResolvedValue(client(withCnpj));
+
+        await service.create('user-1', withCnpj);
+
+        expect(repository.findByTaxId).toHaveBeenCalledWith(
+          'user-1',
+          '12345678000190',
+          undefined,
+        );
+        expect(repository.create).toHaveBeenCalled();
+      });
+
+      it('rejects a tax id the owner already registered', async () => {
+        repository.findByTaxId.mockResolvedValue(client({ id: 'client-2' }));
+
+        await expectDomainError(
+          service.create('user-1', withCnpj),
+          'DUPLICATED_CLIENT_TAX_ID',
+        );
+        expect(repository.create).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['no tax id', {}],
+        ['a null tax id', { taxId: null, taxIdType: null }],
+      ])('skips the check for %s', async (_case, fields) => {
+        repository.create.mockResolvedValue(client());
+
+        await service.create('user-1', { ...dto, ...fields });
+
+        expect(repository.findByTaxId).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('update', () => {
@@ -172,6 +216,43 @@ describe('ClientService', () => {
         service.update('client-1', 'user-1', { city: 'Canoas' }),
         'CLIENT_NOT_FOUND',
       );
+    });
+
+    describe('tax id', () => {
+      const newCpf = { taxId: '12345678901', taxIdType: 'CPF' as const };
+
+      it('checks the new tax id against the other clients only', async () => {
+        repository.update.mockResolvedValue(client(newCpf));
+
+        await service.update('client-1', 'user-1', newCpf);
+
+        expect(repository.findByTaxId).toHaveBeenCalledWith(
+          'user-1',
+          '12345678901',
+          'client-1',
+        );
+      });
+
+      it('rejects a tax id already held by another of the owner’s clients', async () => {
+        repository.findByTaxId.mockResolvedValue(client({ id: 'client-2' }));
+
+        await expectDomainError(
+          service.update('client-1', 'user-1', newCpf),
+          'DUPLICATED_CLIENT_TAX_ID',
+        );
+        expect(repository.update).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['the tax id is not being changed', { city: 'Canoas' }],
+        ['the tax id is being removed', { taxId: null, taxIdType: null }],
+      ])('skips the check when %s', async (_case, fields) => {
+        repository.update.mockResolvedValue(client());
+
+        await service.update('client-1', 'user-1', fields);
+
+        expect(repository.findByTaxId).not.toHaveBeenCalled();
+      });
     });
   });
 

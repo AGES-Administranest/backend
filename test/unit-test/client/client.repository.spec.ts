@@ -66,6 +66,36 @@ describe('ClientRepository', () => {
         deletedAt: null,
       });
     });
+
+    it("looks for the tax id among the owner's clients that were not deleted", async () => {
+      await repository.findByTaxId('user-1', '12345678000190');
+
+      expect(prisma.client.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'user-1', taxId: '12345678000190', deletedAt: null },
+      });
+    });
+
+    it('counts inactive clients too: only deleting one frees its tax id', async () => {
+      await repository.findByTaxId('user-1', '12345678000190');
+
+      const [args] = prisma.client.findFirst.mock.calls[0] as [
+        { where: Record<string, unknown> },
+      ];
+      expect(args.where).not.toHaveProperty('active');
+    });
+
+    it('leaves the client being updated out of the check', async () => {
+      await repository.findByTaxId('user-1', '12345678000190', 'client-1');
+
+      expect(prisma.client.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          taxId: '12345678000190',
+          deletedAt: null,
+          id: { not: 'client-1' },
+        },
+      });
+    });
   });
 
   describe('update', () => {

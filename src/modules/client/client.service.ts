@@ -34,6 +34,7 @@ export class ClientService {
   async create(userId: string, dto: CreateClientDto): Promise<ClientEntity> {
     const existing = await this.clientRepository.findByName(userId, dto.name);
     if (existing) throw this.duplicatedName();
+    if (dto.taxId) await this.ensureTaxIdIsFree(userId, dto.taxId);
 
     const client = await this.clientRepository.create({ ...dto, userId });
     return this.sanitize(client);
@@ -52,6 +53,7 @@ export class ClientService {
       );
       if (existing) throw this.duplicatedName();
     }
+    if (dto.taxId) await this.ensureTaxIdIsFree(userId, dto.taxId, id);
 
     try {
       const client = await this.clientRepository.update(id, userId, dto);
@@ -111,6 +113,28 @@ export class ClientService {
       'CONFLICT',
       'DUPLICATED_CLIENT_NAME',
       'A client with this name already exists',
+    );
+  }
+
+  /** Per owner (ADR-11): another professional may register the same clinic. */
+  private async ensureTaxIdIsFree(
+    userId: string,
+    taxId: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const holder = await this.clientRepository.findByTaxId(
+      userId,
+      taxId,
+      excludeId,
+    );
+    if (holder) throw this.duplicatedTaxId();
+  }
+
+  private duplicatedTaxId(): DomainError {
+    return new DomainError(
+      'CONFLICT',
+      'DUPLICATED_CLIENT_TAX_ID',
+      'A client with this tax id already exists',
     );
   }
 }

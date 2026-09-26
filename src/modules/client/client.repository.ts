@@ -47,6 +47,29 @@ export class ClientRepository {
     );
   }
 
+  /**
+   * The owner's client that already holds this tax id, if any. Unlike the
+   * name check, an inactive client still counts: registering the same
+   * document again would split one clinic's history into two records. Only a
+   * deleted client frees its tax id.
+   */
+  findByTaxId(
+    userId: string,
+    taxId: string,
+    excludeId?: string,
+  ): Promise<Client | null> {
+    return runQuery(() =>
+      this.prisma.client.findFirst({
+        where: {
+          userId,
+          taxId,
+          deletedAt: null,
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+        },
+      }),
+    );
+  }
+
   create(data: Prisma.ClientUncheckedCreateInput): Promise<Client> {
     return runQuery(() => this.prisma.client.create({ data }));
   }

@@ -1,3 +1,4 @@
+import { applyDecorators } from '@nestjs/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ClientType, PaymentMethod, TaxIdType, Weekday } from '@prisma/client';
 import {
@@ -12,6 +13,22 @@ import {
   MinLength,
 } from 'class-validator';
 
+import { IsValidTaxIdPair } from '../../../shared/validation/tax-id';
+
+/** Also used by UpdateClientDto, which has to declare `taxId` again. */
+export const TaxIdProperty = () =>
+  applyDecorators(
+    ApiPropertyOptional({
+      type: String,
+      nullable: true,
+      example: '12345678000190',
+      description:
+        'Digits only: 11 for a CPF, 14 for a CNPJ. Always sent together ' +
+        'with taxIdType; both null remove the tax id.',
+    }),
+    IsValidTaxIdPair(),
+  );
+
 export class CreateClientDto {
   @ApiProperty({ enum: ClientType, example: ClientType.CLINIC })
   @IsEnum(ClientType)
@@ -23,16 +40,17 @@ export class CreateClientDto {
   @MaxLength(120)
   name!: string;
 
-  @ApiPropertyOptional({ example: '12.345.678/0001-90' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  taxId?: string;
+  @TaxIdProperty()
+  taxId?: string | null;
 
-  @ApiPropertyOptional({ enum: TaxIdType })
+  @ApiPropertyOptional({
+    enum: TaxIdType,
+    nullable: true,
+    description: 'Always sent together with taxId.',
+  })
   @IsOptional()
   @IsEnum(TaxIdType)
-  taxIdType?: TaxIdType;
+  taxIdType?: TaxIdType | null;
 
   @ApiPropertyOptional({ example: 'Dra. Ana' })
   @IsOptional()
