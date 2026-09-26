@@ -40,13 +40,17 @@ describe('AppointmentsRepository', () => {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue(storedAppointment),
         create: jest.fn().mockResolvedValue(storedAppointment),
-        update: jest.fn().mockImplementation(
-          ({ data }: { data: Prisma.AppointmentUncheckedUpdateInput }) =>
-            Promise.resolve({ ...storedAppointment, ...data }),
-        ),
+        update: jest
+          .fn()
+          .mockImplementation(
+            ({ data }: { data: Prisma.AppointmentUncheckedUpdateInput }) =>
+              Promise.resolve({ ...storedAppointment, ...data }),
+          ),
       },
       client: { findFirst: jest.fn() },
-      financialCategory: { findFirst: jest.fn().mockResolvedValue({ id: 'category-1' }) },
+      financialCategory: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'category-1' }),
+      },
       financialEntry: {
         create: jest.fn(),
         update: jest.fn(),

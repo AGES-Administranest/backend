@@ -52,12 +52,18 @@ describe('AppointmentsService', () => {
     const dto = Object.assign(new CreateAppointmentDto(), {
       startsAt: new Date('2026-09-19T10:00:00.000Z'),
     });
-    repository.create.mockResolvedValue({ appointment: appointment(), created: true });
+    repository.create.mockResolvedValue({
+      appointment: appointment(),
+      created: true,
+    });
 
     const result = await service.create('user-1', dto);
 
     expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'user-1', status: AppointmentStatus.SCHEDULED }),
+      expect.objectContaining({
+        userId: 'user-1',
+        status: AppointmentStatus.SCHEDULED,
+      }),
       'user-1',
     );
     expect(result.status).toBe(AppointmentStatus.SCHEDULED);
@@ -71,14 +77,20 @@ describe('AppointmentsService', () => {
       amount: 250,
     });
     repository.create.mockResolvedValue({
-      appointment: appointment({ status: AppointmentStatus.COMPLETED, amount: 250 }),
+      appointment: appointment({
+        status: AppointmentStatus.COMPLETED,
+        amount: 250,
+      }),
       created: true,
     });
 
     const result = await service.create('user-1', dto);
 
     expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'user-1', status: AppointmentStatus.COMPLETED }),
+      expect.objectContaining({
+        userId: 'user-1',
+        status: AppointmentStatus.COMPLETED,
+      }),
       'user-1',
     );
     expect(result.status).toBe(AppointmentStatus.COMPLETED);
@@ -101,7 +113,9 @@ describe('AppointmentsService', () => {
   it('reports another user appointment as not found', async () => {
     repository.findById.mockResolvedValue(null);
 
-    await expect(service.findOne('appointment-1', 'user-2')).rejects.toMatchObject({
+    await expect(
+      service.findOne('appointment-1', 'user-2'),
+    ).rejects.toMatchObject({
       code: 'APPOINTMENT_NOT_FOUND',
     } satisfies Partial<DomainError>);
   });

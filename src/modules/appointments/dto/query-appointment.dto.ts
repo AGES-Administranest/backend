@@ -1,17 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { AppointmentStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import {
-  IsDate,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsDate, IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class QueryAppointmentDto {
-  @ApiPropertyOptional({ enum: AppointmentStatus, default: AppointmentStatus.COMPLETED })
+  @ApiPropertyOptional({
+    enum: AppointmentStatus,
+    default: AppointmentStatus.COMPLETED,
+  })
   @IsOptional()
   @IsEnum(AppointmentStatus)
   status: AppointmentStatus = AppointmentStatus.COMPLETED;

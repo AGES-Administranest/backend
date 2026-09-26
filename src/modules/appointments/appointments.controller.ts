@@ -47,14 +47,18 @@ export class AppointmentsController {
     @Body() dto: CreateAppointmentDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    return this.appointmentsService.createWithResult(user.id, dto).then(result => {
-      response.status(result.created ? HttpStatus.CREATED : HttpStatus.OK);
-      return result.appointment;
-    });
+    return this.appointmentsService
+      .createWithResult(user.id, dto)
+      .then(result => {
+        response.status(result.created ? HttpStatus.CREATED : HttpStatus.OK);
+        return result.appointment;
+      });
   }
 
   @Post('sync')
-  @ApiOperation({ summary: 'Synchronize appointments created or edited offline' })
+  @ApiOperation({
+    summary: 'Synchronize appointments created or edited offline',
+  })
   @ApiOkResponse({ type: AppointmentEntity, isArray: true })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
   sync(

@@ -72,7 +72,10 @@ export class AppointmentsService {
         { ...dto, userId, status: dto.status ?? AppointmentStatus.SCHEDULED },
         userId,
       );
-      return { appointment: this.sanitize(result.appointment), created: result.created };
+      return {
+        appointment: this.sanitize(result.appointment),
+        created: result.created,
+      };
     } catch (error) {
       if (error instanceof AppointmentTimeConflictError)
         throw this.timeConflict();
@@ -90,10 +93,11 @@ export class AppointmentsService {
 
     for (const dto of appointments) {
       if (dto.clientGeneratedId) {
-        const existing = await this.appointmentsRepository.findByClientGeneratedId(
-          dto.clientGeneratedId,
-          userId,
-        );
+        const existing =
+          await this.appointmentsRepository.findByClientGeneratedId(
+            dto.clientGeneratedId,
+            userId,
+          );
         if (existing) {
           results.push(await this.update(existing.id, userId, dto));
           continue;
