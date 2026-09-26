@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Appointment, AppointmentStatus, Prisma } from '@prisma/client';
 
-import { AppointmentsRepository } from './appointments.repository';
 import { AppointmentTimeConflictError } from './appointment-time-conflict.error';
+import { AppointmentsRepository } from './appointments.repository';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';

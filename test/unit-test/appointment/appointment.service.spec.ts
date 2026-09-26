@@ -1,7 +1,7 @@
 import { AppointmentStatus, Species } from '@prisma/client';
 
-import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
 import { AppointmentTimeConflictError } from '../../../src/modules/appointments/appointment-time-conflict.error';
+import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
 import { CreateAppointmentDto } from '../../../src/modules/appointments/dto/create-appointment.dto';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
