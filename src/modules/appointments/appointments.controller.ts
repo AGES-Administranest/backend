@@ -25,11 +25,16 @@ import {
 import type { Response } from 'express';
 
 import { AppointmentsService } from './appointments.service';
+import { CheckConflictQueryDto } from './dto/check-conflict-query.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
-import { AppointmentEntity } from './entities/appointment.entity';
+import {
+  AppointmentEntity,
+  CheckConflictResultEntity,
+} from './entities/appointment.entity';
 import { CurrentUser } from '../../shared/auth';
+// `import type` is required by `emitDecoratorMetadata` on a decorated signature.
 import type { AuthenticatedUser } from '../../shared/auth';
 
 @ApiTags('appointments')
@@ -41,7 +46,9 @@ export class AppointmentsController {
   @ApiOperation({ summary: 'Create an appointment or procedure' })
   @ApiCreatedResponse({ type: AppointmentEntity })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
-  @ApiConflictResponse({ description: 'Appointment time conflicts' })
+  @ApiConflictResponse({
+    description: 'The time slot conflicts with another scheduled appointment',
+  })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateAppointmentDto,
@@ -67,6 +74,25 @@ export class AppointmentsController {
     appointments: CreateAppointmentDto[],
   ) {
     return this.appointmentsService.sync(user.id, appointments);
+  }
+
+  @Get('check-conflict')
+  @ApiOperation({
+    summary:
+      'Checks whether a time slot conflicts with another scheduled appointment, without creating or editing anything',
+  })
+  @ApiOkResponse({ type: CheckConflictResultEntity })
+  @ApiBadRequestResponse({ description: 'Invalid query parameters' })
+  checkConflict(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: CheckConflictQueryDto,
+  ) {
+    return this.appointmentsService.checkConflict(
+      user.id,
+      new Date(query.startsAt),
+      new Date(query.endsAt),
+      query.excludeId,
+    );
   }
 
   @Get()
@@ -97,6 +123,9 @@ export class AppointmentsController {
   @ApiOkResponse({ type: AppointmentEntity })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
   @ApiNotFoundResponse({ description: 'Appointment not found' })
+  @ApiConflictResponse({
+    description: 'The time slot conflicts with another scheduled appointment',
+  })
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,

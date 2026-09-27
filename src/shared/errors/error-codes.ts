@@ -44,9 +44,18 @@ export const ERROR_CODES = [
   // supplier
   'DUPLICATED_SUPPLIER_NAME',
 
+  // client
+  'CLIENT_NOT_FOUND',
+  'DUPLICATED_CLIENT_NAME',
+
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
+
+  // appointments
+  'APPOINTMENT_NOT_FOUND',
+  'APPOINTMENT_INVALID_INTERVAL',
+  'APPOINTMENT_TIME_CONFLICT',
 
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
@@ -58,10 +67,6 @@ export const ERROR_CODES = [
   'INVOICE_UPLOAD_NOT_FINISHED',
   // The object is there, but does not match what was declared and signed.
   'INVOICE_UPLOAD_MISMATCH',
-
-  // appointments
-  'APPOINTMENT_NOT_FOUND',
-  'APPOINTMENT_TIME_CONFLICT',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

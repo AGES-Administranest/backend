@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Appointment, AppointmentStatus, Prisma } from '@prisma/client';
 
-import { AppointmentTimeConflictError } from './appointment-time-conflict.error';
 import { AppointmentsRepository } from './appointments.repository';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
-import { AppointmentEntity } from './entities/appointment.entity';
+import {
+  AppointmentEntity,
+  CheckConflictResultEntity,
+  ConflictingAppointmentEntity,
+} from './entities/appointment.entity';
 import {
   InvalidReferenceError,
   RecordNotFoundError,
@@ -62,14 +65,50 @@ export class AppointmentsService {
     userId: string,
     dto: CreateAppointmentDto,
   ): Promise<{ appointment: AppointmentEntity; created: boolean }> {
-    this.validateDates(dto.startsAt, dto.endsAt);
-    this.validateAmount(
-      dto.status ?? AppointmentStatus.SCHEDULED,
-      dto.amount ?? null,
-    );
+    const status = dto.status ?? AppointmentStatus.SCHEDULED;
+    const startsAt = new Date(dto.startsAt);
+    const endsAt = dto.endsAt ? new Date(dto.endsAt) : undefined;
+
+    // A retried request (same `clientGeneratedId`) must answer with the record
+    // it already created — before the conflict check, which would otherwise
+    // collide with that very record.
+    if (dto.clientGeneratedId) {
+      const existing =
+        await this.appointmentsRepository.findByClientGeneratedId(
+          dto.clientGeneratedId,
+          userId,
+        );
+      if (existing) {
+        return { appointment: this.sanitize(existing), created: false };
+      }
+    }
+
+    this.assertValidInterval(startsAt, endsAt);
+    this.validateAmount(status, dto.amount ?? null);
+    if (status === AppointmentStatus.SCHEDULED && endsAt) {
+      await this.assertNoConflict(userId, startsAt, endsAt);
+    }
+
     try {
       const result = await this.appointmentsRepository.create(
-        { ...dto, userId, status: dto.status ?? AppointmentStatus.SCHEDULED },
+        {
+          userId,
+          status,
+          clientGeneratedId: dto.clientGeneratedId,
+          clientId: dto.clientId,
+          procedureName: dto.procedureName,
+          startsAt,
+          endsAt,
+          location: dto.location,
+          amount: dto.amount,
+          patientName: dto.patientName,
+          ownerName: dto.ownerName,
+          species: dto.species,
+          patientAgeYears: dto.patientAgeYears,
+          weightKg: dto.weightKg,
+          notes: dto.notes,
+          asa: dto.asa,
+        },
         userId,
       );
       return {
@@ -77,8 +116,6 @@ export class AppointmentsService {
         created: result.created,
       };
     } catch (error) {
-      if (error instanceof AppointmentTimeConflictError)
-        throw this.timeConflict();
       if (error instanceof InvalidReferenceError)
         throw this.invalidReference(error.field);
       throw error;
@@ -117,19 +154,36 @@ export class AppointmentsService {
   ): Promise<AppointmentEntity> {
     const existing = await this.appointmentsRepository.findById(id, userId);
     if (!existing) throw this.notFound(id);
+
     const status = dto.status ?? existing.status;
-    this.validateDates(
-      dto.startsAt ?? existing.startsAt,
-      dto.endsAt ?? existing.endsAt ?? undefined,
-    );
+    const startsAt = dto.startsAt ? new Date(dto.startsAt) : existing.startsAt;
+    const endsAt = dto.endsAt ? new Date(dto.endsAt) : existing.endsAt;
+    this.assertValidInterval(startsAt, endsAt);
     this.validateAmount(status, dto.amount ?? existing.amount);
 
+    const intervalChanged =
+      dto.startsAt !== undefined || dto.endsAt !== undefined;
+    if (intervalChanged && status === AppointmentStatus.SCHEDULED && endsAt) {
+      await this.assertNoConflict(userId, startsAt, endsAt, id);
+    }
+
     try {
-      const appointment = await this.appointmentsRepository.update(
-        id,
-        userId,
-        dto,
-      );
+      const appointment = await this.appointmentsRepository.update(id, userId, {
+        status: dto.status,
+        clientId: dto.clientId,
+        procedureName: dto.procedureName,
+        startsAt: dto.startsAt ? startsAt : undefined,
+        endsAt: dto.endsAt ? endsAt : undefined,
+        location: dto.location,
+        amount: dto.amount,
+        patientName: dto.patientName,
+        ownerName: dto.ownerName,
+        species: dto.species,
+        patientAgeYears: dto.patientAgeYears,
+        weightKg: dto.weightKg,
+        notes: dto.notes,
+        asa: dto.asa,
+      });
       if (!appointment) throw this.notFound(id);
       return this.sanitize(appointment);
     } catch (error) {
@@ -146,13 +200,53 @@ export class AppointmentsService {
     return this.sanitize(appointment);
   }
 
-  private validateDates(startsAt: Date, endsAt?: Date): void {
-    if (endsAt && startsAt >= endsAt) {
+  /**
+   * Whether `[startsAt, endsAt)` overlaps a `SCHEDULED` appointment of this
+   * user. Used both by `create`/`update` (to reject the write) and by
+   * `GET /appointments/check-conflict` (to let the caller ask up front).
+   */
+  async checkConflict(
+    userId: string,
+    startsAt: Date,
+    endsAt: Date,
+    excludeId?: string,
+  ): Promise<CheckConflictResultEntity> {
+    const conflicting = await this.appointmentsRepository.findConflicting(
+      userId,
+      startsAt,
+      endsAt,
+      excludeId,
+    );
+
+    if (!conflicting) return { conflict: false };
+    return {
+      conflict: true,
+      conflictingAppointment: this.toSummary(conflicting),
+    };
+  }
+
+  private async assertNoConflict(
+    userId: string,
+    startsAt: Date,
+    endsAt: Date,
+    excludeId?: string,
+  ): Promise<void> {
+    const result = await this.checkConflict(
+      userId,
+      startsAt,
+      endsAt,
+      excludeId,
+    );
+    if (result.conflict)
+      throw this.timeConflict(result.conflictingAppointment!);
+  }
+
+  private assertValidInterval(startsAt: Date, endsAt?: Date | null): void {
+    if (endsAt && endsAt <= startsAt) {
       throw new DomainError(
         'INVALID_INPUT',
-        'INVALID_REQUEST',
-        'startsAt must be before endsAt',
-        { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
+        'APPOINTMENT_INVALID_INTERVAL',
+        'endsAt must be after startsAt',
       );
     }
   }
@@ -168,6 +262,17 @@ export class AppointmentsService {
         'amount is required for completed appointments',
       );
     }
+  }
+
+  private toSummary(appointment: Appointment): ConflictingAppointmentEntity {
+    return {
+      id: appointment.id,
+      startsAt: appointment.startsAt,
+      // Narrowed by the `findConflicting` query itself: only rows with a
+      // non-null `endsAt` can satisfy `endsAt > startsAt`.
+      endsAt: appointment.endsAt as Date,
+      procedureName: appointment.procedureName,
+    };
   }
 
   private sanitize(appointment: Appointment): AppointmentEntity {
@@ -194,11 +299,14 @@ export class AppointmentsService {
     );
   }
 
-  private timeConflict(): DomainError {
+  private timeConflict(
+    conflictingAppointment: ConflictingAppointmentEntity,
+  ): DomainError {
     return new DomainError(
       'CONFLICT',
       'APPOINTMENT_TIME_CONFLICT',
-      'The appointment time conflicts with an existing appointment',
+      'This time slot conflicts with another scheduled appointment',
+      { conflict: true, conflictingAppointment },
     );
   }
 }

@@ -1,8 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AppointmentStatus, Prisma, Species } from '@prisma/client';
-import { Type } from 'class-transformer';
 import {
-  IsDate,
+  IsDateString,
   IsEnum,
   IsInt,
   IsNumber,
@@ -13,8 +12,10 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
+// No `userId`: the owner comes from the token, never from the request (ADR-11).
 export class CreateAppointmentDto {
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
@@ -27,7 +28,7 @@ export class CreateAppointmentDto {
   })
   @IsOptional()
   @IsEnum(AppointmentStatus)
-  status: AppointmentStatus = AppointmentStatus.SCHEDULED;
+  status?: AppointmentStatus = AppointmentStatus.SCHEDULED;
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
@@ -41,16 +42,20 @@ export class CreateAppointmentDto {
   @MaxLength(160)
   procedureName?: string;
 
-  @ApiProperty({ type: String, format: 'date-time' })
-  @Type(() => Date)
-  @IsDate()
-  startsAt!: Date;
+  @ApiProperty({ example: '2026-09-25T13:00:00.000Z' })
+  @IsDateString()
+  startsAt!: string;
 
-  @ApiPropertyOptional({ type: String, format: 'date-time' })
-  @IsOptional()
-  @Type(() => Date)
-  @IsDate()
-  endsAt?: Date;
+  // Required for SCHEDULED appointments: conflict detection needs a closed
+  // interval to compare against. Optional for COMPLETED ones (a procedure
+  // already done has no slot to protect).
+  @ApiPropertyOptional({ example: '2026-09-25T14:00:00.000Z' })
+  @ValidateIf(
+    (dto: CreateAppointmentDto) =>
+      dto.status !== AppointmentStatus.COMPLETED || dto.endsAt !== undefined,
+  )
+  @IsDateString()
+  endsAt?: string;
 
   @ApiPropertyOptional({ example: 'Room 2' })
   @IsOptional()

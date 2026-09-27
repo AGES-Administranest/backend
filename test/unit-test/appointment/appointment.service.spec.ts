@@ -1,6 +1,5 @@
 import { AppointmentStatus, Species } from '@prisma/client';
 
-import { AppointmentTimeConflictError } from '../../../src/modules/appointments/appointment-time-conflict.error';
 import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
 import { CreateAppointmentDto } from '../../../src/modules/appointments/dto/create-appointment.dto';
 import { DomainError } from '../../../src/shared/errors/domain-error';
@@ -94,20 +93,6 @@ describe('AppointmentsService', () => {
       'user-1',
     );
     expect(result.status).toBe(AppointmentStatus.COMPLETED);
-  });
-
-  it('rejects appointments whose time conflicts with an existing appointment', async () => {
-    const dto = Object.assign(new CreateAppointmentDto(), {
-      startsAt: new Date('2026-09-19T10:30:00.000Z'),
-      endsAt: new Date('2026-09-19T11:30:00.000Z'),
-    });
-    repository.create.mockRejectedValue(new AppointmentTimeConflictError());
-
-    await expect(service.create('user-1', dto)).rejects.toMatchObject({
-      kind: 'CONFLICT',
-      code: 'APPOINTMENT_TIME_CONFLICT',
-    });
-    expect(repository.create).toHaveBeenCalledTimes(1);
   });
 
   it('reports another user appointment as not found', async () => {

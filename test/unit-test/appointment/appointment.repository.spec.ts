@@ -1,6 +1,5 @@
 import { AppointmentStatus, Prisma } from '@prisma/client';
 
-import { AppointmentTimeConflictError } from '../../../src/modules/appointments/appointment-time-conflict.error';
 import { AppointmentsRepository } from '../../../src/modules/appointments/appointments.repository';
 
 describe('AppointmentsRepository', () => {
@@ -110,22 +109,6 @@ describe('AppointmentsRepository', () => {
       source: 'APPOINTMENT',
       appointmentId: 'appointment-1',
     });
-  });
-
-  it('rejects an overlapping appointment before creating it', async () => {
-    prisma.appointment.findFirst.mockResolvedValueOnce({ id: 'appointment-1' });
-
-    await expect(
-      repository.create(
-        {
-          userId: 'user-1',
-          startsAt: new Date('2026-09-19T10:30:00.000Z'),
-          endsAt: new Date('2026-09-19T11:30:00.000Z'),
-        },
-        'user-1',
-      ),
-    ).rejects.toBeInstanceOf(AppointmentTimeConflictError);
-    expect(prisma.appointment.create).not.toHaveBeenCalled();
   });
 
   it('soft-deletes the financial entry and reverses linked stock movements', async () => {

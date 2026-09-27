@@ -17,7 +17,6 @@ import {
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { reversalType } from '../stock-movements';
-import { AppointmentTimeConflictError } from './appointment-time-conflict.error';
 
 @Injectable()
 export class AppointmentsRepository {
@@ -57,6 +56,32 @@ export class AppointmentsRepository {
     );
   }
 
+  /**
+   * The row that overlaps `[startsAt, endsAt)`, if any — the query behind
+   * `checkConflict`. Only `SCHEDULED`, non-deleted appointments of the same
+   * user count; `excludeId` leaves the appointment being edited out of its
+   * own check.
+   */
+  findConflicting(
+    userId: string,
+    startsAt: Date,
+    endsAt: Date,
+    excludeId?: string,
+  ): Promise<Appointment | null> {
+    return runQuery(() =>
+      this.prisma.appointment.findFirst({
+        where: {
+          userId,
+          status: AppointmentStatus.SCHEDULED,
+          deletedAt: null,
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        orderBy: { startsAt: 'asc' },
+      }),
+    );
+  }
   create(
     data: Prisma.AppointmentUncheckedCreateInput,
     userId: string,
@@ -74,12 +99,6 @@ export class AppointmentsRepository {
             });
             if (existing) return { appointment: existing, created: false };
           }
-
-          const overlapping = await tx.appointment.findFirst({
-            where: this.overlapWhere(data, userId),
-            select: { id: true },
-          });
-          if (overlapping) throw new AppointmentTimeConflictError();
 
           await this.ensureClientBelongsToUser(tx, data.clientId, userId);
           const appointment = await tx.appointment.create({ data });
@@ -112,22 +131,6 @@ export class AppointmentsRepository {
         throw error;
       }
     });
-  }
-
-  private overlapWhere(
-    data: Prisma.AppointmentUncheckedCreateInput,
-    userId: string,
-  ): Prisma.AppointmentWhereInput {
-    return {
-      userId,
-      deletedAt: null,
-      ...(data.endsAt
-        ? {
-            startsAt: { lt: data.endsAt },
-            OR: [{ endsAt: null }, { endsAt: { gt: data.startsAt } }],
-          }
-        : { OR: [{ endsAt: null }, { endsAt: { gt: data.startsAt } }] }),
-    };
   }
 
   update(

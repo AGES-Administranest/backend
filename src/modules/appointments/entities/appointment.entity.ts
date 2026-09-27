@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AppointmentStatus, Prisma, Species } from '@prisma/client';
 
 export class AppointmentEntity {
@@ -24,8 +24,30 @@ export class AppointmentEntity {
   notes!: string | null;
   @ApiPropertyOptional({ type: String, nullable: true, example: 'ASA II' })
   asa!: string | null;
+
+  @ApiProperty({ enum: AppointmentStatus })
   status!: AppointmentStatus;
+
   createdAt!: Date;
   updatedAt!: Date;
   deletedAt!: Date | null;
+}
+
+/** What the caller needs to show or resolve a clash — not the full record. */
+export class ConflictingAppointmentEntity {
+  id!: string;
+
+  startsAt!: Date;
+
+  endsAt!: Date;
+
+  @ApiProperty({ type: String, nullable: true })
+  procedureName!: string | null;
+}
+
+export class CheckConflictResultEntity {
+  conflict!: boolean;
+
+  @ApiProperty({ type: ConflictingAppointmentEntity, required: false })
+  conflictingAppointment?: ConflictingAppointmentEntity;
 }
