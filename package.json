@@ -34,6 +34,7 @@
     "test:item": "jest --config ./test/unit-test/item/jest.config.json",
     "test:supplier": "jest --config ./test/unit-test/supplier/jest.config.json",
     "test:client": "jest --config ./test/unit-test/client/jest.config.json",
+    "test:appointment": "jest --config ./test/unit-test/appointment/jest.config.json",
     "test:db": "bash scripts/test-db.sh"
   },
   "dependencies": {
