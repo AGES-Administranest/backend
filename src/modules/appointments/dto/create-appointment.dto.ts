@@ -28,7 +28,7 @@ export class CreateAppointmentDto {
   })
   @IsOptional()
   @IsEnum(AppointmentStatus)
-  status?: AppointmentStatus = AppointmentStatus.SCHEDULED;
+  status?: AppointmentStatus;
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()

@@ -2,6 +2,7 @@ import { AppointmentStatus, Species } from '@prisma/client';
 
 import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
 import { CreateAppointmentDto } from '../../../src/modules/appointments/dto/create-appointment.dto';
+import { UpdateAppointmentDto } from '../../../src/modules/appointments/dto/update-appointment.dto';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const appointment = (overrides: Record<string, unknown> = {}) => ({
@@ -93,6 +94,28 @@ describe('AppointmentsService', () => {
       'user-1',
     );
     expect(result.status).toBe(AppointmentStatus.COMPLETED);
+  });
+
+  it('does not apply the creation status default to partial updates', async () => {
+    const dto = Object.assign(new UpdateAppointmentDto(), { amount: 200 });
+    repository.findById.mockResolvedValue(
+      appointment({ status: AppointmentStatus.COMPLETED, amount: 100 }),
+    );
+    repository.update.mockResolvedValue(
+      appointment({ status: AppointmentStatus.COMPLETED, amount: 200 }),
+    );
+
+    await service.update('appointment-1', 'user-1', dto);
+
+    expect(dto.status).toBeUndefined();
+    expect(repository.update).toHaveBeenCalledWith(
+      'appointment-1',
+      'user-1',
+      expect.objectContaining({
+        status: undefined,
+        amount: 200,
+      }),
+    );
   });
 
   it('reports another user appointment as not found', async () => {
