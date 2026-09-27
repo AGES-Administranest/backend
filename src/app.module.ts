@@ -41,8 +41,8 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     SupplierModule,
     ClientModule,
     AuthModule,
-    StockEntryModule,
     AppointmentsModule,
+    StockEntryModule,
   ],
   controllers: [AppController],
   // The guard is assembled here, and not in SharedAuthModule, because this is
