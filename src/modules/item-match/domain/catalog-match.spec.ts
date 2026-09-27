@@ -53,6 +53,22 @@ describe('rankCandidates', () => {
     expect(ids('METADONA 10MG COMPRIMIDO')).toEqual([]);
   });
 
+  it('does not read a "frasco" unit as an injectable', () => {
+    const inhalants = prepareCatalog([
+      { id: 'sevoflurano', name: 'Sevoflurano 250 ml', unit: 'VIAL' },
+    ]);
+
+    expect(
+      rankCandidates(inhalants, 'SEVOFLURANO LIQ P/ INAL FR 250ML')[0],
+    ).toMatchObject({ id: 'sevoflurano' });
+  });
+
+  it('holds back a plain syringe for a blood gas one', () => {
+    expect(
+      rank('SERINGA P/ GASOMETRIA 3ML HEPARINIZADA')[0].score,
+    ).toBeLessThan(0.85);
+  });
+
   it('finds nothing for a brand the name does not carry', () => {
     expect(ids('DIPRIVAN 1% 200MG/20ML AMP')).toEqual([]);
   });

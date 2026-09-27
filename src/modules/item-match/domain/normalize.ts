@@ -26,7 +26,7 @@ const ABBREVIATIONS: Record<string, string> = {
 
 const SYNONYMS: [RegExp, string][] = [
   [
-    /\b(?:soro fisiologico|sol(?:ucao)? fisiol(?:ogica)?|cloreto (?:de )?sodio|nacl)\b/g,
+    /\b(?:soro fisiol(?:ogico)?|sol(?:ucao)? fisiol(?:ogica)?|cloreto (?:de )?sodio|nacl)\b/g,
     'nacl',
   ],
   // Alone, "SF" is as often "sistema fechado".

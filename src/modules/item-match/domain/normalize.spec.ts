@@ -25,6 +25,7 @@ describe('normalize', () => {
 
   it.each([
     ['SORO FISIOLOGICO 0,9% 500ML', 'nacl 0.9% 500ml'],
+    ['SORO FISIOL 0,9% 250ML BOLSA', 'nacl 0.9% 250ml bolsa'],
     ['Cloreto de Sódio 0,9% 500 mL', 'nacl 0.9% 500ml'],
     ['SF 0,9% 250ML', 'nacl 0.9% 250ml'],
     ['RINGER LACTATO 500ML SF', 'ringer lactato 500ml sf'],

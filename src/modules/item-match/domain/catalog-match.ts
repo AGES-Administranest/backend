@@ -43,6 +43,7 @@ const MODIFIERS = [
   ...['fotossensivel', 'aramado', 'preenchida', 'flush', 'bureta'],
   ...['nitrilica', 'nitrilo', 'nitrila', 'vinil', 'hiperbarica'],
   ...['pediatrico', 'neonatal', 'infantil', 'raqui', 'peridural', 'espinhal'],
+  ...['heparinizada', 'gasometria'],
 ];
 const MODIFIER_FACTOR = 0.8;
 // Stated by the line and left unsaid by the name, these read as variants too:
@@ -50,9 +51,10 @@ const MODIFIER_FACTOR = 0.8;
 // default, so they are not.
 const VARIANT_FLAGS: Flag[] = ['agulha', 'vaso', 'cuff'];
 
+// Not VIAL: the app calls it "frasco", which holds inhalants, oral solutions and
+// antiseptics as well.
 const UNIT_FORMS: Record<string, Form> = {
   AMPOULE: 'injectable',
-  VIAL: 'injectable',
   TABLET: 'oral',
 };
 
