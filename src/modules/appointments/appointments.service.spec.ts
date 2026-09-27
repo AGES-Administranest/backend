@@ -1,7 +1,18 @@
-import { Appointment } from '@prisma/client';
+import {
+  Appointment,
+  Item,
+  ItemLot,
+  Prisma,
+  StockMovement,
+} from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
-import { AppointmentsRepository } from './appointments.repository';
+import {
+  AppointmentsRepository,
+  ItemUsage,
+  ItemWithLots,
+  RecordedItemUsage,
+} from './appointments.repository';
 import { AppointmentsService } from './appointments.service';
 import { DomainError } from '../../shared/errors/domain-error';
 
@@ -32,6 +43,41 @@ function buildAppointment(overrides: Partial<Appointment> = {}): Appointment {
   };
 }
 
+function buildItem(overrides: Partial<Item> = {}): Item {
+  return {
+    id: randomUUID(),
+    userId: USER_ID,
+    supplierId: null,
+    category: 'MEDICATION',
+    unit: 'AMPOULE',
+    name: 'Dipirona 500mg',
+    defaultUnitCost: null,
+    minimumStock: null,
+    currentQuantity: new Prisma.Decimal(10),
+    needsAdjustment: false,
+    active: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+function buildLot(itemId: string, overrides: Partial<ItemLot> = {}): ItemLot {
+  return {
+    id: randomUUID(),
+    itemId,
+    lotNumber: null,
+    expirationDate: null,
+    unitCost: new Prisma.Decimal('12.5'),
+    currentQuantity: new Prisma.Decimal(10),
+    receivedOn: new Date('2026-09-01'),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
 /**
  * In-memory stand-in for `AppointmentsRepository`. It replicates the overlap
  * query (`startsAt < endsAt AND endsAt > startsAt`, same user, `SCHEDULED`,
@@ -40,6 +86,69 @@ function buildAppointment(overrides: Partial<Appointment> = {}): Appointment {
  */
 class FakeAppointmentsRepository {
   private readonly rows = new Map<string, Appointment>();
+  readonly items = new Map<string, ItemWithLots>();
+  readonly movements: StockMovement[] = [];
+
+  seedItem(item: Item, lots: ItemLot[] = []): ItemWithLots {
+    const row = { ...item, lots };
+    this.items.set(item.id, row);
+    return row;
+  }
+
+  findItemsWithLots(
+    itemIds: readonly string[],
+    userId: string,
+  ): Promise<ItemWithLots[]> {
+    return Promise.resolve(
+      itemIds
+        .map(id => this.items.get(id))
+        .filter(
+          (item): item is ItemWithLots =>
+            !!item && item.userId === userId && !item.deletedAt,
+        ),
+    );
+  }
+
+  recordItemUsage(
+    userId: string,
+    appointmentId: string,
+    occurredAt: Date,
+    usages: readonly ItemUsage[],
+  ): Promise<RecordedItemUsage[]> {
+    return Promise.resolve(
+      usages.map(usage => {
+        const movement: StockMovement = {
+          id: randomUUID(),
+          userId,
+          itemId: usage.itemId,
+          lotId: usage.lotId,
+          type: 'OUTBOUND',
+          source: 'APPOINTMENT',
+          adjustmentReason: null,
+          quantity: usage.quantity,
+          unitCost: usage.unitCost,
+          occurredAt,
+          appointmentId,
+          purchaseOrderId: null,
+          purchaseInvoiceLineId: null,
+          supplierId: null,
+          notes: null,
+          createdAt: new Date(),
+          deletedAt: null,
+        };
+        this.movements.push(movement);
+
+        const item = this.items.get(usage.itemId)!;
+        item.currentQuantity = item.currentQuantity.minus(usage.quantity);
+        if (item.currentQuantity.isNegative()) item.needsAdjustment = true;
+        const lot = item.lots.find(l => l.id === usage.lotId);
+        if (lot)
+          lot.currentQuantity = lot.currentQuantity.minus(usage.quantity);
+
+        return { movement, itemBalance: item.currentQuantity };
+      }),
+    );
+  }
 
   seed(appointment: Appointment): void {
     this.rows.set(appointment.id, appointment);
@@ -310,5 +419,184 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
         }),
       ).rejects.toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
     });
+  });
+
+  describe('registerItems (US06)', () => {
+    let appointment: Appointment;
+
+    beforeEach(() => {
+      appointment = buildAppointment();
+      repository.seed(appointment);
+    });
+
+    it('creates an OUTBOUND/APPOINTMENT movement per item, dated at startsAt and costed at the current lot', async () => {
+      const item = buildItem({ currentQuantity: new Prisma.Decimal(10) });
+      const lot = buildLot(item.id, { unitCost: new Prisma.Decimal('7.25') });
+      repository.seedItem(item, [lot]);
+
+      const result = await service.registerItems(appointment.id, USER_ID, {
+        items: [{ itemId: item.id, quantity: 3 }],
+      });
+
+      expect(result.appointmentId).toBe(appointment.id);
+      expect(result.warnings).toEqual([]);
+      expect(result.movements).toHaveLength(1);
+      expect(result.movements[0]).toMatchObject({
+        itemId: item.id,
+        lotId: lot.id,
+        type: 'OUTBOUND',
+        source: 'APPOINTMENT',
+        occurredAt: appointment.startsAt,
+      });
+      expect(result.movements[0].quantity.toString()).toBe('3');
+      expect(result.movements[0].unitCost.toString()).toBe('7.25');
+      expect(repository.movements[0].appointmentId).toBe(appointment.id);
+      expect(repository.items.get(item.id)!.currentQuantity.toString()).toBe(
+        '7',
+      );
+    });
+
+    it('costs the movement at the lot that expires first among those with stock', async () => {
+      const item = buildItem();
+      const late = buildLot(item.id, {
+        expirationDate: new Date('2027-06-30'),
+        unitCost: new Prisma.Decimal(20),
+      });
+      const early = buildLot(item.id, {
+        expirationDate: new Date('2026-12-31'),
+        unitCost: new Prisma.Decimal(15),
+      });
+      repository.seedItem(item, [late, early]);
+
+      const result = await service.registerItems(appointment.id, USER_ID, {
+        items: [{ itemId: item.id, quantity: 1 }],
+      });
+
+      expect(result.movements[0].lotId).toBe(early.id);
+      expect(result.movements[0].unitCost.toString()).toBe('15');
+    });
+
+    it.each([
+      ['more than the balance', 10, 12, '-2', true],
+      ['exactly the balance', 10, 10, '0', false],
+      ['on an item already negative', -1, 1, '-2', true],
+    ])(
+      'using %s records the movement and warns only when the balance goes negative',
+      async (_label, balance, quantity, expectedBalance, warns) => {
+        const item = buildItem({
+          currentQuantity: new Prisma.Decimal(balance),
+        });
+        repository.seedItem(item, [buildLot(item.id)]);
+
+        const result = await service.registerItems(appointment.id, USER_ID, {
+          items: [{ itemId: item.id, quantity }],
+        });
+
+        expect(result.movements).toHaveLength(1);
+        expect(result.warnings).toEqual(
+          warns ? [{ warning: 'insufficient_stock', itemId: item.id }] : [],
+        );
+        const stored = repository.items.get(item.id)!;
+        expect(stored.currentQuantity.toString()).toBe(expectedBalance);
+        expect(stored.needsAdjustment).toBe(warns);
+      },
+    );
+
+    it('warns only for the items that went negative, once each', async () => {
+      const short = buildItem({ currentQuantity: new Prisma.Decimal(1) });
+      const plenty = buildItem({ currentQuantity: new Prisma.Decimal(50) });
+      repository.seedItem(short, [buildLot(short.id)]);
+      repository.seedItem(plenty, [buildLot(plenty.id)]);
+
+      const result = await service.registerItems(appointment.id, USER_ID, {
+        items: [
+          { itemId: short.id, quantity: 1 },
+          { itemId: plenty.id, quantity: 5 },
+          { itemId: short.id, quantity: 1 },
+          { itemId: short.id, quantity: 1 },
+        ],
+      });
+
+      expect(result.movements).toHaveLength(4);
+      expect(result.warnings).toEqual([
+        { warning: 'insufficient_stock', itemId: short.id },
+      ]);
+    });
+
+    it('falls back to the item defaultUnitCost when the item has no lot', async () => {
+      const item = buildItem({
+        currentQuantity: new Prisma.Decimal(0),
+        defaultUnitCost: new Prisma.Decimal('4.5'),
+      });
+      repository.seedItem(item, []);
+
+      const result = await service.registerItems(appointment.id, USER_ID, {
+        items: [{ itemId: item.id, quantity: 2 }],
+      });
+
+      expect(result.movements[0].lotId).toBeNull();
+      expect(result.movements[0].unitCost.toString()).toBe('4.5');
+    });
+
+    it('rejects an item with no lot and no defaultUnitCost without recording anything', async () => {
+      const costed = buildItem();
+      const uncosted = buildItem({ defaultUnitCost: null });
+      repository.seedItem(costed, [buildLot(costed.id)]);
+      repository.seedItem(uncosted, []);
+
+      await expect(
+        service.registerItems(appointment.id, USER_ID, {
+          items: [
+            { itemId: costed.id, quantity: 1 },
+            { itemId: uncosted.id, quantity: 1 },
+          ],
+        }),
+      ).rejects.toMatchObject({
+        code: 'ITEM_LOT_UNIT_COST_REQUIRED',
+        details: { itemId: uncosted.id },
+      });
+      expect(repository.movements).toHaveLength(0);
+    });
+
+    it('answers 404 for an appointment belonging to another account (ADR-11)', async () => {
+      const item = buildItem({ userId: OTHER_USER_ID });
+      repository.seedItem(item, [buildLot(item.id)]);
+
+      await expect(
+        service.registerItems(appointment.id, OTHER_USER_ID, {
+          items: [{ itemId: item.id, quantity: 1 }],
+        }),
+      ).rejects.toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+      expect(repository.movements).toHaveLength(0);
+    });
+
+    it.each([
+      ['another account', { userId: OTHER_USER_ID }],
+      ['a soft-deleted item', { deletedAt: new Date() }],
+    ])(
+      'answers 404 for an item of %s and records nothing',
+      async (_label, overrides) => {
+        const mine = buildItem();
+        const foreign = buildItem(overrides);
+        repository.seedItem(mine, [buildLot(mine.id)]);
+        repository.seedItem(foreign, [buildLot(foreign.id)]);
+
+        await expect(
+          service.registerItems(appointment.id, USER_ID, {
+            items: [
+              { itemId: mine.id, quantity: 1 },
+              { itemId: foreign.id, quantity: 1 },
+            ],
+          }),
+        ).rejects.toMatchObject({
+          code: 'ITEM_NOT_FOUND',
+          details: { id: foreign.id },
+        });
+        expect(repository.movements).toHaveLength(0);
+        expect(
+          repository.items.get(foreign.id)!.currentQuantity.toString(),
+        ).toBe('10');
+      },
+    );
   });
 });
