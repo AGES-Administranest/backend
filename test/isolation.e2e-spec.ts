@@ -229,6 +229,62 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('appointments', () => {
+    const createAppointment = async (
+      user: TestUser,
+      startsAt: string,
+      endsAt: string,
+    ): Promise<string> => {
+      const response = await request(http)
+        .post('/appointments')
+        .set('Authorization', bearer(user))
+        .send({ startsAt, endsAt, procedureName: 'Consulta' })
+        .expect(201);
+
+      return body(response).id as string;
+    };
+
+    it('does not let one account conflict-check against another account schedule', async () => {
+      await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .get('/appointments/check-conflict')
+        .query({
+          startsAt: '2026-09-25T13:00:00.000Z',
+          endsAt: '2026-09-25T14:00:00.000Z',
+        })
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      expect(body(response)).toEqual({ conflict: false });
+    });
+
+    it('refuses to update another account appointment, and leaves it untouched', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}`)
+        .set('Authorization', bearer(bruno))
+        .send({ procedureName: 'Renomeado pelo Bruno' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.procedureName).toBe('Consulta');
+    });
+  });
+
   describe('users', () => {
     it('keeps each account terms consent to itself', async () => {
       await request(http)
