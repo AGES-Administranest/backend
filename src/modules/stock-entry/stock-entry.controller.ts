@@ -68,7 +68,9 @@ export class StockEntryController {
   @ApiOkResponse({ type: UploadConfirmationResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiConflictResponse({
-    description: 'No object at the key, or it diverges from what was declared',
+    description:
+      'Invoice is not a draft, no object at the key, or it diverges from ' +
+      'what was declared',
   })
   confirmUpload(
     @CurrentUser() user: AuthenticatedUser,

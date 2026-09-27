@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma, PurchaseInvoice } from '@prisma/client';
 
 import { buildDocumentKey } from './document-key';
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
@@ -10,12 +11,6 @@ import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DocumentStorage } from '../../infra/storage';
 import { DomainError } from '../../shared/errors/domain-error';
 
-/**
- * Written against today's schema, before the US10 migration. Every comment
- * tagged `AFTER MIGRATION` is a rule that has no column to live in yet —
- * without them this route reissues a presigned POST for an invoice that is
- * already confirmed.
- */
 @Injectable()
 export class StockEntryService {
   constructor(
@@ -37,9 +32,6 @@ export class StockEntryService {
     const key = buildDocumentKey(userId, purchaseInvoiceId);
     await this.saveDocumentMetadata(userId, purchaseInvoiceId, key, dto);
 
-    // AFTER MIGRATION: stamp `upload_requested_at`, which is what the sweep
-    // uses to find drafts whose upload never arrived.
-
     return this.createPresignedPost(key, dto);
   }
 
@@ -48,11 +40,6 @@ export class StockEntryService {
    * believing it. Without this an invoice reaches the review screen with no
    * document behind it, and nobody finds out until someone opens it months
    * later.
-   *
-   * AFTER MIGRATION: this is `POST /extrair` — same HeadObject, plus comparing
-   * `ContentLength` against the declared `content_length`, stamping
-   * `file_key` and `uploaded_at`, and enqueuing the extraction job. While the
-   * extraction runs in the app, verifying and answering is all it does.
    */
   async confirmUpload(
     userId: string,
@@ -63,17 +50,36 @@ export class StockEntryService {
       userId,
     );
     if (!invoice) throw this.notFound(purchaseInvoiceId);
+    if (invoice.status !== 'DRAFT') throw this.notEditable(invoice);
 
     const key = buildDocumentKey(userId, purchaseInvoiceId);
     const stored = await this.documentStorage.headDocument(key);
     if (!stored) throw this.uploadNotFinished(purchaseInvoiceId);
 
-    // The policy pinned the type to what the app declared, so a divergence here
-    // means the object in the bucket is not the one this invoice was signed
-    // for — the app reissues the presigned POST and resends.
+    // The policy pinned type and size to what the app declared, so a
+    // divergence here means the object in the bucket is not the one this
+    // invoice was signed for — the app reissues the presigned POST and resends.
     if (invoice.fileMimeType && stored.contentType !== invoice.fileMimeType) {
-      throw this.uploadMismatch(invoice.fileMimeType, stored.contentType);
+      throw this.uploadMismatch(
+        'contentType',
+        invoice.fileMimeType,
+        stored.contentType,
+      );
     }
+    if (
+      invoice.fileBytesSize !== null &&
+      stored.contentLength !== invoice.fileBytesSize
+    ) {
+      throw this.uploadMismatch(
+        'contentLength',
+        invoice.fileBytesSize,
+        stored.contentLength,
+      );
+    }
+
+    await this.stockEntryRepository.update(purchaseInvoiceId, {
+      uploadedAt: new Date(),
+    });
 
     return {
       contentLength: stored.contentLength,
@@ -93,9 +99,7 @@ export class StockEntryService {
     );
 
     if (existing) {
-      // AFTER MIGRATION: 409 `INVOICE_NOT_EDITABLE` when `status` is not DRAFT,
-      // or when `extraction_status` is PROCESSING or SUCCESS.
-      await this.updateDocument(purchaseInvoiceId, key, dto);
+      await this.updateDocument(existing, key, dto);
       return;
     }
 
@@ -113,7 +117,7 @@ export class StockEntryService {
       );
       if (!raced) throw this.notFound(purchaseInvoiceId);
 
-      await this.updateDocument(purchaseInvoiceId, key, dto);
+      await this.updateDocument(raced, key, dto);
     }
   }
 
@@ -126,27 +130,40 @@ export class StockEntryService {
     return this.stockEntryRepository.create({
       id: purchaseInvoiceId,
       userId,
-      // AFTER MIGRATION: this becomes `fileKey`, and `status: DRAFT`,
-      // `extractionStatus: PENDING`, `fileName` and `contentLength` join it.
-      fileUrl: key,
-      fileMimeType: dto.fileMimeType,
-      fileHash: dto.fileHash,
+      ...this.documentFields(key, dto),
       updatedAt: new Date(),
     });
   }
 
   private async updateDocument(
-    purchaseInvoiceId: string,
+    invoice: PurchaseInvoice,
     key: string,
     dto: CreateUploadUrlDto,
   ) {
+    // Replacing a file already read would leave the review showing what
+    // another document said.
+    const extractionStarted =
+      invoice.extractionStatus === 'PROCESSING' ||
+      invoice.extractionStatus === 'SUCCESS';
+    if (invoice.status !== 'DRAFT' || extractionStarted) {
+      throw this.notEditable(invoice);
+    }
+
     try {
       // Document metadata only: replacing the whole row would wipe the supplier,
       // the date and the line items fixed between one issue and the next.
-      return await this.stockEntryRepository.update(purchaseInvoiceId, {
-        fileUrl: key,
-        fileMimeType: dto.fileMimeType,
-        fileHash: dto.fileHash,
+      return await this.stockEntryRepository.update(invoice.id, {
+        ...this.documentFields(key, dto),
+        uploadedAt: null,
+        // A failed reading was about the file being replaced (the app's "swap
+        // for a PDF with text"); the new one has not been read yet.
+        ...(invoice.extractionStatus === 'FAILED'
+          ? {
+              extractionStatus: 'PENDING',
+              failureReason: null,
+              rawExtraction: Prisma.DbNull,
+            }
+          : {}),
       });
     } catch (error) {
       if (
@@ -157,6 +174,21 @@ export class StockEntryService {
       }
       throw error;
     }
+  }
+
+  /**
+   * `uploadRequestedAt` is what the sweep uses to find drafts whose upload
+   * never arrived.
+   */
+  private documentFields(key: string, dto: CreateUploadUrlDto) {
+    return {
+      fileUrl: key,
+      fileName: dto.filename,
+      fileMimeType: dto.fileMimeType,
+      fileBytesSize: dto.fileBytesSize,
+      fileHash: dto.fileHash,
+      uploadRequestedAt: new Date(),
+    };
   }
 
   private createPresignedPost(
@@ -206,12 +238,29 @@ export class StockEntryService {
     );
   }
 
-  private uploadMismatch(declared: string, stored?: string) {
+  private notEditable(invoice: PurchaseInvoice) {
+    return new DomainError(
+      'CONFLICT',
+      'INVOICE_NOT_EDITABLE',
+      'The purchase invoice no longer accepts a document',
+      {
+        id: invoice.id,
+        status: invoice.status,
+        extractionStatus: invoice.extractionStatus,
+      },
+    );
+  }
+
+  private uploadMismatch(
+    field: 'contentType' | 'contentLength',
+    declared: string | number,
+    stored?: string | number,
+  ) {
     return new DomainError(
       'CONFLICT',
       'INVOICE_UPLOAD_MISMATCH',
       'The stored document does not match what was declared',
-      { declared, stored: stored ?? null },
+      { field, declared, stored: stored ?? null },
     );
   }
 
