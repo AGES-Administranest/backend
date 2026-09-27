@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 
 import { AppointmentsRepository } from './appointments.repository';
+import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
@@ -247,6 +248,31 @@ export class AppointmentsService {
       ...this.sanitize(result.appointment),
       financialEntry: this.sanitizeFinancialEntry(result.financialEntry),
     };
+  }
+
+  async cancel(
+    id: string,
+    userId: string,
+    dto: CancelAppointmentDto,
+  ): Promise<AppointmentEntity> {
+    const existing = await this.appointmentsRepository.findById(id, userId);
+    if (!existing) throw this.notFound(id);
+    if (existing.status !== AppointmentStatus.SCHEDULED)
+      throw this.notScheduled(existing.status);
+
+    const appointment = await this.appointmentsRepository.cancel(
+      id,
+      userId,
+      dto.reason,
+    );
+
+    if (!appointment) {
+      const current = await this.appointmentsRepository.findById(id, userId);
+      if (!current) throw this.notFound(id);
+      throw this.notScheduled(current.status);
+    }
+
+    return this.sanitize(appointment);
   }
 
   async remove(id: string, userId: string): Promise<AppointmentEntity> {
