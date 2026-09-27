@@ -1,11 +1,15 @@
-import { Prisma, PurchaseInvoice } from '@prisma/client';
+import { PurchaseInvoice } from '@prisma/client';
 
 import { buildDocumentKey } from './document-key';
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
+import { ExtractionService } from './extraction.service';
 import { StockEntryRepository } from './stock-entry.repository';
 import { StockEntryService } from './stock-entry.service';
-import { StoredDocument } from '../../infra/storage';
+import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
 import { DomainError } from '../../shared/errors/domain-error';
+import { ExtractionResult } from '../extraction';
+import { MatchItemService } from '../item-match';
+import { SupplierService } from '../supplier';
 
 const USER = { id: 'user-1', cognitoSub: 'sub-123' };
 const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';
@@ -18,75 +22,40 @@ const UPLOAD: CreateUploadUrlDto = {
   fileBytesSize: 2483911,
 };
 
-/**
- * A fake bucket instead of a mock: the point of `confirmUpload` is what is (or
- * is not) at a key, so the double has to hold objects by key.
- */
-class FakeStorage {
-  private readonly objects = new Map<
-    string,
-    { document: StoredDocument; bytes: Uint8Array }
-  >();
-
-  put(key: string, document: StoredDocument, bytes = new Uint8Array()) {
-    this.objects.set(key, { document, bytes });
-  }
-
-  headDocument(key: string): Promise<StoredDocument | null> {
-    return Promise.resolve(this.objects.get(key)?.document ?? null);
-  }
-
-  getDocument(key: string): Promise<Uint8Array | null> {
-    return Promise.resolve(this.objects.get(key)?.bytes ?? null);
-  }
-
-  createPresignedPost() {
-    return Promise.resolve({ url: 'https://bucket', fields: {}, expiresAt: 0 });
-  }
-}
-
-/** One invoice, stored as the repository would leave it. */
-class FakeRepository {
-  invoice: PurchaseInvoice | null = null;
-
-  findByIdAndUser(id: string, userId: string) {
-    const { invoice } = this;
-    return Promise.resolve(
-      invoice && invoice.id === id && invoice.userId === userId
-        ? invoice
-        : null,
-    );
-  }
-
-  create(data: Prisma.PurchaseInvoiceUncheckedCreateInput) {
-    this.invoice = {
-      status: 'DRAFT',
-      extractionStatus: 'PENDING',
-      failureReason: null,
-      rawExtraction: null,
-      uploadedAt: null,
-      ...data,
-    } as PurchaseInvoice;
-    return Promise.resolve(this.invoice);
-  }
-
-  update(id: string, data: Prisma.PurchaseInvoiceUpdateInput) {
-    this.invoice = { ...this.invoice, ...data } as PurchaseInvoice;
-    return Promise.resolve(this.invoice);
-  }
-}
+const READ: ExtractionResult = {
+  status: 'success',
+  invoiceNumber: '4521',
+  items: [
+    { extractedDescription: 'PROPOFOL 1% 20ML AMP', arithmeticCheck: false },
+  ],
+};
 
 describe('StockEntryService', () => {
   let service: StockEntryService;
   let storage: FakeStorage;
-  let repository: FakeRepository;
+  let repository: FakeStockEntryRepository;
+  let extract: jest.Mock;
 
   beforeEach(() => {
     storage = new FakeStorage();
-    repository = new FakeRepository();
+    repository = new FakeStockEntryRepository();
+    extract = jest.fn().mockResolvedValue(READ);
+    const extraction = new ExtractionService(
+      repository as unknown as StockEntryRepository,
+      storage,
+      { extract },
+      {
+        matchLines: () =>
+          Promise.resolve([{ decision: 'none', candidates: [] }]),
+      } as unknown as MatchItemService,
+      {
+        findIdByTaxId: () => Promise.resolve(undefined),
+      } as unknown as SupplierService,
+    );
     service = new StockEntryService(
       repository as unknown as StockEntryRepository,
       storage,
+      extraction,
     );
   });
 
@@ -99,6 +68,11 @@ describe('StockEntryService', () => {
       failureReason: null,
       fileMimeType: 'application/pdf',
       fileBytesSize: 2483911,
+      supplierId: null,
+      number: null,
+      issueDate: null,
+      totalAmount: null,
+      rawExtraction: null,
       uploadedAt: null,
       ...fields,
     } as PurchaseInvoice;
@@ -117,6 +91,15 @@ describe('StockEntryService', () => {
         fileBytesSize: 2483911,
         uploadRequestedAt: expect.any(Date) as Date,
       });
+    });
+
+    it('makes a photo the receipt of a manual entry', async () => {
+      await service.createUploadUrl(USER.id, INVOICE_ID, {
+        ...UPLOAD,
+        fileMimeType: 'image/jpeg',
+      });
+
+      expect(repository.invoice?.extractionStatus).toBe('MANUAL');
     });
 
     it.each([
@@ -154,7 +137,7 @@ describe('StockEntryService', () => {
 
     const confirm = () => service.confirmUpload(USER.id, INVOICE_ID);
 
-    it('answers with what the bucket holds', async () => {
+    it('answers with what the bucket holds and what the PDF says', async () => {
       storage.put(KEY, {
         contentLength: 2483911,
         contentType: 'application/pdf',
@@ -163,8 +146,33 @@ describe('StockEntryService', () => {
       await expect(confirm()).resolves.toEqual({
         contentLength: 2483911,
         contentType: 'application/pdf',
+        extraction: {
+          status: 'SUCCESS',
+          invoiceNumber: '4521',
+          items: [
+            {
+              extractedDescription: 'PROPOFOL 1% 20ML AMP',
+              arithmeticCheck: false,
+              match: { decision: 'none', candidates: [] },
+            },
+          ],
+        },
       });
       expect(repository.invoice?.uploadedAt).toBeInstanceOf(Date);
+    });
+
+    it('does not read a photo', async () => {
+      draft({
+        extractionStatus: 'MANUAL',
+        fileMimeType: 'image/jpeg',
+        fileBytesSize: 1024,
+      });
+      storage.put(KEY, { contentLength: 1024, contentType: 'image/jpeg' });
+
+      await expect(confirm()).resolves.toMatchObject({
+        extraction: { status: 'MANUAL', items: [] },
+      });
+      expect(extract).not.toHaveBeenCalled();
     });
 
     it('rejects when nothing was uploaded', async () => {

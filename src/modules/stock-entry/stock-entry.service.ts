@@ -5,6 +5,7 @@ import { buildDocumentKey } from './document-key';
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
 import { UploadConfirmationResponseDto } from './dto/upload-confirmation-response.dto';
 import { UploadUrlResponseDto } from './dto/upload-url-response.dto';
+import { ExtractionService } from './extraction.service';
 import { MAX_FILE_BYTES_SIZE, PRESIGNED_TTL_MS } from './stock-entry.constants';
 import { StockEntryRepository } from './stock-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
@@ -16,6 +17,7 @@ export class StockEntryService {
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
     private readonly documentStorage: DocumentStorage,
+    private readonly extractionService: ExtractionService,
   ) {}
 
   /** `userId` is the local id the guard resolved from the token, never the body. */
@@ -39,7 +41,8 @@ export class StockEntryService {
    * The app says the upload finished and the API checks the bucket instead of
    * believing it. Without this an invoice reaches the review screen with no
    * document behind it, and nobody finds out until someone opens it months
-   * later.
+   * later. Then the PDF is read and matched against the catalog, and the
+   * answer carries what the review screen starts from.
    */
   async confirmUpload(
     userId: string,
@@ -77,13 +80,15 @@ export class StockEntryService {
       );
     }
 
-    await this.stockEntryRepository.update(purchaseInvoiceId, {
+    const uploaded = await this.stockEntryRepository.update(purchaseInvoiceId, {
       uploadedAt: new Date(),
     });
+    const current = await this.extractionService.run(uploaded);
 
     return {
       contentLength: stored.contentLength,
       contentType: stored.contentType ?? '',
+      extraction: this.extractionService.view(current),
     };
   }
 
@@ -131,6 +136,7 @@ export class StockEntryService {
       id: purchaseInvoiceId,
       userId,
       ...this.documentFields(key, dto),
+      ...(isPhoto(dto) && { extractionStatus: 'MANUAL' as const }),
       updatedAt: new Date(),
     });
   }
@@ -155,15 +161,7 @@ export class StockEntryService {
       return await this.stockEntryRepository.update(invoice.id, {
         ...this.documentFields(key, dto),
         uploadedAt: null,
-        // A failed reading was about the file being replaced (the app's "swap
-        // for a PDF with text"); the new one has not been read yet.
-        ...(invoice.extractionStatus === 'FAILED'
-          ? {
-              extractionStatus: 'PENDING',
-              failureReason: null,
-              rawExtraction: Prisma.DbNull,
-            }
-          : {}),
+        ...this.readingFor(invoice, dto),
       });
     } catch (error) {
       if (
@@ -174,6 +172,23 @@ export class StockEntryService {
       }
       throw error;
     }
+  }
+
+  /**
+   * A photo is never read: it is the receipt of a manual entry (US10 §1.1). A
+   * failed reading was about the file being replaced (the app's "swap for a
+   * PDF with text"), so the new one waits for its own.
+   */
+  private readingFor(
+    invoice: PurchaseInvoice,
+    dto: CreateUploadUrlDto,
+  ): Prisma.PurchaseInvoiceUncheckedUpdateInput {
+    const reset = { failureReason: null, rawExtraction: Prisma.DbNull };
+    if (isPhoto(dto)) return { extractionStatus: 'MANUAL', ...reset };
+    if (invoice.extractionStatus === 'FAILED') {
+      return { extractionStatus: 'PENDING', ...reset };
+    }
+    return {};
   }
 
   /**
@@ -271,4 +286,8 @@ export class StockEntryService {
       'This file was already uploaded',
     );
   }
+}
+
+function isPhoto(dto: CreateUploadUrlDto): boolean {
+  return dto.fileMimeType === 'image/jpeg';
 }
