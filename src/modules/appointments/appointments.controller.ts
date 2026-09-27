@@ -26,12 +26,14 @@ import type { Response } from 'express';
 
 import { AppointmentsService } from './appointments.service';
 import { CheckConflictQueryDto } from './dto/check-conflict-query.dto';
+import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import {
   AppointmentEntity,
   CheckConflictResultEntity,
+  CompletedAppointmentEntity,
 } from './entities/appointment.entity';
 import { CurrentUser } from '../../shared/auth';
 // `import type` is required by `emitDecoratorMetadata` on a decorated signature.
@@ -132,6 +134,26 @@ export class AppointmentsController {
     @Body() dto: UpdateAppointmentDto,
   ) {
     return this.appointmentsService.update(id, user.id, dto);
+  }
+
+  @Patch(':id/complete')
+  @ApiOperation({
+    summary: 'Mark a scheduled appointment as performed and post its revenue',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: CompletedAppointmentEntity })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid payload, or no amount in the body nor on the appointment',
+  })
+  @ApiNotFoundResponse({ description: 'Appointment not found' })
+  @ApiConflictResponse({ description: 'Appointment is not SCHEDULED' })
+  complete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteAppointmentDto,
+  ) {
+    return this.appointmentsService.complete(id, user.id, dto);
   }
 
   @Delete(':id')
