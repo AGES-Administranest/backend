@@ -5,6 +5,7 @@ import {
   EntryNature,
   EntryScope,
   EntrySource,
+  FinancialEntry,
   Prisma,
   StockMovementSource,
   StockMovementType,
@@ -173,6 +174,64 @@ export class AppointmentsRepository {
         }
 
         return appointment;
+      }),
+    );
+  }
+
+  /**
+   * SCHEDULED → COMPLETED plus the revenue it earns, in one transaction.
+   *
+   * Returns null when this user has no SCHEDULED appointment with this id:
+   * it does not exist, was deleted, or was already completed or canceled.
+   * The service tells those apart.
+   *
+   * The status check lives in the UPDATE's WHERE on purpose. A concurrent
+   * /complete or /cancel waits on the row lock, re-evaluates the WHERE once
+   * the first one commits, and updates nothing, so the appointment can never
+   * end up canceled with its revenue already posted.
+   */
+  complete(
+    id: string,
+    userId: string,
+    amount: Prisma.Decimal | number,
+    data: Omit<Prisma.AppointmentUncheckedUpdateManyInput, 'status' | 'amount'>,
+  ): Promise<{
+    appointment: Appointment;
+    financialEntry: FinancialEntry;
+  } | null> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const { count } = await tx.appointment.updateMany({
+          where: {
+            id,
+            userId,
+            status: AppointmentStatus.SCHEDULED,
+            deletedAt: null,
+          },
+          data: { ...data, amount, status: AppointmentStatus.COMPLETED },
+        });
+        if (count === 0) return null;
+
+        const { financialEntry: previousEntry, ...appointment } =
+          await tx.appointment.findUniqueOrThrow({
+            where: { id },
+            include: { financialEntry: { select: { id: true } } },
+          });
+
+        // An entry soft-deleted by an earlier edit still holds the unique
+        // appointment_id, so it is revived instead of inserting a second one.
+        await this.upsertFinancialEntry(
+          tx,
+          appointment,
+          userId,
+          new Prisma.Decimal(amount),
+          previousEntry?.id,
+        );
+
+        const financialEntry = await tx.financialEntry.findUniqueOrThrow({
+          where: { appointmentId: id },
+        });
+        return { appointment, financialEntry };
       }),
     );
   }
