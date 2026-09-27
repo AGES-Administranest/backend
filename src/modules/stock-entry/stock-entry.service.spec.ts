@@ -15,14 +15,21 @@ const KEY = buildDocumentKey(USER.id, INVOICE_ID);
  * is not) at a key, so the double has to hold objects by key.
  */
 class FakeStorage {
-  private readonly objects = new Map<string, StoredDocument>();
+  private readonly objects = new Map<
+    string,
+    { document: StoredDocument; bytes: Uint8Array }
+  >();
 
-  put(key: string, document: StoredDocument) {
-    this.objects.set(key, document);
+  put(key: string, document: StoredDocument, bytes = new Uint8Array()) {
+    this.objects.set(key, { document, bytes });
   }
 
   headDocument(key: string): Promise<StoredDocument | null> {
-    return Promise.resolve(this.objects.get(key) ?? null);
+    return Promise.resolve(this.objects.get(key)?.document ?? null);
+  }
+
+  getDocument(key: string): Promise<Uint8Array | null> {
+    return Promise.resolve(this.objects.get(key)?.bytes ?? null);
   }
 
   createPresignedPost() {

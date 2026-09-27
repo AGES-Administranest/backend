@@ -1,4 +1,8 @@
-import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -77,6 +81,18 @@ export class S3DocumentStorage extends DocumentStorage {
     } catch (error) {
       // A missing object is an answer, not a failure: it is how the API learns
       // the upload never arrived. Anything else is a real problem and goes up.
+      if (this.isNotFound(error)) return null;
+      throw error;
+    }
+  }
+
+  async getDocument(key: string): Promise<Uint8Array | null> {
+    try {
+      const object = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      return (await object.Body?.transformToByteArray()) ?? new Uint8Array();
+    } catch (error) {
       if (this.isNotFound(error)) return null;
       throw error;
     }

@@ -14,6 +14,13 @@ export abstract class DocumentStorage {
    * claims to have finished without pulling the file into the instance.
    */
   abstract headDocument(key: string): Promise<StoredDocument | null>;
+
+  /**
+   * The object's bytes, or `null` when nothing is at that key. Only for the
+   * extraction: the policy caps the object at the declared size, so it fits in
+   * memory.
+   */
+  abstract getDocument(key: string): Promise<Uint8Array | null>;
 }
 
 export type PresignedPostRequest = {
