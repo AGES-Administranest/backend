@@ -1,13 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { Appointment, AppointmentStatus, Prisma } from '@prisma/client';
+import {
+  Appointment,
+  AppointmentStatus,
+  FinancialEntry,
+  Prisma,
+} from '@prisma/client';
 
 import { AppointmentsRepository } from './appointments.repository';
+import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import {
   AppointmentEntity,
   CheckConflictResultEntity,
+  CompletedAppointmentEntity,
   ConflictingAppointmentEntity,
 } from './entities/appointment.entity';
 import {
@@ -15,6 +22,7 @@ import {
   RecordNotFoundError,
 } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
+import { FinancialEntryEntity } from '../financial';
 
 @Injectable()
 export class AppointmentsService {
@@ -194,6 +202,53 @@ export class AppointmentsService {
     }
   }
 
+  /**
+   * Turns a SCHEDULED appointment into a performed procedure and posts its
+   * revenue. `amount` may be left out when the appointment already has one.
+   */
+  async complete(
+    id: string,
+    userId: string,
+    dto: CompleteAppointmentDto,
+  ): Promise<CompletedAppointmentEntity> {
+    const existing = await this.appointmentsRepository.findById(id, userId);
+    if (!existing) throw this.notFound(id);
+    if (existing.status !== AppointmentStatus.SCHEDULED)
+      throw this.notScheduled(existing.status);
+
+    const amount = dto.amount ?? existing.amount;
+    this.validateAmount(AppointmentStatus.COMPLETED, amount);
+
+    const result = await this.appointmentsRepository.complete(
+      id,
+      userId,
+      // validateAmount has just rejected a missing amount.
+      amount!,
+      {
+        procedureName: dto.procedureName,
+        patientName: dto.patientName,
+        ownerName: dto.ownerName,
+        species: dto.species,
+        patientAgeYears: dto.patientAgeYears,
+        weightKg: dto.weightKg,
+        notes: dto.notes,
+        asa: dto.asa,
+      },
+    );
+
+    if (!result) {
+      // Another /complete or /cancel got there between the read and the write.
+      const current = await this.appointmentsRepository.findById(id, userId);
+      if (!current) throw this.notFound(id);
+      throw this.notScheduled(current.status);
+    }
+
+    return {
+      ...this.sanitize(result.appointment),
+      financialEntry: this.sanitizeFinancialEntry(result.financialEntry),
+    };
+  }
+
   async remove(id: string, userId: string): Promise<AppointmentEntity> {
     const appointment = await this.appointmentsRepository.delete(id, userId);
     if (!appointment) throw this.notFound(id);
@@ -279,6 +334,21 @@ export class AppointmentsService {
     const { userId, ...result } = appointment;
     void userId;
     return result;
+  }
+
+  private sanitizeFinancialEntry(entry: FinancialEntry): FinancialEntryEntity {
+    const { userId, ...result } = entry;
+    void userId;
+    return result;
+  }
+
+  private notScheduled(status: AppointmentStatus): DomainError {
+    return new DomainError(
+      'CONFLICT',
+      'APPOINTMENT_NOT_SCHEDULED',
+      'Only a scheduled appointment can be completed',
+      { status },
+    );
   }
 
   private notFound(id: string): DomainError {

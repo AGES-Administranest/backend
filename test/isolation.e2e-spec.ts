@@ -244,6 +244,21 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       return body(response).id as string;
     };
 
+    // The seed migration creates this system category, but resetDatabase's
+    // TRUNCATE ... CASCADE wipes it along with everything that references
+    // "user". Without it a leaking /complete would fail with a 500 instead of
+    // posting revenue, and the "no entry was posted" check would prove nothing.
+    beforeEach(async () => {
+      await prisma.financialCategory.create({
+        data: {
+          userId: null,
+          name: 'Professional fees',
+          nature: 'INCOME',
+          defaultScope: 'PROFESSIONAL',
+        },
+      });
+    });
+
     it('does not let one account conflict-check against another account schedule', async () => {
       await createAppointment(
         ana,
@@ -282,6 +297,29 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
         where: { id: anaAppointment },
       });
       expect(stored.procedureName).toBe('Consulta');
+    });
+
+    it('refuses to complete another account appointment, and posts no revenue', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}/complete`)
+        .set('Authorization', bearer(bruno))
+        .send({ amount: 250 })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.status).toBe('SCHEDULED');
+      expect(stored.amount).toBeNull();
+      expect(await prisma.financialEntry.count()).toBe(0);
     });
   });
 

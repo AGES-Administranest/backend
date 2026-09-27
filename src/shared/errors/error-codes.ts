@@ -56,6 +56,9 @@ export const ERROR_CODES = [
   'APPOINTMENT_NOT_FOUND',
   'APPOINTMENT_INVALID_INTERVAL',
   'APPOINTMENT_TIME_CONFLICT',
+  // The transition needs a SCHEDULED appointment: it was already completed or
+  // canceled. Shared with the /cancel endpoint (US08 subtask 2).
+  'APPOINTMENT_NOT_SCHEDULED',
 
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
