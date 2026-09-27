@@ -90,11 +90,34 @@ describe('groupLines', () => {
     ]);
   });
 
-  it('records where each cell starts and ends', () => {
+  it('records where each cell and each of its runs starts and ends', () => {
     const [line] = groupLines([
-      { page: 1, fragments: [fragment('18,90', 380, 100)] },
+      {
+        page: 1,
+        fragments: [
+          fragment('SORO FISIOL', 40, 100),
+          fragment('HI25', 100, 100),
+          fragment('18,90', 380, 100),
+        ],
+      },
     ]);
 
-    expect(line.cells).toEqual([{ text: '18,90', x0: 380, x1: 405 }]);
+    expect(line.cells).toEqual([
+      {
+        text: 'SORO FISIOL HI25',
+        x0: 40,
+        x1: 120,
+        runs: [
+          { start: 0, end: 11, x0: 40, x1: 95 },
+          { start: 12, end: 16, x0: 100, x1: 120 },
+        ],
+      },
+      {
+        text: '18,90',
+        x0: 380,
+        x1: 405,
+        runs: [{ start: 0, end: 5, x0: 380, x1: 405 }],
+      },
+    ]);
   });
 });

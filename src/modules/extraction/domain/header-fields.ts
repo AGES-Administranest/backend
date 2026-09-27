@@ -85,6 +85,11 @@ const DATE_LABELS = [
 ];
 const NOT_ORDER_DATE =
   /\b(vencimento|validade|entrega|previsao|saida|embarque|pagamento)\b/;
+// A delivery slip dates only the goods leaving the distributor, which is the
+// day of the document. Still behind any issue date: on a DANFE the two differ.
+const DISPATCH_DATE = /\b(saida|embarque)\b/;
+const NOT_DISPATCH_DATE =
+  /\b(vencimento|validade|entrega|previsao|pagamento)\b/;
 
 const TOTAL_LABELS: { label: RegExp; below: boolean }[] = [
   { label: /\b(?:valor\s+)?total\s+da\s+nota\b/, below: true },
@@ -413,6 +418,13 @@ function extractOrderDate(lines: TextLine[]): string | undefined {
     );
     if (match) return match.value;
   }
+
+  const dispatch = findLabeledValues(
+    lines,
+    DISPATCH_DATE,
+    parseBrazilianDate,
+  ).find(({ labelCell }) => !NOT_DISPATCH_DATE.test(fold(labelCell.text)));
+  if (dispatch) return dispatch.value;
 
   // No label: the first date on the first page that is not a due date.
   return lines
