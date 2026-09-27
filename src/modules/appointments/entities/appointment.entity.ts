@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AppointmentStatus, Prisma, Species } from '@prisma/client';
 
+import { FinancialEntryEntity } from '../../financial';
+
 export class AppointmentEntity {
   id!: string;
   clientGeneratedId!: string | null;
@@ -31,6 +33,11 @@ export class AppointmentEntity {
   createdAt!: Date;
   updatedAt!: Date;
   deletedAt!: Date | null;
+}
+
+/** The appointment after `/complete`, with the revenue entry it posted. */
+export class CompletedAppointmentEntity extends AppointmentEntity {
+  financialEntry!: FinancialEntryEntity;
 }
 
 /** What the caller needs to show or resolve a clash — not the full record. */
