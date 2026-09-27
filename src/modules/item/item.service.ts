@@ -13,6 +13,12 @@ import {
 } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
+export type ItemCatalogEntry = {
+  id: string;
+  name: string;
+  unit: MeasurementUnit;
+};
+
 function escapeLike(term: string): string {
   return term.replace(/[\\%_]/g, match => `\\${match}`);
 }
@@ -39,6 +45,11 @@ export class ItemService {
       query.limit,
     );
     return items.map(item => this.sanitize(item));
+  }
+
+  /** Every active item, lean: what purchase lines are matched against. */
+  findCatalog(userId: string): Promise<ItemCatalogEntry[]> {
+    return this.itemRepository.findCatalog(userId);
   }
 
   async findOne(id: string, userId: string): Promise<ItemEntity> {
