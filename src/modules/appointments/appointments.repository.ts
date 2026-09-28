@@ -8,6 +8,7 @@ import {
   FinancialEntry,
   Item,
   ItemLot,
+  MeasurementUnit,
   Prisma,
   StockMovement,
   StockMovementSource,
@@ -39,6 +40,11 @@ export type SupplyMovement = StockMovement & {
   /** the movement that replaced it when it was edited (null on a removal) */
   replacement: StockMovement | null;
   item: { currentQuantity: Prisma.Decimal };
+};
+
+/** A supply still in effect, with the item fields the app shows beside it. */
+export type ActiveSupply = StockMovement & {
+  item: { name: string; unit: MeasurementUnit };
 };
 
 export interface CorrectedItemUsage {
@@ -487,6 +493,32 @@ export class AppointmentsRepository {
           replacement: true,
           item: { select: { currentQuantity: true } },
         },
+      }),
+    );
+  }
+
+  /**
+   * The supplies of an appointment that are still in effect: its
+   * OUTBOUND/APPOINTMENT movements that no reversal undid. An edited supply
+   * comes back once, as the movement that replaced it — the original has a
+   * reversal. Oldest first, so the list keeps the order it was built in.
+   */
+  findActiveSupplies(
+    appointmentId: string,
+    userId: string,
+  ): Promise<ActiveSupply[]> {
+    return runQuery(() =>
+      this.prisma.stockMovement.findMany({
+        where: {
+          appointmentId,
+          userId,
+          type: StockMovementType.OUTBOUND,
+          source: StockMovementSource.APPOINTMENT,
+          deletedAt: null,
+          reversal: { is: null },
+        },
+        include: { item: { select: { name: true, unit: true } } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
     );
   }

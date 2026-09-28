@@ -591,6 +591,43 @@ describe('POST /appointments/:id/items (e2e)', () => {
       expect(await lotBalance()).toBe('10');
     });
 
+    it('GET lists the supplies in effect: an edited one once, as its replacement, and a removed one not at all', async () => {
+      const list = (user: TestUser = ana) =>
+        request(http)
+          .get(`/appointments/${appointmentId}/items`)
+          .set('Authorization', bearer(user));
+      const { itemId: otherItemId } = await createItemWithLot(ana, 10, 8);
+      const second = await request(http)
+        .post(`/appointments/${appointmentId}/items`)
+        .set('Authorization', bearer(ana))
+        .send({ items: [{ itemId: otherItemId, quantity: 1 }] })
+        .expect(201);
+      const secondId = (body(second).movements as { id: string }[])[0].id;
+      const edited = await edit(supplyId, { quantity: 5 }).expect(200);
+      const editedId = (body(edited).movement as { id: string }).id;
+      await remove(secondId).expect(200);
+
+      const response = await list().expect(200);
+
+      expect(body(response)).toEqual({
+        appointmentId,
+        supplies: [
+          expect.objectContaining({
+            id: editedId,
+            itemId,
+            lotId,
+            quantity: '5',
+            unitCost: '5',
+            replacedMovementId: supplyId,
+            item: { name: 'Item 5', unit: 'VIAL' },
+          }),
+        ],
+      });
+      await list(bruno)
+        .expect(404)
+        .expect(res => expect(body(res).code).toBe('APPOINTMENT_NOT_FOUND'));
+    });
+
     it.each([
       ['a zero quantity', { quantity: 0 }],
       ['a userId in the body', { quantity: 1, userId: 'someone' }],

@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 
 import {
+  ActiveSupply,
   AppointmentsRepository,
   ItemUsage,
   ItemWithLots,
@@ -30,6 +31,8 @@ import {
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import {
   AppointmentItemMovementEntity,
+  AppointmentSuppliesEntity,
+  AppointmentSupplyEntity,
   EditAppointmentItemResultEntity,
   InsufficientStockWarningEntity,
   RegisterAppointmentItemsResultEntity,
@@ -513,6 +516,31 @@ export class AppointmentsService {
   }
 
   /**
+   * US06: the supplies in effect for an appointment, so the app can show what
+   * was saved after the screen is reopened. A canceled appointment still
+   * answers — its supplies stay recorded until they are reversed.
+   */
+  async listItems(
+    appointmentId: string,
+    userId: string,
+  ): Promise<AppointmentSuppliesEntity> {
+    const appointment = await this.appointmentsRepository.findById(
+      appointmentId,
+      userId,
+    );
+    if (!appointment) throw this.notFound(appointmentId);
+
+    const supplies = await this.appointmentsRepository.findActiveSupplies(
+      appointment.id,
+      userId,
+    );
+    return {
+      appointmentId: appointment.id,
+      supplies: supplies.map(supply => this.toSupply(supply)),
+    };
+  }
+
+  /**
    * US06: corrects the quantity of a saved supply. The ledger is append-only
    * (ADR-10), so the original movement is reversed (CORRECTION_REVERSAL) and
    * a new OUTBOUND/APPOINTMENT movement records the new quantity, in one
@@ -739,6 +767,13 @@ export class AppointmentsService {
       reversedMovementId: movement.reversedMovementId,
       replacedMovementId: movement.replacedMovementId,
       createdAt: movement.createdAt,
+    };
+  }
+
+  private toSupply(supply: ActiveSupply): AppointmentSupplyEntity {
+    return {
+      ...this.toMovement(supply),
+      item: { name: supply.item.name, unit: supply.item.unit },
     };
   }
 

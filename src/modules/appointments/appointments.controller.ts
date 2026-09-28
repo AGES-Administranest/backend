@@ -34,6 +34,7 @@ import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { RegisterAppointmentItemsDto } from './dto/register-appointment-items.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import {
+  AppointmentSuppliesEntity,
   EditAppointmentItemResultEntity,
   RegisterAppointmentItemsResultEntity,
   RemoveAppointmentItemResultEntity,
@@ -109,6 +110,22 @@ export class AppointmentsController {
     @Body() dto: RegisterAppointmentItemsDto,
   ) {
     return this.appointmentsService.registerItems(id, user.id, dto);
+  }
+
+  @Get(':id/items')
+  @ApiOperation({
+    summary: 'Lists the supplies in effect for an appointment',
+    description:
+      'Every OUTBOUND movement recorded for the appointment that no reversal undid. An edited supply appears once, as the movement that replaced it.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: AppointmentSuppliesEntity })
+  @ApiNotFoundResponse({ description: 'Appointment not found' })
+  listItems(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.appointmentsService.listItems(id, user.id);
   }
 
   @Patch(':id/items/:movementId')
