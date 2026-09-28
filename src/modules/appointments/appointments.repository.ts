@@ -6,7 +6,10 @@ import {
   EntryScope,
   EntrySource,
   FinancialEntry,
+  Item,
+  ItemLot,
   Prisma,
+  StockMovement,
   StockMovementSource,
   StockMovementType,
 } from '@prisma/client';
@@ -17,7 +20,23 @@ import {
   runQuery,
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { reversalType } from '../stock-movements';
+import { balanceRequiresAdjustment, reversalType } from '../stock-movements';
+
+export type ItemWithLots = Item & { lots: ItemLot[] };
+
+export interface ItemUsage {
+  clientGeneratedId: string | null;
+  itemId: string;
+  lotId: string | null;
+  quantity: Prisma.Decimal;
+  unitCost: Prisma.Decimal;
+}
+
+export interface RecordedItemUsage {
+  movement: StockMovement;
+  /** `item.currentQuantity` right after this movement was applied */
+  itemBalance: Prisma.Decimal;
+}
 
 @Injectable()
 export class AppointmentsRepository {
@@ -354,5 +373,116 @@ export class AppointmentsRepository {
     }
 
     await tx.financialEntry.create({ data: { ...data, userId } });
+  }
+
+  /** Movements of this user already recorded under any of these keys. */
+  findMovementsByClientGeneratedIds(
+    clientGeneratedIds: readonly string[],
+    userId: string,
+  ): Promise<StockMovement[]> {
+    return runQuery(() =>
+      this.prisma.stockMovement.findMany({
+        where: { userId, clientGeneratedId: { in: [...clientGeneratedIds] } },
+      }),
+    );
+  }
+
+  findItemsWithLots(
+    itemIds: readonly string[],
+    userId: string,
+  ): Promise<ItemWithLots[]> {
+    return runQuery(() =>
+      this.prisma.item.findMany({
+        where: { id: { in: [...itemIds] }, userId, deletedAt: null },
+        include: { lots: true },
+      }),
+    );
+  }
+
+  /**
+   * Appends one OUTBOUND/APPOINTMENT movement per usage and decrements the
+   * `currentQuantity` caches of the item and of the lot it was drawn from, all
+   * in one transaction: either every movement lands with its caches, or none.
+   *
+   * The decrement is an atomic `decrement`, never a read-then-write, so two
+   * concurrent registrations on the same item cannot lose each other's
+   * consumption (ADR-10). The balance is allowed to go negative; when it does,
+   * `needsAdjustment` is switched on (see `docs/data-dictionary.md`).
+   *
+   * Only inserts into `stock_movement` — an existing movement is never edited.
+   *
+   * TODO(#21): this is a second write path into the ledger. Once
+   * `StockMovementsService.recordBatch` (PR #21) lands, route these movements
+   * through it so the balance recomputation, the minimum-stock check (US11)
+   * and the `needsAdjustment` rule live in a single place.
+   *
+   * Returns null, writing nothing, when this user has no live appointment with
+   * this id that can still take supplies: it was deleted or canceled after the
+   * service read it. The row is held FOR SHARE until commit, so a concurrent
+   * cancel waits for this registration instead of slipping in between.
+   */
+  recordItemUsage(
+    userId: string,
+    appointmentId: string,
+    occurredAt: Date,
+    usages: readonly ItemUsage[],
+  ): Promise<RecordedItemUsage[] | null> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const [appointment] = await tx.$queryRaw<
+          { status: AppointmentStatus }[]
+        >`
+          SELECT status FROM appointment
+          WHERE id = ${appointmentId}::uuid
+            AND user_id = ${userId}::uuid
+            AND deleted_at IS NULL
+          FOR SHARE`;
+        if (!appointment || appointment.status === AppointmentStatus.CANCELED) {
+          return null;
+        }
+
+        const recorded: RecordedItemUsage[] = [];
+        for (const usage of usages) {
+          const movement = await tx.stockMovement.create({
+            data: {
+              userId,
+              clientGeneratedId: usage.clientGeneratedId,
+              itemId: usage.itemId,
+              lotId: usage.lotId,
+              appointmentId,
+              type: StockMovementType.OUTBOUND,
+              source: StockMovementSource.APPOINTMENT,
+              quantity: usage.quantity,
+              unitCost: usage.unitCost,
+              occurredAt,
+            },
+          });
+
+          if (usage.lotId) {
+            await tx.itemLot.update({
+              where: { id: usage.lotId },
+              data: { currentQuantity: { decrement: usage.quantity } },
+            });
+          }
+
+          const item = await tx.item.update({
+            where: { id: usage.itemId },
+            data: { currentQuantity: { decrement: usage.quantity } },
+          });
+          if (
+            balanceRequiresAdjustment(item.currentQuantity) &&
+            !item.needsAdjustment
+          ) {
+            await tx.item.update({
+              where: { id: item.id },
+              data: { needsAdjustment: true },
+            });
+          }
+
+          recorded.push({ movement, itemBalance: item.currentQuantity });
+        }
+        return recorded;
+      }),
+    );
   }
 }
