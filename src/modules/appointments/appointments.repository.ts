@@ -32,6 +32,21 @@ export interface ItemUsage {
   unitCost: Prisma.Decimal;
 }
 
+/** A movement with what editing or removing it as a supply needs to know. */
+export type SupplyMovement = StockMovement & {
+  /** the reversal that already undid it, if any */
+  reversal: StockMovement | null;
+  item: { currentQuantity: Prisma.Decimal };
+};
+
+export interface CorrectedItemUsage {
+  reversal: StockMovement;
+  /** the movement that replaces the reversed one; null on a removal */
+  movement: StockMovement | null;
+  /** `item.currentQuantity` right after the correction */
+  itemBalance: Prisma.Decimal;
+}
+
 export interface RecordedItemUsage {
   movement: StockMovement;
   /** `item.currentQuantity` right after this movement was applied */
@@ -432,15 +447,7 @@ export class AppointmentsRepository {
   ): Promise<RecordedItemUsage[] | null> {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
-        const [appointment] = await tx.$queryRaw<
-          { status: AppointmentStatus }[]
-        >`
-          SELECT status FROM appointment
-          WHERE id = ${appointmentId}::uuid
-            AND user_id = ${userId}::uuid
-            AND deleted_at IS NULL
-          FOR SHARE`;
-        if (!appointment || appointment.status === AppointmentStatus.CANCELED) {
+        if (!(await this.lockOpenAppointment(tx, appointmentId, userId))) {
           return null;
         }
 
@@ -467,6 +474,96 @@ export class AppointmentsRepository {
         return recorded;
       }),
     );
+  }
+
+  findMovement(id: string, userId: string): Promise<SupplyMovement | null> {
+    return runQuery(() =>
+      this.prisma.stockMovement.findFirst({
+        where: { id, userId, deletedAt: null },
+        include: {
+          reversal: true,
+          item: { select: { currentQuantity: true } },
+        },
+      }),
+    );
+  }
+
+  /**
+   * Corrects a supply without editing it (ADR-10): appends the reversal of
+   * `original` and, on an edit, the OUTBOUND/APPOINTMENT movement with the
+   * new quantity — same item, lot, cost and date, since it is the same
+   * consumption corrected — updating the caches, all in one transaction.
+   *
+   * The unique `reversed_movement_id` makes a second, concurrent correction
+   * of the same supply fail with UniqueConstraintError and write nothing.
+   *
+   * Returns null, writing nothing, when the appointment was deleted or
+   * canceled after the service read it (held FOR SHARE, as in
+   * `recordItemUsage`).
+   *
+   * TODO(#21): another direct write into the ledger; see `recordItemUsage`.
+   */
+  correctItemUsage(
+    userId: string,
+    original: StockMovement,
+    replacement: {
+      quantity: Prisma.Decimal;
+      clientGeneratedId: string | null;
+    } | null,
+  ): Promise<CorrectedItemUsage | null> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const appointmentId = original.appointmentId!;
+        if (!(await this.lockOpenAppointment(tx, appointmentId, userId))) {
+          return null;
+        }
+
+        const reversal = await tx.stockMovement.create({
+          data: { userId, ...reversalOf(original) },
+        });
+        let itemBalance = await this.applyToCaches(tx, reversal);
+
+        let movement: StockMovement | null = null;
+        if (replacement) {
+          movement = await tx.stockMovement.create({
+            data: {
+              userId,
+              clientGeneratedId: replacement.clientGeneratedId,
+              itemId: original.itemId,
+              lotId: original.lotId,
+              appointmentId,
+              type: StockMovementType.OUTBOUND,
+              source: StockMovementSource.APPOINTMENT,
+              quantity: replacement.quantity,
+              unitCost: original.unitCost,
+              occurredAt: original.occurredAt,
+            },
+          });
+          itemBalance = await this.applyToCaches(tx, movement);
+        }
+
+        return { reversal, movement, itemBalance };
+      }),
+    );
+  }
+
+  /**
+   * Whether this user has a live, non-canceled appointment with this id,
+   * holding its row FOR SHARE until the transaction ends: a concurrent cancel
+   * waits for the stock write instead of slipping in between.
+   */
+  private async lockOpenAppointment(
+    tx: Prisma.TransactionClient,
+    appointmentId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const [appointment] = await tx.$queryRaw<{ status: AppointmentStatus }[]>`
+      SELECT status FROM appointment
+      WHERE id = ${appointmentId}::uuid
+        AND user_id = ${userId}::uuid
+        AND deleted_at IS NULL
+      FOR SHARE`;
+    return !!appointment && appointment.status !== AppointmentStatus.CANCELED;
   }
 
   /**

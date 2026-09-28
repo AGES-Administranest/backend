@@ -8,3 +8,4 @@ export * from './dto/complete-appointment.dto';
 export * from './entities/appointment.entity';
 export * from './dto/register-appointment-items.dto';
 export * from './entities/appointment-items.entity';
+export * from './dto/edit-appointment-item.dto';

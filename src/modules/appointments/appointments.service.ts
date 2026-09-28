@@ -14,12 +14,14 @@ import {
   ItemUsage,
   ItemWithLots,
   RecordedItemUsage,
+  SupplyMovement,
 } from './appointments.repository';
 import { FinancialEntryEntity } from '../financial';
 import { currentLot } from './domain/current-lot';
 import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { EditAppointmentItemDto } from './dto/edit-appointment-item.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import {
   AppointmentItemUsageDto,
@@ -28,8 +30,10 @@ import {
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import {
   AppointmentItemMovementEntity,
+  EditAppointmentItemResultEntity,
   InsufficientStockWarningEntity,
   RegisterAppointmentItemsResultEntity,
+  RemoveAppointmentItemResultEntity,
 } from './entities/appointment-items.entity';
 import {
   AppointmentEntity,
@@ -360,16 +364,8 @@ export class AppointmentsService {
     userId: string,
     dto: RegisterAppointmentItemsDto,
   ): Promise<RegisterAppointmentItemsResultEntity> {
-    return this.registerItemsOnce(appointmentId, userId, dto).catch(
-      (error: unknown) => {
-        // Two copies of the same retry raced past the replay lookup: the
-        // loser's transaction rolled back on the (user, clientGeneratedId)
-        // key, and running it again now finds the winner's movements.
-        if (error instanceof UniqueConstraintError) {
-          return this.registerItemsOnce(appointmentId, userId, dto);
-        }
-        throw error;
-      },
+    return this.retryOnRace(() =>
+      this.registerItemsOnce(appointmentId, userId, dto),
     );
   }
 
@@ -417,15 +413,7 @@ export class AppointmentsService {
         appointment.startsAt,
         usages,
       );
-      // Canceled or deleted between the read above and the transaction.
-      if (!result) {
-        const current = await this.appointmentsRepository.findById(
-          appointment.id,
-          userId,
-        );
-        if (!current) throw this.notFound(appointment.id);
-        throw this.appointmentCanceled(appointment.id);
-      }
+      if (!result) throw await this.appointmentClosed(appointment.id, userId);
       recorded = result;
     }
 
@@ -524,6 +512,216 @@ export class AppointmentsService {
     };
   }
 
+  /**
+   * US06: corrects the quantity of a saved supply. The ledger is append-only
+   * (ADR-10), so the original movement is reversed (CORRECTION_REVERSAL) and
+   * a new OUTBOUND/APPOINTMENT movement records the new quantity, in one
+   * transaction. The new movement is the supply from then on: its id is the
+   * one to edit or remove next.
+   *
+   * Resending the edit with the same `clientGeneratedId` answers with the
+   * movement it already created (ADR-08/09); without a key, an edit of a
+   * supply that was already corrected answers 409.
+   */
+  editItem(
+    appointmentId: string,
+    movementId: string,
+    userId: string,
+    dto: EditAppointmentItemDto,
+  ): Promise<EditAppointmentItemResultEntity> {
+    return this.retryOnRace(() =>
+      this.editItemOnce(appointmentId, movementId, userId, dto),
+    );
+  }
+
+  /**
+   * US06: removes a saved supply by reversing it (CORRECTION_REVERSAL), which
+   * gives the stock back. Idempotent: removing a supply that was already
+   * reversed answers with that reversal and writes nothing.
+   */
+  removeItem(
+    appointmentId: string,
+    movementId: string,
+    userId: string,
+  ): Promise<RemoveAppointmentItemResultEntity> {
+    return this.retryOnRace(() =>
+      this.removeItemOnce(appointmentId, movementId, userId),
+    );
+  }
+
+  private async editItemOnce(
+    appointmentId: string,
+    movementId: string,
+    userId: string,
+    dto: EditAppointmentItemDto,
+  ): Promise<EditAppointmentItemResultEntity> {
+    const appointment = await this.appointmentsRepository.findById(
+      appointmentId,
+      userId,
+    );
+    if (!appointment) throw this.notFound(appointmentId);
+    const original = await this.findSupply(appointment.id, movementId, userId);
+
+    if (dto.clientGeneratedId) {
+      const [replayed] =
+        await this.appointmentsRepository.findMovementsByClientGeneratedIds(
+          [dto.clientGeneratedId],
+          userId,
+        );
+      if (replayed) {
+        // Only a resend of this very edit: the key's movement replaced this
+        // supply, so the supply was reversed and the lines match.
+        const sameEdit =
+          original.reversal !== null &&
+          replayed.source === StockMovementSource.APPOINTMENT &&
+          replayed.appointmentId === appointment.id &&
+          replayed.itemId === original.itemId &&
+          replayed.quantity.equals(dto.quantity);
+        if (!sameEdit) throw this.clientIdConflict(dto.clientGeneratedId);
+        return this.toEditResult(
+          appointment.id,
+          replayed,
+          original.reversal,
+          original.item.currentQuantity,
+        );
+      }
+    }
+
+    if (original.reversal) throw this.alreadyReversed(original.id);
+
+    assertValidMovement({
+      type: StockMovementType.OUTBOUND,
+      source: StockMovementSource.APPOINTMENT,
+      quantity: dto.quantity,
+    });
+    if (original.quantity.equals(dto.quantity)) {
+      return this.toEditResult(
+        appointment.id,
+        original,
+        null,
+        original.item.currentQuantity,
+      );
+    }
+
+    if (appointment.status === AppointmentStatus.CANCELED) {
+      throw this.appointmentCanceled(appointment.id);
+    }
+    const result = await this.appointmentsRepository.correctItemUsage(
+      userId,
+      original,
+      {
+        quantity: new Prisma.Decimal(dto.quantity),
+        clientGeneratedId: dto.clientGeneratedId ?? null,
+      },
+    );
+    if (!result) throw await this.appointmentClosed(appointment.id, userId);
+
+    return this.toEditResult(
+      appointment.id,
+      result.movement!,
+      result.reversal,
+      result.itemBalance,
+    );
+  }
+
+  private async removeItemOnce(
+    appointmentId: string,
+    movementId: string,
+    userId: string,
+  ): Promise<RemoveAppointmentItemResultEntity> {
+    const appointment = await this.appointmentsRepository.findById(
+      appointmentId,
+      userId,
+    );
+    if (!appointment) throw this.notFound(appointmentId);
+    const original = await this.findSupply(appointment.id, movementId, userId);
+
+    if (original.reversal) {
+      return {
+        appointmentId: appointment.id,
+        reversal: this.toMovement(original.reversal),
+      };
+    }
+
+    if (appointment.status === AppointmentStatus.CANCELED) {
+      throw this.appointmentCanceled(appointment.id);
+    }
+    const result = await this.appointmentsRepository.correctItemUsage(
+      userId,
+      original,
+      null,
+    );
+    if (!result) throw await this.appointmentClosed(appointment.id, userId);
+
+    return {
+      appointmentId: appointment.id,
+      reversal: this.toMovement(result.reversal),
+    };
+  }
+
+  /**
+   * A supply of this appointment: an OUTBOUND/APPOINTMENT movement of this
+   * user linked to it. Anything else — another account's movement, another
+   * appointment's, a reversal — is indistinguishable from a missing one
+   * (ADR-11).
+   */
+  private async findSupply(
+    appointmentId: string,
+    movementId: string,
+    userId: string,
+  ): Promise<SupplyMovement> {
+    const movement = await this.appointmentsRepository.findMovement(
+      movementId,
+      userId,
+    );
+    if (
+      !movement ||
+      movement.appointmentId !== appointmentId ||
+      movement.source !== StockMovementSource.APPOINTMENT ||
+      movement.type !== StockMovementType.OUTBOUND
+    ) {
+      throw this.movementNotFound(movementId);
+    }
+    return movement;
+  }
+
+  /**
+   * Two copies of the same correction raced: the loser's transaction rolled
+   * back on a unique key (reversed_movement_id or clientGeneratedId), and
+   * running it again answers from what the winner wrote.
+   */
+  private retryOnRace<T>(run: () => Promise<T>): Promise<T> {
+    return run().catch((error: unknown) => {
+      if (error instanceof UniqueConstraintError) return run();
+      throw error;
+    });
+  }
+
+  /** The error for an appointment deleted or canceled mid-request. */
+  private async appointmentClosed(
+    id: string,
+    userId: string,
+  ): Promise<DomainError> {
+    const current = await this.appointmentsRepository.findById(id, userId);
+    return current ? this.appointmentCanceled(id) : this.notFound(id);
+  }
+
+  private toEditResult(
+    appointmentId: string,
+    movement: StockMovement,
+    reversal: StockMovement | null,
+    itemBalance: Prisma.Decimal,
+  ): EditAppointmentItemResultEntity {
+    return {
+      appointmentId,
+      movement: this.toMovement(movement),
+      reversal: reversal && this.toMovement(reversal),
+      warnings: balanceRequiresAdjustment(itemBalance)
+        ? [{ warning: 'insufficient_stock', itemId: movement.itemId }]
+        : [],
+    };
+  }
+
   private toMovement(movement: StockMovement): AppointmentItemMovementEntity {
     return {
       id: movement.id,
@@ -535,6 +733,7 @@ export class AppointmentsService {
       quantity: movement.quantity,
       unitCost: movement.unitCost,
       occurredAt: movement.occurredAt,
+      reversedMovementId: movement.reversedMovementId,
       createdAt: movement.createdAt,
     };
   }
@@ -633,6 +832,24 @@ export class AppointmentsService {
       'NOT_FOUND',
       'ITEM_NOT_FOUND',
       `Item ${id} not found`,
+      { id },
+    );
+  }
+
+  private movementNotFound(id: string): DomainError {
+    return new DomainError(
+      'NOT_FOUND',
+      'STOCK_MOVEMENT_NOT_FOUND',
+      `Supply ${id} not found in this appointment`,
+      { id },
+    );
+  }
+
+  private alreadyReversed(id: string): DomainError {
+    return new DomainError(
+      'CONFLICT',
+      'STOCK_MOVEMENT_ALREADY_REVERSED',
+      'This supply was already corrected; edit or remove the movement that replaced it',
       { id },
     );
   }

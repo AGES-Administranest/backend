@@ -9,10 +9,13 @@ import { randomUUID } from 'node:crypto';
 
 import {
   AppointmentsRepository,
+  CorrectedItemUsage,
   ItemUsage,
   ItemWithLots,
   RecordedItemUsage,
+  SupplyMovement,
 } from './appointments.repository';
+import { reversalOf } from '../stock-movements';
 import { AppointmentsService } from './appointments.service';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
@@ -201,6 +204,121 @@ class FakeAppointmentsRepository {
         return { movement, itemBalance: item.currentQuantity };
       }),
     );
+  }
+
+  findMovement(id: string, userId: string): Promise<SupplyMovement | null> {
+    const movement = this.movements.find(
+      row => row.id === id && row.userId === userId && !row.deletedAt,
+    );
+    if (!movement) return Promise.resolve(null);
+    return Promise.resolve({
+      ...movement,
+      reversal:
+        this.movements.find(row => row.reversedMovementId === movement.id) ??
+        null,
+      item: {
+        currentQuantity: this.items.get(movement.itemId)!.currentQuantity,
+      },
+    });
+  }
+
+  correctItemUsage(
+    userId: string,
+    original: StockMovement,
+    replacement: {
+      quantity: Prisma.Decimal;
+      clientGeneratedId: string | null;
+    } | null,
+  ): Promise<CorrectedItemUsage | null> {
+    const appointment = this.rows.get(original.appointmentId!);
+    if (
+      !appointment ||
+      appointment.userId !== userId ||
+      appointment.deletedAt ||
+      appointment.status === 'CANCELED'
+    ) {
+      return Promise.resolve(null);
+    }
+    // The unique reversed_movement_id / (user_id, client_generated_id) keys
+    // roll the whole transaction back.
+    const taken =
+      this.movements.some(row => row.reversedMovementId === original.id) ||
+      (replacement?.clientGeneratedId != null &&
+        this.movements.some(
+          row => row.clientGeneratedId === replacement.clientGeneratedId,
+        ));
+    if (taken) {
+      return Promise.reject(new UniqueConstraintError(['reversedMovementId']));
+    }
+
+    const reversal = this.append(userId, {
+      ...reversalOf(original),
+      clientGeneratedId: null,
+    });
+    let itemBalance = this.applyToCaches(reversal);
+    let movement: StockMovement | null = null;
+    if (replacement) {
+      movement = this.append(userId, {
+        clientGeneratedId: replacement.clientGeneratedId,
+        itemId: original.itemId,
+        lotId: original.lotId,
+        appointmentId: original.appointmentId,
+        type: 'OUTBOUND',
+        source: 'APPOINTMENT',
+        quantity: replacement.quantity,
+        unitCost: original.unitCost,
+        occurredAt: original.occurredAt,
+        reversedMovementId: null,
+        notes: null,
+      });
+      itemBalance = this.applyToCaches(movement);
+    }
+    return Promise.resolve({ reversal, movement, itemBalance });
+  }
+
+  private append(
+    userId: string,
+    fields: Pick<
+      StockMovement,
+      | 'clientGeneratedId'
+      | 'itemId'
+      | 'lotId'
+      | 'appointmentId'
+      | 'type'
+      | 'source'
+      | 'quantity'
+      | 'unitCost'
+      | 'occurredAt'
+      | 'reversedMovementId'
+      | 'notes'
+    >,
+  ): StockMovement {
+    const movement: StockMovement = {
+      ...fields,
+      id: randomUUID(),
+      userId,
+      adjustmentReason: null,
+      purchaseOrderId: null,
+      purchaseInvoiceLineId: null,
+      supplierId: null,
+      createdAt: new Date(),
+      deletedAt: null,
+    };
+    this.movements.push(movement);
+    return movement;
+  }
+
+  private applyToCaches(movement: StockMovement): Prisma.Decimal {
+    const signed =
+      movement.type === 'INBOUND'
+        ? movement.quantity
+        : movement.quantity.negated();
+    const item = this.items.get(movement.itemId)!;
+    item.currentQuantity = item.currentQuantity.plus(signed);
+    if (item.currentQuantity.isNegative()) item.needsAdjustment = true;
+    const lot = item.lots.find(l => l.id === movement.lotId);
+    if (lot) lot.currentQuantity = lot.currentQuantity.plus(signed);
+    return item.currentQuantity;
   }
 
   seed(appointment: Appointment): void {
@@ -871,6 +989,320 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
         expect(replay.movements).toEqual(first.movements);
         expect(repository.movements).toHaveLength(1);
       });
+    });
+  });
+
+  describe('editItem / removeItem (US06 corrections)', () => {
+    let appointment: Appointment;
+    let item: Item;
+    let lot: ItemLot;
+    let supplyId: string;
+
+    const stored = (id: string) => repository.movements.find(m => m.id === id)!;
+    const balance = () =>
+      repository.items.get(item.id)!.currentQuantity.toString();
+
+    beforeEach(async () => {
+      appointment = buildAppointment();
+      repository.seed(appointment);
+      item = buildItem({ currentQuantity: new Prisma.Decimal(10) });
+      lot = buildLot(item.id, { unitCost: new Prisma.Decimal('7.25') });
+      repository.seedItem(item, [lot]);
+      const registered = await service.registerItems(appointment.id, USER_ID, {
+        items: [{ itemId: item.id, quantity: 3 }],
+      });
+      supplyId = registered.movements[0].id;
+    });
+
+    describe('editItem', () => {
+      it('reverses the original and records the new quantity at the same lot, cost and date', async () => {
+        const result = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          {
+            quantity: 5,
+          },
+        );
+
+        expect(result.reversal).toMatchObject({
+          type: 'INBOUND',
+          source: 'CORRECTION_REVERSAL',
+          reversedMovementId: supplyId,
+          lotId: lot.id,
+        });
+        expect(result.reversal!.quantity.toString()).toBe('3');
+        expect(result.movement).toMatchObject({
+          type: 'OUTBOUND',
+          source: 'APPOINTMENT',
+          itemId: item.id,
+          lotId: lot.id,
+          occurredAt: appointment.startsAt,
+        });
+        expect(result.movement.quantity.toString()).toBe('5');
+        expect(result.movement.unitCost.toString()).toBe('7.25');
+        expect(result.warnings).toEqual([]);
+        expect(balance()).toBe('5');
+        // Append-only: the original row is untouched.
+        expect(stored(supplyId).quantity.toString()).toBe('3');
+        expect(stored(supplyId).deletedAt).toBeNull();
+      });
+
+      it('warns and flags the item when the new quantity takes it negative', async () => {
+        const result = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          {
+            quantity: 12,
+          },
+        );
+
+        expect(result.warnings).toEqual([
+          { warning: 'insufficient_stock', itemId: item.id },
+        ]);
+        expect(balance()).toBe('-2');
+        expect(repository.items.get(item.id)!.needsAdjustment).toBe(true);
+      });
+
+      it('writes nothing when the quantity did not change', async () => {
+        const result = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          {
+            quantity: 3,
+          },
+        );
+
+        expect(result.movement.id).toBe(supplyId);
+        expect(result.reversal).toBeNull();
+        expect(repository.movements).toHaveLength(1);
+      });
+
+      it('refuses (409) a movement that was already reversed', async () => {
+        await service.editItem(appointment.id, supplyId, USER_ID, {
+          quantity: 5,
+        });
+
+        await expect(
+          service.editItem(appointment.id, supplyId, USER_ID, { quantity: 6 }),
+        ).rejects.toMatchObject({
+          code: 'STOCK_MOVEMENT_ALREADY_REVERSED',
+          details: { id: supplyId },
+        });
+        expect(repository.movements).toHaveLength(3);
+      });
+
+      it('answers a resent edit (same clientGeneratedId) with the movement it created', async () => {
+        const dto = { quantity: 5, clientGeneratedId: randomUUID() };
+        const first = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          dto,
+        );
+        const again = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          dto,
+        );
+
+        expect(again.movement).toEqual(first.movement);
+        expect(again.reversal).toEqual(first.reversal);
+        expect(repository.movements).toHaveLength(3);
+        expect(balance()).toBe('5');
+      });
+
+      it('rejects (409) a clientGeneratedId already used for something else', async () => {
+        const clientGeneratedId = randomUUID();
+        await service.editItem(appointment.id, supplyId, USER_ID, {
+          quantity: 5,
+          clientGeneratedId,
+        });
+
+        await expect(
+          service.editItem(appointment.id, supplyId, USER_ID, {
+            quantity: 6,
+            clientGeneratedId,
+          }),
+        ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_CLIENT_ID_CONFLICT' });
+      });
+
+      it('answers with the winner when a concurrent copy of the edit reversed it first', async () => {
+        const dto = { quantity: 5, clientGeneratedId: randomUUID() };
+        const stale = await repository.findMovement(supplyId, USER_ID);
+        const winner = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          dto,
+        );
+        jest.spyOn(repository, 'findMovement').mockResolvedValueOnce(stale);
+        jest
+          .spyOn(repository, 'findMovementsByClientGeneratedIds')
+          .mockResolvedValueOnce([]);
+
+        const loser = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          dto,
+        );
+
+        expect(loser.movement).toEqual(winner.movement);
+        expect(repository.movements).toHaveLength(3);
+        expect(balance()).toBe('5');
+      });
+
+      it('rejects (409) a canceled appointment and writes nothing', async () => {
+        repository.seed({ ...appointment, status: 'CANCELED' });
+
+        await expect(
+          service.editItem(appointment.id, supplyId, USER_ID, { quantity: 5 }),
+        ).rejects.toMatchObject({ code: 'APPOINTMENT_CANCELED' });
+        expect(repository.movements).toHaveLength(1);
+      });
+
+      it('rejects (409) when the appointment is canceled after it was read', async () => {
+        const findById = repository.findById.bind(repository);
+        jest
+          .spyOn(repository, 'findById')
+          .mockImplementationOnce(async (id, userId) => {
+            const row = await findById(id, userId);
+            repository.seed({ ...appointment, status: 'CANCELED' });
+            return row;
+          });
+
+        await expect(
+          service.editItem(appointment.id, supplyId, USER_ID, { quantity: 5 }),
+        ).rejects.toMatchObject({ code: 'APPOINTMENT_CANCELED' });
+        expect(repository.movements).toHaveLength(1);
+      });
+
+      it('rejects an invalid quantity', async () => {
+        await expect(
+          service.editItem(appointment.id, supplyId, USER_ID, { quantity: 0 }),
+        ).rejects.toMatchObject({ code: 'STOCK_QUANTITY_INVALID' });
+      });
+    });
+
+    describe('removeItem', () => {
+      it('reverses the supply and gives the stock back to the item and lot', async () => {
+        const result = await service.removeItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+        );
+
+        expect(result.appointmentId).toBe(appointment.id);
+        expect(result.reversal).toMatchObject({
+          type: 'INBOUND',
+          source: 'CORRECTION_REVERSAL',
+          reversedMovementId: supplyId,
+          occurredAt: appointment.startsAt,
+        });
+        expect(balance()).toBe('10');
+        expect(lot.currentQuantity.toString()).toBe('10');
+      });
+
+      it('is idempotent: removing again answers with the same reversal', async () => {
+        const first = await service.removeItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+        );
+        const again = await service.removeItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+        );
+
+        expect(again.reversal).toEqual(first.reversal);
+        expect(repository.movements).toHaveLength(2);
+        expect(balance()).toBe('10');
+      });
+
+      it('answers with the winner when a concurrent removal reversed it first', async () => {
+        const stale = await repository.findMovement(supplyId, USER_ID);
+        const winner = await service.removeItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+        );
+        jest.spyOn(repository, 'findMovement').mockResolvedValueOnce(stale);
+
+        const loser = await service.removeItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+        );
+
+        expect(loser.reversal).toEqual(winner.reversal);
+        expect(repository.movements).toHaveLength(2);
+      });
+
+      it('rejects (409) a canceled appointment and writes nothing', async () => {
+        repository.seed({ ...appointment, status: 'CANCELED' });
+
+        await expect(
+          service.removeItem(appointment.id, supplyId, USER_ID),
+        ).rejects.toMatchObject({ code: 'APPOINTMENT_CANCELED' });
+        expect(repository.movements).toHaveLength(1);
+      });
+    });
+
+    describe('what counts as a supply of this appointment', () => {
+      it.each(['editItem', 'removeItem'] as const)(
+        '%s answers 404 for a movement of another appointment',
+        async method => {
+          const other = buildAppointment();
+          repository.seed(other);
+
+          await expect(
+            method === 'editItem'
+              ? service.editItem(other.id, supplyId, USER_ID, { quantity: 1 })
+              : service.removeItem(other.id, supplyId, USER_ID),
+          ).rejects.toMatchObject({
+            code: 'STOCK_MOVEMENT_NOT_FOUND',
+            details: { id: supplyId },
+          });
+        },
+      );
+
+      it.each(['editItem', 'removeItem'] as const)(
+        '%s answers 404 for a reversal, which is not a supply',
+        async method => {
+          const { reversal } = await service.removeItem(
+            appointment.id,
+            supplyId,
+            USER_ID,
+          );
+
+          await expect(
+            method === 'editItem'
+              ? service.editItem(appointment.id, reversal.id, USER_ID, {
+                  quantity: 1,
+                })
+              : service.removeItem(appointment.id, reversal.id, USER_ID),
+          ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_NOT_FOUND' });
+        },
+      );
+
+      it.each(['editItem', 'removeItem'] as const)(
+        '%s answers 404 for another account, appointment or movement (ADR-11)',
+        async method => {
+          await expect(
+            method === 'editItem'
+              ? service.editItem(appointment.id, supplyId, OTHER_USER_ID, {
+                  quantity: 1,
+                })
+              : service.removeItem(appointment.id, supplyId, OTHER_USER_ID),
+          ).rejects.toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+          expect(repository.movements).toHaveLength(1);
+        },
+      );
     });
   });
 });
