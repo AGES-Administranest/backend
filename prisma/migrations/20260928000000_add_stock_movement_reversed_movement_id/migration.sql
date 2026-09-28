@@ -6,13 +6,13 @@ ADD COLUMN "replaced_movement_id" UUID;
 -- only in notes ("Reversal of stock movement <id>"). Should two of them name
 -- the same original, only one is linked, so the unique index below holds.
 UPDATE "stock_movement" AS "reversal"
-SET "reversed_movement_id" = substring("reversal"."notes" FROM '^Reversal of stock movement ([0-9a-f-]{36})$')::UUID
+SET "reversed_movement_id" = substring("reversal"."notes" FROM '^Reversal of stock movement ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$')::UUID
 WHERE "reversal"."source" = 'CORRECTION_REVERSAL'
-  AND "reversal"."notes" ~ '^Reversal of stock movement [0-9a-f-]{36}$'
+  AND "reversal"."notes" ~ '^Reversal of stock movement [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   AND EXISTS (
     SELECT 1
     FROM "stock_movement" AS "original"
-    WHERE "original"."id" = substring("reversal"."notes" FROM '^Reversal of stock movement ([0-9a-f-]{36})$')::UUID
+    WHERE "original"."id" = substring("reversal"."notes" FROM '^Reversal of stock movement ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$')::UUID
   )
   AND NOT EXISTS (
     SELECT 1
