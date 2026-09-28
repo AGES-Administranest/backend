@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -29,6 +30,15 @@ export class AppointmentItemUsageDto {
   @IsNumber({ maxDecimalPlaces: 3 })
   @IsPositive()
   quantity!: number;
+
+  @ApiPropertyOptional({
+    example: '2026-09-25T13:05:00.000Z',
+    description:
+      'When the item was actually consumed. Lets an offline client preserve the real consumption time instead of the sync time; defaults to the appointment `startsAt` when omitted.',
+  })
+  @IsOptional()
+  @IsDateString()
+  occurredAt?: string;
 }
 
 // No `userId`: the owner comes from the token, never from the request (ADR-11).

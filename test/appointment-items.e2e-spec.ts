@@ -130,6 +130,25 @@ describe('POST /appointments/:id/items (e2e)', () => {
     expect(lot.currentQuantity.toString()).toBe('7');
   });
 
+  it('persists the client-supplied occurredAt instead of the appointment startsAt', async () => {
+    const appointmentId = await createAppointment(ana);
+    const { itemId } = await createItemWithLot(ana, 10, 12.5);
+    const occurredAt = '2026-09-24T10:15:00.000Z';
+
+    const response = await request(http)
+      .post(`/appointments/${appointmentId}/items`)
+      .set('Authorization', bearer(ana))
+      .send({ items: [{ itemId, quantity: 3, occurredAt }] })
+      .expect(201);
+
+    expect(body(response).movements[0]).toMatchObject({ occurredAt });
+
+    const movement = await prisma.stockMovement.findFirstOrThrow({
+      where: { appointmentId },
+    });
+    expect(movement.occurredAt.toISOString()).toBe(occurredAt);
+  });
+
   it('does not block on insufficient stock: goes negative, flags the item and warns', async () => {
     const appointmentId = await createAppointment(ana);
     const { itemId } = await createItemWithLot(ana, 2, 5);

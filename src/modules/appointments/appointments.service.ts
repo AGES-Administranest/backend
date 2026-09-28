@@ -345,8 +345,11 @@ export class AppointmentsService {
 
   /**
    * US06: records the supplies used in an appointment as stock consumption.
-   * Each line becomes an OUTBOUND movement with source APPOINTMENT, dated at
-   * the appointment's `startsAt`, costed at the item's current lot.
+   * Each line becomes an OUTBOUND movement with source APPOINTMENT, costed at
+   * the item's current lot. Dated at the line's own `occurredAt` when the
+   * client sends one — so an offline client can preserve the real moment of
+   * consumption instead of the sync time — falling back to the appointment's
+   * `startsAt` otherwise.
    *
    * Insufficient stock does not block the registration — the movement is
    * recorded anyway and the item goes negative, to be reconciled later by a
@@ -397,7 +400,7 @@ export class AppointmentsService {
     const itemsById = new Map(items.map(item => [item.id, item]));
 
     const usages = pending.map(line =>
-      this.toUsage(line, itemsById.get(line.itemId)),
+      this.toUsage(line, itemsById.get(line.itemId), appointment.startsAt),
     );
 
     // Checked only when there is something new to record: a pure replay still
@@ -410,7 +413,6 @@ export class AppointmentsService {
       const result = await this.appointmentsRepository.recordItemUsage(
         userId,
         appointment.id,
-        appointment.startsAt,
         usages,
       );
       if (!result) throw await this.appointmentClosed(appointment.id, userId);
@@ -450,8 +452,9 @@ export class AppointmentsService {
   /**
    * The lines of this request already recorded by an earlier one, keyed by
    * `clientGeneratedId`. A key reused for anything but the very same line —
-   * another appointment, item or quantity, or twice in this request — is a
-   * client bug, and answering with the old movement would hide it.
+   * another appointment, item, quantity or `occurredAt`, or twice in this
+   * request — is a client bug, and answering with the old movement would
+   * hide it.
    */
   private async findReplayedLines(
     appointmentId: string,
@@ -474,11 +477,15 @@ export class AppointmentsService {
     for (const movement of earlier) {
       const key = movement.clientGeneratedId!;
       const line = lines.find(l => l.clientGeneratedId === key)!;
+      const sameOccurredAt =
+        !line.occurredAt ||
+        movement.occurredAt.getTime() === new Date(line.occurredAt).getTime();
       const sameLine =
         movement.source === StockMovementSource.APPOINTMENT &&
         movement.appointmentId === appointmentId &&
         movement.itemId === line.itemId &&
-        movement.quantity.equals(line.quantity);
+        movement.quantity.equals(line.quantity) &&
+        sameOccurredAt;
       if (!sameLine) throw this.clientIdConflict(key);
       replayed.set(key, movement);
     }
@@ -488,6 +495,7 @@ export class AppointmentsService {
   private toUsage(
     line: AppointmentItemUsageDto,
     item: ItemWithLots | undefined,
+    fallbackOccurredAt: Date,
   ): ItemUsage {
     // An item of another account is indistinguishable from a missing one
     // (ADR-11): answering anything but 404 would confirm the id exists.
@@ -509,6 +517,9 @@ export class AppointmentsService {
       lotId: lot?.id ?? null,
       quantity: new Prisma.Decimal(line.quantity),
       unitCost,
+      occurredAt: line.occurredAt
+        ? new Date(line.occurredAt)
+        : fallbackOccurredAt,
     };
   }
 
