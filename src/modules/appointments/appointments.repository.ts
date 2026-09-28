@@ -411,6 +411,11 @@ export class AppointmentsRepository {
    *
    * Only inserts into `stock_movement` — an existing movement is never edited.
    *
+   * TODO(#21): this is a second write path into the ledger. Once
+   * `StockMovementsService.recordBatch` (PR #21) lands, route these movements
+   * through it so the balance recomputation, the minimum-stock check (US11)
+   * and the `needsAdjustment` rule live in a single place.
+   *
    * Returns null, writing nothing, when this user has no live appointment with
    * this id that can still take supplies: it was deleted or canceled after the
    * service read it. The row is held FOR SHARE until commit, so a concurrent
