@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
@@ -169,6 +170,73 @@ describe('POST /appointments/:id/items (e2e)', () => {
     expect(movements[0].quantity.toString()).toBe('1');
   });
 
+  it('deducts once when the app resends a line with the same clientGeneratedId (ADR-08/09)', async () => {
+    const appointmentId = await createAppointment(ana);
+    const { itemId } = await createItemWithLot(ana, 10, 5);
+    const payload = {
+      items: [{ clientGeneratedId: randomUUID(), itemId, quantity: 3 }],
+    };
+    const send = () =>
+      request(http)
+        .post(`/appointments/${appointmentId}/items`)
+        .set('Authorization', bearer(ana))
+        .send(payload)
+        .expect(201);
+
+    const first = body(await send()).movements as { id: string }[];
+    const second = body(await send()).movements as { id: string }[];
+
+    expect(second[0].id).toBe(first[0].id);
+    expect(await prisma.stockMovement.count({ where: { appointmentId } })).toBe(
+      1,
+    );
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.currentQuantity.toString()).toBe('7');
+  });
+
+  it('deducts once when two copies of the same request race', async () => {
+    const appointmentId = await createAppointment(ana);
+    const { itemId } = await createItemWithLot(ana, 10, 5);
+    const payload = {
+      items: [{ clientGeneratedId: randomUUID(), itemId, quantity: 3 }],
+    };
+    const send = () =>
+      request(http)
+        .post(`/appointments/${appointmentId}/items`)
+        .set('Authorization', bearer(ana))
+        .send(payload);
+
+    const responses = await Promise.all([send(), send(), send()]);
+
+    expect(responses.map(response => response.status)).toEqual([201, 201, 201]);
+    expect(await prisma.stockMovement.count({ where: { appointmentId } })).toBe(
+      1,
+    );
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.currentQuantity.toString()).toBe('7');
+  });
+
+  it('rejects a clientGeneratedId reused for a different line with 409', async () => {
+    const appointmentId = await createAppointment(ana);
+    const { itemId } = await createItemWithLot(ana, 10, 5);
+    const clientGeneratedId = randomUUID();
+    const send = (quantity: number) =>
+      request(http)
+        .post(`/appointments/${appointmentId}/items`)
+        .set('Authorization', bearer(ana))
+        .send({ items: [{ clientGeneratedId, itemId, quantity }] });
+
+    await send(1).expect(201);
+    await send(2)
+      .expect(409)
+      .expect(res =>
+        expect(body(res).code).toBe('STOCK_MOVEMENT_CLIENT_ID_CONFLICT'),
+      );
+    expect(await prisma.stockMovement.count({ where: { appointmentId } })).toBe(
+      1,
+    );
+  });
+
   it('is all-or-nothing: an unknown item rolls back the whole request', async () => {
     const appointmentId = await createAppointment(ana);
     const { itemId } = await createItemWithLot(ana, 10, 5);
@@ -220,6 +288,10 @@ describe('POST /appointments/:id/items (e2e)', () => {
     ['a zero quantity', { items: [{ itemId: 'x', quantity: 0 }] }],
     ['a negative quantity', { items: [{ itemId: 'x', quantity: -1 }] }],
     ['a userId in the body', { items: [], userId: 'someone' }],
+    [
+      'a clientGeneratedId that is not a UUID',
+      { items: [{ clientGeneratedId: 'x', itemId: 'x', quantity: 1 }] },
+    ],
   ])('rejects %s with 400', async (_label, payload) => {
     const appointmentId = await createAppointment(ana);
 

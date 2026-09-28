@@ -51,6 +51,9 @@ export const ERROR_CODES = [
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
+  // The clientGeneratedId was already used for a different movement (another
+  // appointment, item or quantity): a retry must resend the same line.
+  'STOCK_MOVEMENT_CLIENT_ID_CONFLICT',
 
   // appointments
   'APPOINTMENT_NOT_FOUND',

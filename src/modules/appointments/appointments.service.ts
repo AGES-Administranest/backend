@@ -41,6 +41,7 @@ import {
 import {
   InvalidReferenceError,
   RecordNotFoundError,
+  UniqueConstraintError,
 } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 import { FinancialEntryEntity } from '../financial';
@@ -309,8 +310,30 @@ export class AppointmentsService {
    * Insufficient stock does not block the registration — the movement is
    * recorded anyway and the item goes negative, to be reconciled later by a
    * manual adjustment (US12). The caller is told through `warnings`.
+   *
+   * Idempotent per line (ADR-08/09): a line whose `clientGeneratedId` was
+   * already recorded answers with that movement and deducts nothing again, so
+   * the app can resend a request whose response it never received.
    */
-  async registerItems(
+  registerItems(
+    appointmentId: string,
+    userId: string,
+    dto: RegisterAppointmentItemsDto,
+  ): Promise<RegisterAppointmentItemsResultEntity> {
+    return this.registerItemsOnce(appointmentId, userId, dto).catch(
+      (error: unknown) => {
+        // Two copies of the same retry raced past the replay lookup: the
+        // loser's transaction rolled back on the (user, clientGeneratedId)
+        // key, and running it again now finds the winner's movements.
+        if (error instanceof UniqueConstraintError) {
+          return this.registerItemsOnce(appointmentId, userId, dto);
+        }
+        throw error;
+      },
+    );
+  }
+
+  private async registerItemsOnce(
     appointmentId: string,
     userId: string,
     dto: RegisterAppointmentItemsDto,
@@ -321,6 +344,15 @@ export class AppointmentsService {
     );
     if (!appointment) throw this.notFound(appointmentId);
 
+    const replayed = await this.findReplayedLines(
+      appointment.id,
+      userId,
+      dto.items,
+    );
+    const pending = dto.items.filter(
+      line => !replayed.has(line.clientGeneratedId ?? ''),
+    );
+
     const itemIds = [...new Set(dto.items.map(line => line.itemId))];
     const items = await this.appointmentsRepository.findItemsWithLots(
       itemIds,
@@ -328,33 +360,86 @@ export class AppointmentsService {
     );
     const itemsById = new Map(items.map(item => [item.id, item]));
 
-    const usages = dto.items.map(line =>
+    const usages = pending.map(line =>
       this.toUsage(line, itemsById.get(line.itemId)),
     );
 
-    const recorded = await this.appointmentsRepository.recordItemUsage(
-      userId,
-      appointment.id,
-      appointment.startsAt,
-      usages,
-    );
+    const recorded =
+      usages.length > 0
+        ? await this.appointmentsRepository.recordItemUsage(
+            userId,
+            appointment.id,
+            appointment.startsAt,
+            usages,
+          )
+        : [];
 
-    const warnings: InsufficientStockWarningEntity[] = [];
+    // The last balance seen for each item: after this request's movements
+    // when it recorded any, otherwise the current cache (a pure replay).
+    const balances = new Map(
+      items.map(item => [item.id, item.currentQuantity]),
+    );
     for (const { movement, itemBalance } of recorded) {
-      const alreadyWarned = warnings.some(w => w.itemId === movement.itemId);
-      if (balanceRequiresAdjustment(itemBalance) && !alreadyWarned) {
-        warnings.push({
-          warning: 'insufficient_stock',
-          itemId: movement.itemId,
-        });
-      }
+      balances.set(movement.itemId, itemBalance);
     }
+    const warnings: InsufficientStockWarningEntity[] = itemIds
+      .filter(itemId => {
+        const balance = balances.get(itemId);
+        return balance !== undefined && balanceRequiresAdjustment(balance);
+      })
+      .map(itemId => ({ warning: 'insufficient_stock', itemId }));
+
+    // `recorded` follows `pending`, which is `dto.items` minus the replays.
+    const fresh = recorded.map(({ movement }) => movement).values();
+    const movements = dto.items.map(
+      line =>
+        replayed.get(line.clientGeneratedId ?? '') ??
+        (fresh.next().value as StockMovement),
+    );
 
     return {
       appointmentId: appointment.id,
-      movements: recorded.map(({ movement }) => this.toMovement(movement)),
+      movements: movements.map(movement => this.toMovement(movement)),
       warnings,
     };
+  }
+
+  /**
+   * The lines of this request already recorded by an earlier one, keyed by
+   * `clientGeneratedId`. A key reused for anything but the very same line —
+   * another appointment, item or quantity, or twice in this request — is a
+   * client bug, and answering with the old movement would hide it.
+   */
+  private async findReplayedLines(
+    appointmentId: string,
+    userId: string,
+    lines: readonly AppointmentItemUsageDto[],
+  ): Promise<Map<string, StockMovement>> {
+    const keys = lines.flatMap(line =>
+      line.clientGeneratedId ? [line.clientGeneratedId] : [],
+    );
+    const duplicated = keys.find((key, index) => keys.indexOf(key) !== index);
+    if (duplicated) throw this.clientIdConflict(duplicated);
+    if (keys.length === 0) return new Map();
+
+    const earlier =
+      await this.appointmentsRepository.findMovementsByClientGeneratedIds(
+        keys,
+        userId,
+      );
+    const replayed = new Map<string, StockMovement>();
+    for (const movement of earlier) {
+      const key = movement.clientGeneratedId!;
+      const line = lines.find(l => l.clientGeneratedId === key)!;
+      const sameLine =
+        movement.source === StockMovementSource.APPOINTMENT &&
+        movement.appointmentId === appointmentId &&
+        movement.itemId === line.itemId &&
+        movement.quantity.equals(line.quantity);
+      if (!sameLine) throw this.clientIdConflict(key);
+      replayed.set(key, movement);
+    }
+    return replayed;
   }
 
   private toUsage(
@@ -376,6 +461,7 @@ export class AppointmentsService {
     if (!unitCost) throw this.unitCostUnknown(item.id);
 
     return {
+      clientGeneratedId: line.clientGeneratedId ?? null,
       itemId: item.id,
       lotId: lot?.id ?? null,
       quantity: new Prisma.Decimal(line.quantity),
@@ -386,6 +472,7 @@ export class AppointmentsService {
   private toMovement(movement: StockMovement): AppointmentItemMovementEntity {
     return {
       id: movement.id,
+      clientGeneratedId: movement.clientGeneratedId,
       itemId: movement.itemId,
       lotId: movement.lotId,
       type: movement.type,
@@ -492,6 +579,15 @@ export class AppointmentsService {
       'ITEM_NOT_FOUND',
       `Item ${id} not found`,
       { id },
+    );
+  }
+
+  private clientIdConflict(clientGeneratedId: string): DomainError {
+    return new DomainError(
+      'CONFLICT',
+      'STOCK_MOVEMENT_CLIENT_ID_CONFLICT',
+      'This clientGeneratedId was already used for a different line',
+      { clientGeneratedId },
     );
   }
 

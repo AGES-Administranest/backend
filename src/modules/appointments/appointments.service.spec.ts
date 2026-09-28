@@ -14,6 +14,7 @@ import {
   RecordedItemUsage,
 } from './appointments.repository';
 import { AppointmentsService } from './appointments.service';
+import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 const USER_ID = 'user-1';
@@ -90,6 +91,8 @@ class FakeAppointmentsRepository {
   private readonly rows = new Map<string, Appointment>();
   readonly items = new Map<string, ItemWithLots>();
   readonly movements: StockMovement[] = [];
+  /** Simulates a concurrent copy of the request: the next replay lookup misses. */
+  missNextReplayLookup = false;
 
   seedItem(item: Item, lots: ItemLot[] = []): ItemWithLots {
     const row = { ...item, lots };
@@ -111,17 +114,53 @@ class FakeAppointmentsRepository {
     );
   }
 
+  findMovementsByClientGeneratedIds(
+    clientGeneratedIds: readonly string[],
+    userId: string,
+  ): Promise<StockMovement[]> {
+    if (this.missNextReplayLookup) {
+      this.missNextReplayLookup = false;
+      return Promise.resolve([]);
+    }
+    return Promise.resolve(
+      this.movements.filter(
+        movement =>
+          movement.userId === userId &&
+          movement.clientGeneratedId !== null &&
+          clientGeneratedIds.includes(movement.clientGeneratedId),
+      ),
+    );
+  }
+
   recordItemUsage(
     userId: string,
     appointmentId: string,
     occurredAt: Date,
     usages: readonly ItemUsage[],
   ): Promise<RecordedItemUsage[]> {
+    // The (user_id, client_generated_id) unique key rolls the whole
+    // transaction back before anything is applied.
+    const taken = usages.some(
+      usage =>
+        usage.clientGeneratedId !== null &&
+        this.movements.some(
+          movement =>
+            movement.userId === userId &&
+            movement.clientGeneratedId === usage.clientGeneratedId,
+        ),
+    );
+    if (taken) {
+      return Promise.reject(
+        new UniqueConstraintError(['userId', 'clientGeneratedId']),
+      );
+    }
+
     return Promise.resolve(
       usages.map(usage => {
         const movement: StockMovement = {
           id: randomUUID(),
           userId,
+          clientGeneratedId: usage.clientGeneratedId,
           itemId: usage.itemId,
           lotId: usage.lotId,
           type: 'OUTBOUND',
@@ -600,5 +639,150 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
         ).toBe('10');
       },
     );
+
+    describe('idempotency (ADR-08/09)', () => {
+      let item: Item;
+
+      beforeEach(() => {
+        item = buildItem({ currentQuantity: new Prisma.Decimal(10) });
+        repository.seedItem(item, [buildLot(item.id)]);
+      });
+
+      it('answers a resent line with the movement already recorded and deducts nothing again', async () => {
+        const clientGeneratedId = randomUUID();
+        const send = () =>
+          service.registerItems(appointment.id, USER_ID, {
+            items: [{ clientGeneratedId, itemId: item.id, quantity: 3 }],
+          });
+
+        const first = await send();
+        const second = await send();
+
+        expect(repository.movements).toHaveLength(1);
+        expect(second.movements).toEqual(first.movements);
+        expect(second.movements[0].clientGeneratedId).toBe(clientGeneratedId);
+        expect(repository.items.get(item.id)!.currentQuantity.toString()).toBe(
+          '7',
+        );
+      });
+
+      it('records only the new lines of a partially resent request, keeping the request order', async () => {
+        const replayedKey = randomUUID();
+        const newKey = randomUUID();
+        await service.registerItems(appointment.id, USER_ID, {
+          items: [
+            { clientGeneratedId: replayedKey, itemId: item.id, quantity: 1 },
+          ],
+        });
+
+        const result = await service.registerItems(appointment.id, USER_ID, {
+          items: [
+            { clientGeneratedId: newKey, itemId: item.id, quantity: 2 },
+            { clientGeneratedId: replayedKey, itemId: item.id, quantity: 1 },
+          ],
+        });
+
+        expect(result.movements.map(m => m.clientGeneratedId)).toEqual([
+          newKey,
+          replayedKey,
+        ]);
+        expect(repository.movements).toHaveLength(2);
+        expect(repository.items.get(item.id)!.currentQuantity.toString()).toBe(
+          '7',
+        );
+      });
+
+      it('still warns on a pure replay when the item is negative', async () => {
+        const clientGeneratedId = randomUUID();
+        const send = () =>
+          service.registerItems(appointment.id, USER_ID, {
+            items: [{ clientGeneratedId, itemId: item.id, quantity: 12 }],
+          });
+
+        await send();
+        const replay = await send();
+
+        expect(replay.warnings).toEqual([
+          { warning: 'insufficient_stock', itemId: item.id },
+        ]);
+      });
+
+      it.each([
+        ['another quantity', { quantity: 4 }],
+        ['another item', { itemId: 'other' }],
+      ])(
+        'rejects a key already used with %s (409) and records nothing',
+        async (_label, change) => {
+          const other = buildItem({ id: 'other' });
+          repository.seedItem(other, [buildLot(other.id)]);
+          const clientGeneratedId = randomUUID();
+          await service.registerItems(appointment.id, USER_ID, {
+            items: [{ clientGeneratedId, itemId: item.id, quantity: 3 }],
+          });
+
+          await expect(
+            service.registerItems(appointment.id, USER_ID, {
+              items: [
+                { clientGeneratedId, itemId: item.id, quantity: 3, ...change },
+              ],
+            }),
+          ).rejects.toMatchObject({
+            code: 'STOCK_MOVEMENT_CLIENT_ID_CONFLICT',
+            details: { clientGeneratedId },
+          });
+          expect(repository.movements).toHaveLength(1);
+        },
+      );
+
+      it('rejects a key already used on another appointment (409)', async () => {
+        const otherAppointment = buildAppointment();
+        repository.seed(otherAppointment);
+        const clientGeneratedId = randomUUID();
+        await service.registerItems(otherAppointment.id, USER_ID, {
+          items: [{ clientGeneratedId, itemId: item.id, quantity: 1 }],
+        });
+
+        await expect(
+          service.registerItems(appointment.id, USER_ID, {
+            items: [{ clientGeneratedId, itemId: item.id, quantity: 1 }],
+          }),
+        ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_CLIENT_ID_CONFLICT' });
+      });
+
+      it('rejects the same key twice in one request (409) and records nothing', async () => {
+        const clientGeneratedId = randomUUID();
+
+        await expect(
+          service.registerItems(appointment.id, USER_ID, {
+            items: [
+              { clientGeneratedId, itemId: item.id, quantity: 1 },
+              { clientGeneratedId, itemId: item.id, quantity: 1 },
+            ],
+          }),
+        ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_CLIENT_ID_CONFLICT' });
+        expect(repository.movements).toHaveLength(0);
+      });
+
+      it('answers with the winner when a concurrent copy of the request recorded it first', async () => {
+        const clientGeneratedId = randomUUID();
+        const dto = {
+          items: [{ clientGeneratedId, itemId: item.id, quantity: 3 }],
+        };
+        const winner = await service.registerItems(
+          appointment.id,
+          USER_ID,
+          dto,
+        );
+        repository.missNextReplayLookup = true;
+
+        const loser = await service.registerItems(appointment.id, USER_ID, dto);
+
+        expect(loser.movements).toEqual(winner.movements);
+        expect(repository.movements).toHaveLength(1);
+        expect(repository.items.get(item.id)!.currentQuantity.toString()).toBe(
+          '7',
+        );
+      });
+    });
   });
 });

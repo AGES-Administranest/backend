@@ -25,6 +25,7 @@ import { balanceRequiresAdjustment, reversalType } from '../stock-movements';
 export type ItemWithLots = Item & { lots: ItemLot[] };
 
 export interface ItemUsage {
+  clientGeneratedId: string | null;
   itemId: string;
   lotId: string | null;
   quantity: Prisma.Decimal;
@@ -374,6 +375,18 @@ export class AppointmentsRepository {
     await tx.financialEntry.create({ data: { ...data, userId } });
   }
 
+  /** Movements of this user already recorded under any of these keys. */
+  findMovementsByClientGeneratedIds(
+    clientGeneratedIds: readonly string[],
+    userId: string,
+  ): Promise<StockMovement[]> {
+    return runQuery(() =>
+      this.prisma.stockMovement.findMany({
+        where: { userId, clientGeneratedId: { in: [...clientGeneratedIds] } },
+      }),
+    );
+  }
+
   findItemsWithLots(
     itemIds: readonly string[],
     userId: string,
@@ -411,6 +424,7 @@ export class AppointmentsRepository {
           const movement = await tx.stockMovement.create({
             data: {
               userId,
+              clientGeneratedId: usage.clientGeneratedId,
               itemId: usage.itemId,
               lotId: usage.lotId,
               appointmentId,

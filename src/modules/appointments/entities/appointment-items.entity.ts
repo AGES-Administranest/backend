@@ -4,6 +4,9 @@ import { Prisma, StockMovementSource, StockMovementType } from '@prisma/client';
 export class AppointmentItemMovementEntity {
   id!: string;
 
+  @ApiProperty({ type: String, format: 'uuid', nullable: true })
+  clientGeneratedId!: string | null;
+
   itemId!: string;
 
   @ApiProperty({ type: String, nullable: true })
