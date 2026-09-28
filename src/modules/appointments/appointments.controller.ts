@@ -25,6 +25,7 @@ import {
 import type { Response } from 'express';
 
 import { AppointmentsService } from './appointments.service';
+import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { CheckConflictQueryDto } from './dto/check-conflict-query.dto';
 import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -181,6 +182,23 @@ export class AppointmentsController {
     @Body() dto: CompleteAppointmentDto,
   ) {
     return this.appointmentsService.complete(id, user.id, dto);
+  }
+
+  @Patch(':id/cancel')
+  @ApiOperation({
+    summary: 'Mark a scheduled appointment as not performed',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: AppointmentEntity })
+  @ApiBadRequestResponse({ description: 'Invalid payload' })
+  @ApiNotFoundResponse({ description: 'Appointment not found' })
+  @ApiConflictResponse({ description: 'Appointment is not SCHEDULED' })
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelAppointmentDto,
+  ) {
+    return this.appointmentsService.cancel(id, user.id, dto);
   }
 
   @Delete(':id')

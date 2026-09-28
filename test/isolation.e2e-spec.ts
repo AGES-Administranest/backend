@@ -321,6 +321,29 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       expect(stored.amount).toBeNull();
       expect(await prisma.financialEntry.count()).toBe(0);
     });
+
+    it('refuses to cancel another account appointment, and posts no revenue', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}/cancel`)
+        .set('Authorization', bearer(bruno))
+        .send({ reason: 'Patient did not attend' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.status).toBe('SCHEDULED');
+      expect(stored.notes).toBeNull();
+      expect(await prisma.financialEntry.count()).toBe(0);
+    });
   });
 
   describe('users', () => {

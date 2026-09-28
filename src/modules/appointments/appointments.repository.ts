@@ -255,6 +255,29 @@ export class AppointmentsRepository {
     );
   }
 
+  cancel(
+    id: string,
+    userId: string,
+    notes: string,
+  ): Promise<Appointment | null> {
+    return runQuery(async () => {
+      const { count } = await this.prisma.appointment.updateMany({
+        where: {
+          id,
+          userId,
+          status: AppointmentStatus.SCHEDULED,
+          deletedAt: null,
+        },
+        data: { status: AppointmentStatus.CANCELED, notes },
+      });
+      if (count === 0) return null;
+
+      return this.prisma.appointment.findFirst({
+        where: { id, userId, deletedAt: null },
+      });
+    });
+  }
+
   delete(id: string, userId: string): Promise<Appointment | null> {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
