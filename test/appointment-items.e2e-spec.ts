@@ -274,6 +274,39 @@ describe('POST /appointments/:id/items (e2e)', () => {
       .expect(201);
   });
 
+  it('deleting the appointment reverses its supplies, each linked to its original', async () => {
+    const appointmentId = await createAppointment(ana);
+    const { itemId, lotId } = await createItemWithLot(ana, 10, 5);
+    const registered = await request(http)
+      .post(`/appointments/${appointmentId}/items`)
+      .set('Authorization', bearer(ana))
+      .send({ items: [{ itemId, quantity: 3 }] })
+      .expect(201);
+    const [supply] = body(registered).movements as { id: string }[];
+
+    await request(http)
+      .delete(`/appointments/${appointmentId}`)
+      .set('Authorization', bearer(ana))
+      .expect(200);
+
+    const reversal = await prisma.stockMovement.findUniqueOrThrow({
+      where: { reversedMovementId: supply.id },
+    });
+    expect(reversal).toMatchObject({
+      type: 'INBOUND',
+      source: 'CORRECTION_REVERSAL',
+      itemId,
+      lotId,
+    });
+    expect(reversal.quantity.toString()).toBe('3');
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.currentQuantity.toString()).toBe('10');
+    const lot = await prisma.itemLot.findUniqueOrThrow({
+      where: { id: lotId },
+    });
+    expect(lot.currentQuantity.toString()).toBe('10');
+  });
+
   it('is all-or-nothing: an unknown item rolls back the whole request', async () => {
     const appointmentId = await createAppointment(ana);
     const { itemId } = await createItemWithLot(ana, 10, 5);

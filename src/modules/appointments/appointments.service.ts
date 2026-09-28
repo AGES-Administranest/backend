@@ -299,7 +299,17 @@ export class AppointmentsService {
   }
 
   async remove(id: string, userId: string): Promise<AppointmentEntity> {
-    const appointment = await this.appointmentsRepository.delete(id, userId);
+    const appointment = await this.appointmentsRepository
+      .delete(id, userId)
+      .catch((error: unknown) => {
+        // A concurrent edit or removal reversed one of its supplies first, so
+        // this transaction rolled back on the unique reversed_movement_id.
+        // Running it again reverses only what is still in effect.
+        if (error instanceof UniqueConstraintError) {
+          return this.appointmentsRepository.delete(id, userId);
+        }
+        throw error;
+      });
     if (!appointment) throw this.notFound(id);
     return this.sanitize(appointment);
   }

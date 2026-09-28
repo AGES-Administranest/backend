@@ -20,7 +20,7 @@ import {
   runQuery,
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { balanceRequiresAdjustment, reversalType } from '../stock-movements';
+import { balanceRequiresAdjustment, reversalOf } from '../stock-movements';
 
 export type ItemWithLots = Item & { lots: ItemLot[] };
 
@@ -297,44 +297,24 @@ export class AppointmentsRepository {
           });
         }
 
-        const movements = await tx.stockMovement.findMany({
-          where: { appointmentId: id, deletedAt: null },
+        // Only the supplies still in effect. Reversing every linked row would
+        // also reverse the reversals written by an earlier edit or removal,
+        // and the unique reversed_movement_id would refuse a second reversal
+        // of an already reversed supply.
+        const supplies = await tx.stockMovement.findMany({
+          where: {
+            appointmentId: id,
+            source: StockMovementSource.APPOINTMENT,
+            type: StockMovementType.OUTBOUND,
+            deletedAt: null,
+            reversal: { is: null },
+          },
         });
-        for (const movement of movements) {
-          await tx.stockMovement.create({
-            data: {
-              userId,
-              itemId: movement.itemId,
-              lotId: movement.lotId,
-              type: reversalType(movement.type),
-              source: StockMovementSource.CORRECTION_REVERSAL,
-              quantity: movement.quantity,
-              unitCost: movement.unitCost,
-              occurredAt: deletedAt,
-              appointmentId: id,
-              notes: `Reversal of stock movement ${movement.id}`,
-            },
+        for (const supply of supplies) {
+          const reversal = await tx.stockMovement.create({
+            data: { userId, ...reversalOf(supply, deletedAt) },
           });
-          await tx.item.update({
-            where: { id: movement.itemId },
-            data: {
-              currentQuantity:
-                movement.type === StockMovementType.INBOUND
-                  ? { decrement: movement.quantity }
-                  : { increment: movement.quantity },
-            },
-          });
-          if (movement.lotId) {
-            await tx.itemLot.update({
-              where: { id: movement.lotId },
-              data: {
-                currentQuantity:
-                  movement.type === StockMovementType.INBOUND
-                    ? { decrement: movement.quantity }
-                    : { increment: movement.quantity },
-              },
-            });
-          }
+          await this.applyToCaches(tx, reversal);
         }
 
         return tx.appointment.update({
@@ -481,31 +461,52 @@ export class AppointmentsRepository {
             },
           });
 
-          if (usage.lotId) {
-            await tx.itemLot.update({
-              where: { id: usage.lotId },
-              data: { currentQuantity: { decrement: usage.quantity } },
-            });
-          }
-
-          const item = await tx.item.update({
-            where: { id: usage.itemId },
-            data: { currentQuantity: { decrement: usage.quantity } },
-          });
-          if (
-            balanceRequiresAdjustment(item.currentQuantity) &&
-            !item.needsAdjustment
-          ) {
-            await tx.item.update({
-              where: { id: item.id },
-              data: { needsAdjustment: true },
-            });
-          }
-
-          recorded.push({ movement, itemBalance: item.currentQuantity });
+          const itemBalance = await this.applyToCaches(tx, movement);
+          recorded.push({ movement, itemBalance });
         }
         return recorded;
       }),
     );
+  }
+
+  /**
+   * Applies a movement just written to the `currentQuantity` caches of its
+   * item and lot, with atomic increments/decrements — never a
+   * read-then-write, so concurrent movements on the same item cannot lose
+   * each other (ADR-10). A balance that ends up negative switches
+   * `needsAdjustment` on (see `docs/data-dictionary.md`).
+   *
+   * @returns the item's balance right after this movement.
+   */
+  private async applyToCaches(
+    tx: Prisma.TransactionClient,
+    movement: Pick<StockMovement, 'type' | 'itemId' | 'lotId' | 'quantity'>,
+  ): Promise<Prisma.Decimal> {
+    const change =
+      movement.type === StockMovementType.INBOUND
+        ? { increment: movement.quantity }
+        : { decrement: movement.quantity };
+
+    if (movement.lotId) {
+      await tx.itemLot.update({
+        where: { id: movement.lotId },
+        data: { currentQuantity: change },
+      });
+    }
+
+    const item = await tx.item.update({
+      where: { id: movement.itemId },
+      data: { currentQuantity: change },
+    });
+    if (
+      balanceRequiresAdjustment(item.currentQuantity) &&
+      !item.needsAdjustment
+    ) {
+      await tx.item.update({
+        where: { id: item.id },
+        data: { needsAdjustment: true },
+      });
+    }
+    return item.currentQuantity;
   }
 }
