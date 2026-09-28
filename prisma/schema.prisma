@@ -444,6 +444,8 @@ model ItemLot {
 ///     balance and/or was already seen by the user. A new movement with the
 ///     opposite sign (same item/lot/quantity) is created to cancel the effect,
 ///     preserving history. The original movement keeps deletedAt = null.
+///     The reversal points at the original through reversed_movement_id,
+///     which is unique: a movement can be reversed at most once.
 ///   - deletedAt (soft delete): used only for an error caught before any
 ///     relevant effect (e.g. an entry created and undone in the same operation,
 ///     with no report/query in between). Does not generate a reversal movement.
@@ -479,6 +481,10 @@ model StockMovement {
   purchaseInvoiceLineId String?             @map("purchase_invoice_line_id") @db.Uuid
   /// supplier of the inbound when there is no purchase invoice (e.g. source = MANUAL_PURCHASE)
   supplierId            String?             @map("supplier_id") @db.Uuid
+  /// source CORRECTION_REVERSAL: the movement this one reverses. Unique, so a
+  /// movement is reversed at most once; a movement with no reversal pointing
+  /// at it is still in effect.
+  reversedMovementId    String?             @unique @map("reversed_movement_id") @db.Uuid
   notes                 String?
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   deletedAt             DateTime?           @map("deleted_at") @db.Timestamptz(6)
@@ -490,6 +496,8 @@ model StockMovement {
   purchaseOrder       PurchaseOrder?       @relation(fields: [purchaseOrderId], references: [id])
   purchaseInvoiceLine PurchaseInvoiceLine? @relation(fields: [purchaseInvoiceLineId], references: [id])
   supplier            Supplier?            @relation(fields: [supplierId], references: [id])
+  reversedMovement    StockMovement?       @relation("StockMovementReversal", fields: [reversedMovementId], references: [id])
+  reversal            StockMovement?       @relation("StockMovementReversal")
 
   @@index([userId, occurredAt])
   @@index([itemId, occurredAt])

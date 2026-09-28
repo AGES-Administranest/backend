@@ -184,6 +184,7 @@ class FakeAppointmentsRepository {
           purchaseOrderId: null,
           purchaseInvoiceLineId: null,
           supplierId: null,
+          reversedMovementId: null,
           notes: null,
           createdAt: new Date(),
           deletedAt: null,
