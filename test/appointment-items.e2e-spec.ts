@@ -141,7 +141,9 @@ describe('POST /appointments/:id/items (e2e)', () => {
       .send({ items: [{ itemId, quantity: 3, occurredAt }] })
       .expect(201);
 
-    expect(body(response).movements[0]).toMatchObject({ occurredAt });
+    expect(body(response)).toMatchObject({
+      movements: [{ occurredAt }],
+    });
 
     const movement = await prisma.stockMovement.findFirstOrThrow({
       where: { appointmentId },
