@@ -30,7 +30,9 @@ import { CheckConflictQueryDto } from './dto/check-conflict-query.dto';
 import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
+import { RegisterAppointmentItemsDto } from './dto/register-appointment-items.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
+import { RegisterAppointmentItemsResultEntity } from './entities/appointment-items.entity';
 import {
   AppointmentEntity,
   CheckConflictResultEntity,
@@ -77,6 +79,31 @@ export class AppointmentsController {
     appointments: CreateAppointmentDto[],
   ) {
     return this.appointmentsService.sync(user.id, appointments);
+  }
+
+  @Post(':id/items')
+  @ApiOperation({
+    summary:
+      'Registers the supplies used in an appointment, deducting them from stock',
+    description:
+      'Creates one OUTBOUND stock movement per line. Insufficient stock does not block the registration: the item goes negative and the response lists it under `warnings` as `insufficient_stock`.',
+  })
+  @ApiCreatedResponse({ type: RegisterAppointmentItemsResultEntity })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid payload, or an item with no lot and no defaultUnitCost to cost it',
+  })
+  @ApiNotFoundResponse({ description: 'Appointment or item not found' })
+  @ApiConflictResponse({
+    description:
+      'The appointment is canceled, or a clientGeneratedId was already used for a different line',
+  })
+  registerItems(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RegisterAppointmentItemsDto,
+  ) {
+    return this.appointmentsService.registerItems(id, user.id, dto);
   }
 
   @Get('check-conflict')
