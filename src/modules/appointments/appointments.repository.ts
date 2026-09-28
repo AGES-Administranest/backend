@@ -410,15 +410,32 @@ export class AppointmentsRepository {
    * `needsAdjustment` is switched on (see `docs/data-dictionary.md`).
    *
    * Only inserts into `stock_movement` — an existing movement is never edited.
+   *
+   * Returns null, writing nothing, when this user has no live appointment with
+   * this id that can still take supplies: it was deleted or canceled after the
+   * service read it. The row is held FOR SHARE until commit, so a concurrent
+   * cancel waits for this registration instead of slipping in between.
    */
   recordItemUsage(
     userId: string,
     appointmentId: string,
     occurredAt: Date,
     usages: readonly ItemUsage[],
-  ): Promise<RecordedItemUsage[]> {
+  ): Promise<RecordedItemUsage[] | null> {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
+        const [appointment] = await tx.$queryRaw<
+          { status: AppointmentStatus }[]
+        >`
+          SELECT status FROM appointment
+          WHERE id = ${appointmentId}::uuid
+            AND user_id = ${userId}::uuid
+            AND deleted_at IS NULL
+          FOR SHARE`;
+        if (!appointment || appointment.status === AppointmentStatus.CANCELED) {
+          return null;
+        }
+
         const recorded: RecordedItemUsage[] = [];
         for (const usage of usages) {
           const movement = await tx.stockMovement.create({

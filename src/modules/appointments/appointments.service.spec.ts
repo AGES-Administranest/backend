@@ -137,7 +137,18 @@ class FakeAppointmentsRepository {
     appointmentId: string,
     occurredAt: Date,
     usages: readonly ItemUsage[],
-  ): Promise<RecordedItemUsage[]> {
+  ): Promise<RecordedItemUsage[] | null> {
+    // Re-read inside the transaction, as the SELECT ... FOR SHARE does.
+    const appointment = this.rows.get(appointmentId);
+    if (
+      !appointment ||
+      appointment.userId !== userId ||
+      appointment.deletedAt ||
+      appointment.status === 'CANCELED'
+    ) {
+      return Promise.resolve(null);
+    }
+
     // The (user_id, client_generated_id) unique key rolls the whole
     // transaction back before anything is applied.
     const taken = usages.some(
@@ -782,6 +793,82 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
         expect(repository.items.get(item.id)!.currentQuantity.toString()).toBe(
           '7',
         );
+      });
+    });
+
+    describe('appointment status', () => {
+      let item: Item;
+
+      beforeEach(() => {
+        item = buildItem({ currentQuantity: new Prisma.Decimal(10) });
+        repository.seedItem(item, [buildLot(item.id)]);
+      });
+
+      it('rejects a canceled appointment (409) and records nothing', async () => {
+        const canceled = buildAppointment({ status: 'CANCELED' });
+        repository.seed(canceled);
+
+        await expect(
+          service.registerItems(canceled.id, USER_ID, {
+            items: [{ itemId: item.id, quantity: 1 }],
+          }),
+        ).rejects.toMatchObject({
+          code: 'APPOINTMENT_CANCELED',
+          details: { id: canceled.id },
+        });
+        expect(repository.movements).toHaveLength(0);
+        expect(repository.items.get(item.id)!.currentQuantity.toString()).toBe(
+          '10',
+        );
+      });
+
+      it('accepts a completed appointment', async () => {
+        const completed = buildAppointment({ status: 'COMPLETED' });
+        repository.seed(completed);
+
+        const result = await service.registerItems(completed.id, USER_ID, {
+          items: [{ itemId: item.id, quantity: 1 }],
+        });
+
+        expect(result.movements).toHaveLength(1);
+      });
+
+      it('rejects (409) when the appointment is canceled after it was read', async () => {
+        const racing = buildAppointment();
+        repository.seed(racing);
+        const findById = repository.findById.bind(repository);
+        jest
+          .spyOn(repository, 'findById')
+          .mockImplementationOnce(async (id, userId) => {
+            const row = await findById(id, userId);
+            repository.seed({ ...racing, status: 'CANCELED' });
+            return row;
+          });
+
+        await expect(
+          service.registerItems(racing.id, USER_ID, {
+            items: [{ itemId: item.id, quantity: 1 }],
+          }),
+        ).rejects.toMatchObject({ code: 'APPOINTMENT_CANCELED' });
+        expect(repository.movements).toHaveLength(0);
+      });
+
+      it('still answers a pure replay after the appointment was canceled', async () => {
+        const clientGeneratedId = randomUUID();
+        const dto = {
+          items: [{ clientGeneratedId, itemId: item.id, quantity: 1 }],
+        };
+        const first = await service.registerItems(appointment.id, USER_ID, dto);
+        repository.seed({ ...appointment, status: 'CANCELED' });
+
+        const replay = await service.registerItems(
+          appointment.id,
+          USER_ID,
+          dto,
+        );
+
+        expect(replay.movements).toEqual(first.movements);
+        expect(repository.movements).toHaveLength(1);
       });
     });
   });

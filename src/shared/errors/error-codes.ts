@@ -62,6 +62,9 @@ export const ERROR_CODES = [
   // The transition needs a SCHEDULED appointment: it was already completed or
   // canceled. Shared with the /cancel endpoint (US08 subtask 2).
   'APPOINTMENT_NOT_SCHEDULED',
+  // Supplies cannot be registered on a canceled appointment: the procedure did
+  // not happen, so nothing was consumed (US06).
+  'APPOINTMENT_CANCELED',
 
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',

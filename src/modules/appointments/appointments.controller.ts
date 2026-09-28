@@ -93,6 +93,10 @@ export class AppointmentsController {
       'Invalid payload, or an item with no lot and no defaultUnitCost to cost it',
   })
   @ApiNotFoundResponse({ description: 'Appointment or item not found' })
+  @ApiConflictResponse({
+    description:
+      'The appointment is canceled, or a clientGeneratedId was already used for a different line',
+  })
   registerItems(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,

@@ -237,6 +237,43 @@ describe('POST /appointments/:id/items (e2e)', () => {
     );
   });
 
+  it('rejects a canceled appointment with 409 and deducts nothing', async () => {
+    const appointmentId = await createAppointment(ana);
+    const { itemId } = await createItemWithLot(ana, 10, 5);
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { status: 'CANCELED' },
+    });
+
+    await request(http)
+      .post(`/appointments/${appointmentId}/items`)
+      .set('Authorization', bearer(ana))
+      .send({ items: [{ itemId, quantity: 1 }] })
+      .expect(409)
+      .expect(res => expect(body(res).code).toBe('APPOINTMENT_CANCELED'));
+
+    expect(await prisma.stockMovement.count({ where: { appointmentId } })).toBe(
+      0,
+    );
+    const item = await prisma.item.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.currentQuantity.toString()).toBe('10');
+  });
+
+  it('accepts a completed appointment', async () => {
+    const appointmentId = await createAppointment(ana);
+    const { itemId } = await createItemWithLot(ana, 10, 5);
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { status: 'COMPLETED' },
+    });
+
+    await request(http)
+      .post(`/appointments/${appointmentId}/items`)
+      .set('Authorization', bearer(ana))
+      .send({ items: [{ itemId, quantity: 1 }] })
+      .expect(201);
+  });
+
   it('is all-or-nothing: an unknown item rolls back the whole request', async () => {
     const appointmentId = await createAppointment(ana);
     const { itemId } = await createItemWithLot(ana, 10, 5);

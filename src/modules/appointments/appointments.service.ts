@@ -13,6 +13,7 @@ import {
   AppointmentsRepository,
   ItemUsage,
   ItemWithLots,
+  RecordedItemUsage,
 } from './appointments.repository';
 import {
   assertValidMovement,
@@ -311,6 +312,9 @@ export class AppointmentsService {
    * recorded anyway and the item goes negative, to be reconciled later by a
    * manual adjustment (US12). The caller is told through `warnings`.
    *
+   * A canceled appointment takes no supplies (409 APPOINTMENT_CANCELED); a
+   * scheduled or completed one does.
+   *
    * Idempotent per line (ADR-08/09): a line whose `clientGeneratedId` was
    * already recorded answers with that movement and deducts nothing again, so
    * the app can resend a request whose response it never received.
@@ -364,15 +368,30 @@ export class AppointmentsService {
       this.toUsage(line, itemsById.get(line.itemId)),
     );
 
-    const recorded =
-      usages.length > 0
-        ? await this.appointmentsRepository.recordItemUsage(
-            userId,
-            appointment.id,
-            appointment.startsAt,
-            usages,
-          )
-        : [];
+    // Checked only when there is something new to record: a pure replay still
+    // answers with what was recorded before the appointment was canceled.
+    let recorded: RecordedItemUsage[] = [];
+    if (usages.length > 0) {
+      if (appointment.status === AppointmentStatus.CANCELED) {
+        throw this.appointmentCanceled(appointment.id);
+      }
+      const result = await this.appointmentsRepository.recordItemUsage(
+        userId,
+        appointment.id,
+        appointment.startsAt,
+        usages,
+      );
+      // Canceled or deleted between the read above and the transaction.
+      if (!result) {
+        const current = await this.appointmentsRepository.findById(
+          appointment.id,
+          userId,
+        );
+        if (!current) throw this.notFound(appointment.id);
+        throw this.appointmentCanceled(appointment.id);
+      }
+      recorded = result;
+    }
 
     // The last balance seen for each item: after this request's movements
     // when it recorded any, otherwise the current cache (a pure replay).
@@ -578,6 +597,15 @@ export class AppointmentsService {
       'NOT_FOUND',
       'ITEM_NOT_FOUND',
       `Item ${id} not found`,
+      { id },
+    );
+  }
+
+  private appointmentCanceled(id: string): DomainError {
+    return new DomainError(
+      'CONFLICT',
+      'APPOINTMENT_CANCELED',
+      'Supplies cannot be registered on a canceled appointment',
       { id },
     );
   }
