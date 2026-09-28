@@ -38,6 +38,15 @@ export class AppointmentItemMovementEntity {
   })
   reversedMovementId!: string | null;
 
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'On a supply that corrects an earlier one (an edit): the movement it replaced',
+  })
+  replacedMovementId!: string | null;
+
   createdAt!: Date;
 }
 

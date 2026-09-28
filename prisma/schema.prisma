@@ -485,6 +485,11 @@ model StockMovement {
   /// movement is reversed at most once; a movement with no reversal pointing
   /// at it is still in effect.
   reversedMovementId    String?             @unique @map("reversed_movement_id") @db.Uuid
+  /// source APPOINTMENT, on an edited supply: the movement this one replaced
+  /// (reversed in the same transaction). Unique: a supply is replaced at most
+  /// once. Tells an edit apart from a removal, which reverses with no
+  /// replacement.
+  replacedMovementId    String?             @unique @map("replaced_movement_id") @db.Uuid
   notes                 String?
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   deletedAt             DateTime?           @map("deleted_at") @db.Timestamptz(6)
@@ -498,6 +503,8 @@ model StockMovement {
   supplier            Supplier?            @relation(fields: [supplierId], references: [id])
   reversedMovement    StockMovement?       @relation("StockMovementReversal", fields: [reversedMovementId], references: [id])
   reversal            StockMovement?       @relation("StockMovementReversal")
+  replacedMovement    StockMovement?       @relation("StockMovementReplacement", fields: [replacedMovementId], references: [id])
+  replacement         StockMovement?       @relation("StockMovementReplacement")
 
   @@index([userId, occurredAt])
   @@index([itemId, occurredAt])

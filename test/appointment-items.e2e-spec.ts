@@ -492,6 +492,28 @@ describe('POST /appointments/:id/items (e2e)', () => {
       expect(await itemBalance()).toBe('5');
     });
 
+    it('DELETE with the old id after an edit answers 409 and leaves the replacement in effect', async () => {
+      const edited = await edit(supplyId, { quantity: 5 }).expect(200);
+      const replacement = body(edited).movement as {
+        id: string;
+        replacedMovementId: string;
+      };
+      expect(replacement.replacedMovementId).toBe(supplyId);
+
+      await remove(supplyId)
+        .expect(409)
+        .expect(res =>
+          expect(body(res).code).toBe('STOCK_MOVEMENT_ALREADY_REVERSED'),
+        );
+
+      expect(await itemBalance()).toBe('5');
+      expect(
+        await prisma.stockMovement.count({
+          where: { reversedMovementId: replacement.id },
+        }),
+      ).toBe(0);
+    });
+
     it('PATCH without a key on a supply already corrected answers 409', async () => {
       await edit(supplyId, { quantity: 5 }).expect(200);
 

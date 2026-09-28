@@ -537,7 +537,9 @@ export class AppointmentsService {
   /**
    * US06: removes a saved supply by reversing it (CORRECTION_REVERSAL), which
    * gives the stock back. Idempotent: removing a supply that was already
-   * reversed answers with that reversal and writes nothing.
+   * removed answers with that reversal and writes nothing. A supply that an
+   * edit replaced answers 409, like a PATCH would: the replacement is the
+   * supply now.
    */
   removeItem(
     appointmentId: string,
@@ -569,13 +571,10 @@ export class AppointmentsService {
           userId,
         );
       if (replayed) {
-        // Only a resend of this very edit: the key's movement replaced this
-        // supply, so the supply was reversed and the lines match.
+        // Only a resend of this very edit: the key's movement is the one
+        // that replaced this supply, with the same quantity.
         const sameEdit =
-          original.reversal !== null &&
-          replayed.source === StockMovementSource.APPOINTMENT &&
-          replayed.appointmentId === appointment.id &&
-          replayed.itemId === original.itemId &&
+          replayed.replacedMovementId === original.id &&
           replayed.quantity.equals(dto.quantity);
         if (!sameEdit) throw this.clientIdConflict(dto.clientGeneratedId);
         return this.toEditResult(
@@ -637,6 +636,10 @@ export class AppointmentsService {
     const original = await this.findSupply(appointment.id, movementId, userId);
 
     if (original.reversal) {
+      // An edit replaced this supply: the replacement is still in effect,
+      // so answering 200 would tell the app a supply is gone when it is not.
+      if (original.replacement) throw this.alreadyReversed(original.id);
+      // A resend of a removal: answer with what it already wrote.
       return {
         appointmentId: appointment.id,
         reversal: this.toMovement(original.reversal),
@@ -734,6 +737,7 @@ export class AppointmentsService {
       unitCost: movement.unitCost,
       occurredAt: movement.occurredAt,
       reversedMovementId: movement.reversedMovementId,
+      replacedMovementId: movement.replacedMovementId,
       createdAt: movement.createdAt,
     };
   }

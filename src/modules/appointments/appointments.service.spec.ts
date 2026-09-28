@@ -188,6 +188,7 @@ class FakeAppointmentsRepository {
           purchaseInvoiceLineId: null,
           supplierId: null,
           reversedMovementId: null,
+          replacedMovementId: null,
           notes: null,
           createdAt: new Date(),
           deletedAt: null,
@@ -215,6 +216,9 @@ class FakeAppointmentsRepository {
       ...movement,
       reversal:
         this.movements.find(row => row.reversedMovementId === movement.id) ??
+        null,
+      replacement:
+        this.movements.find(row => row.replacedMovementId === movement.id) ??
         null,
       item: {
         currentQuantity: this.items.get(movement.itemId)!.currentQuantity,
@@ -254,6 +258,7 @@ class FakeAppointmentsRepository {
     const reversal = this.append(userId, {
       ...reversalOf(original),
       clientGeneratedId: null,
+      replacedMovementId: null,
     });
     let itemBalance = this.applyToCaches(reversal);
     let movement: StockMovement | null = null;
@@ -269,6 +274,7 @@ class FakeAppointmentsRepository {
         unitCost: original.unitCost,
         occurredAt: original.occurredAt,
         reversedMovementId: null,
+        replacedMovementId: original.id,
         notes: null,
       });
       itemBalance = this.applyToCaches(movement);
@@ -290,6 +296,7 @@ class FakeAppointmentsRepository {
       | 'unitCost'
       | 'occurredAt'
       | 'reversedMovementId'
+      | 'replacedMovementId'
       | 'notes'
     >,
   ): StockMovement {
@@ -1130,6 +1137,26 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
         ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_CLIENT_ID_CONFLICT' });
       });
 
+      it('rejects (409) a key whose movement replaced a different supply, even with the same item and quantity', async () => {
+        const other = await service.registerItems(appointment.id, USER_ID, {
+          items: [{ itemId: item.id, quantity: 3 }],
+        });
+        const otherId = other.movements[0].id;
+        const clientGeneratedId = randomUUID();
+        await service.editItem(appointment.id, otherId, USER_ID, {
+          quantity: 5,
+          clientGeneratedId,
+        });
+        await service.removeItem(appointment.id, supplyId, USER_ID);
+
+        await expect(
+          service.editItem(appointment.id, supplyId, USER_ID, {
+            quantity: 5,
+            clientGeneratedId,
+          }),
+        ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_CLIENT_ID_CONFLICT' });
+      });
+
       it('answers with the winner when a concurrent copy of the edit reversed it first', async () => {
         const dto = { quantity: 5, clientGeneratedId: randomUUID() };
         const stale = await repository.findMovement(supplyId, USER_ID);
@@ -1241,6 +1268,25 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
 
         expect(loser.reversal).toEqual(winner.reversal);
         expect(repository.movements).toHaveLength(2);
+      });
+
+      it('refuses (409) removing a supply that an edit replaced: the replacement is still in effect', async () => {
+        const edited = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          { quantity: 5 },
+        );
+
+        await expect(
+          service.removeItem(appointment.id, supplyId, USER_ID),
+        ).rejects.toMatchObject({
+          code: 'STOCK_MOVEMENT_ALREADY_REVERSED',
+          details: { id: supplyId },
+        });
+        expect(repository.movements).toHaveLength(3);
+        expect(balance()).toBe('5');
+        expect(edited.movement.replacedMovementId).toBe(supplyId);
       });
 
       it('rejects (409) a canceled appointment and writes nothing', async () => {

@@ -36,6 +36,8 @@ export interface ItemUsage {
 export type SupplyMovement = StockMovement & {
   /** the reversal that already undid it, if any */
   reversal: StockMovement | null;
+  /** the movement that replaced it when it was edited (null on a removal) */
+  replacement: StockMovement | null;
   item: { currentQuantity: Prisma.Decimal };
 };
 
@@ -482,6 +484,7 @@ export class AppointmentsRepository {
         where: { id, userId, deletedAt: null },
         include: {
           reversal: true,
+          replacement: true,
           item: { select: { currentQuantity: true } },
         },
       }),
@@ -537,6 +540,7 @@ export class AppointmentsRepository {
               quantity: replacement.quantity,
               unitCost: original.unitCost,
               occurredAt: original.occurredAt,
+              replacedMovementId: original.id,
             },
           });
           itemBalance = await this.applyToCaches(tx, movement);
