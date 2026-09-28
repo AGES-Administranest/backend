@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
@@ -168,66 +169,157 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
-  describe('stock-movements', () => {
-    const today = () => new Date().toISOString();
+  describe('stock-entry', () => {
+    const uploadRequest = (fileHash: string) => ({
+      filename: 'nota.pdf',
+      fileMimeType: 'application/pdf',
+      fileHash,
+      fileBytesSize: 1024,
+    });
 
-    it('refuses an adjustment on another account item, and moves no quantity', async () => {
-      const anaItem = await createItem(ana, 'Dipirona da Ana');
+    /** The app picks the invoice id, so a draft is born on the first issue. */
+    const issueUploadUrl = (user: TestUser, invoiceId: string, hash: string) =>
+      request(http)
+        .post(`/stock-entries/${invoiceId}/upload-url`)
+        .set('Authorization', bearer(user))
+        .send(uploadRequest(hash));
+
+    it('answers 404, not 403, when issuing an upload url for another account invoice, and leaves it untouched', async () => {
+      const invoiceId = randomUUID();
+      await issueUploadUrl(ana, invoiceId, 'a'.repeat(64)).expect(200);
+
+      const response = await issueUploadUrl(
+        bruno,
+        invoiceId,
+        'b'.repeat(64),
+      ).expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
+
+      // The id collided on the primary key: the fallback must not take the
+      // row over, nor rewrite its document.
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      const stored = await prisma.purchaseInvoice.findUniqueOrThrow({
+        where: { id: invoiceId },
+      });
+      expect(stored.userId).toBe(anaRow.id);
+      expect(stored.fileHash).toBe('a'.repeat(64));
+      expect(stored.fileUrl).toBe(
+        `users/${anaRow.id}/purchase-invoices/${invoiceId}/original`,
+      );
+    });
+
+    it('cannot claim an invoice for another account by sending a userId', async () => {
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      const invoiceId = randomUUID();
+
       await request(http)
-        .post('/stock-movement/purchase')
-        .set('Authorization', bearer(ana))
-        .send({ itemId: anaItem, quantity: 10, unitValue: 5, date: today() })
+        .post(`/stock-entries/${invoiceId}/upload-url`)
+        .set('Authorization', bearer(bruno))
+        .send({ ...uploadRequest('c'.repeat(64)), userId: anaRow.id })
+        .expect(400);
+
+      expect(
+        await prisma.purchaseInvoice.count({ where: { id: invoiceId } }),
+      ).toBe(0);
+    });
+  });
+
+  describe('appointments', () => {
+    const createAppointment = async (
+      user: TestUser,
+      startsAt: string,
+      endsAt: string,
+    ): Promise<string> => {
+      const response = await request(http)
+        .post('/appointments')
+        .set('Authorization', bearer(user))
+        .send({ startsAt, endsAt, procedureName: 'Consulta' })
         .expect(201);
 
-      const response = await request(http)
-        .post('/stock-movement/adjustment')
-        .set('Authorization', bearer(bruno))
-        .send({ itemId: anaItem, quantity: 3, reason: 'LOSS' })
-        .expect(404);
+      return body(response).id as string;
+    };
 
-      expect(body(response)).toMatchObject({ code: 'ITEM_NOT_FOUND' });
-      expect((await readAsOwner(ana, anaItem)).currentQuantity).toBe('10');
-      expect(await prisma.stockMovement.count()).toBe(1);
+    // The seed migration creates this system category, but resetDatabase's
+    // TRUNCATE ... CASCADE wipes it along with everything that references
+    // "user". Without it a leaking /complete would fail with a 500 instead of
+    // posting revenue, and the "no entry was posted" check would prove nothing.
+    beforeEach(async () => {
+      await prisma.financialCategory.create({
+        data: {
+          userId: null,
+          name: 'Professional fees',
+          nature: 'INCOME',
+          defaultScope: 'PROFESSIONAL',
+        },
+      });
     });
 
-    it('refuses a purchase into another account item, and moves no quantity', async () => {
-      const anaItem = await createItem(ana, 'Dipirona da Ana');
+    it('does not let one account conflict-check against another account schedule', async () => {
+      await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
 
       const response = await request(http)
-        .post('/stock-movement/purchase')
-        .set('Authorization', bearer(bruno))
-        .send({ itemId: anaItem, quantity: 10, unitValue: 5, date: today() })
-        .expect(404);
-
-      expect(body(response)).toMatchObject({ code: 'ITEM_NOT_FOUND' });
-      expect((await readAsOwner(ana, anaItem)).currentQuantity).toBe('0');
-      expect(await prisma.stockMovement.count()).toBe(0);
-    });
-
-    it('treats another account supplier as one that does not exist', async () => {
-      const brunoItem = await createItem(bruno, 'Cetamina do Bruno');
-      const supplier = await request(http)
-        .post('/supplier')
-        .set('Authorization', bearer(ana))
-        .send({ name: 'Distribuidora da Ana' })
-        .expect(201);
-
-      // Same answer as a random id, so the response cannot confirm that the
-      // supplier exists in someone else's account.
-      const response = await request(http)
-        .post('/stock-movement/purchase')
-        .set('Authorization', bearer(bruno))
-        .send({
-          itemId: brunoItem,
-          supplierId: body(supplier).id,
-          quantity: 10,
-          unitValue: 5,
-          date: today(),
+        .get('/appointments/check-conflict')
+        .query({
+          startsAt: '2026-09-25T13:00:00.000Z',
+          endsAt: '2026-09-25T14:00:00.000Z',
         })
-        .expect(422);
+        .set('Authorization', bearer(bruno))
+        .expect(200);
 
-      expect(body(response)).toMatchObject({ code: 'SUPPLIER_NOT_FOUND' });
-      expect(await prisma.stockMovement.count()).toBe(0);
+      expect(body(response)).toEqual({ conflict: false });
+    });
+
+    it('refuses to update another account appointment, and leaves it untouched', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}`)
+        .set('Authorization', bearer(bruno))
+        .send({ procedureName: 'Renomeado pelo Bruno' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.procedureName).toBe('Consulta');
+    });
+
+    it('refuses to complete another account appointment, and posts no revenue', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}/complete`)
+        .set('Authorization', bearer(bruno))
+        .send({ amount: 250 })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.status).toBe('SCHEDULED');
+      expect(stored.amount).toBeNull();
+      expect(await prisma.financialEntry.count()).toBe(0);
     });
   });
 

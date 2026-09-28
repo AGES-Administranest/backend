@@ -44,26 +44,32 @@ export const ERROR_CODES = [
   // supplier
   'DUPLICATED_SUPPLIER_NAME',
 
+  // client
+  'CLIENT_NOT_FOUND',
+  'DUPLICATED_CLIENT_NAME',
+
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
-  // The outbound does not fit in the balance. `details.available` carries the
-  // balance the caller can still take out, because the app interpolates that
-  // number into the message it shows.
-  'INSUFFICIENT_STOCK',
-  'STOCK_MOVEMENT_DATE_IN_FUTURE',
-  'STOCK_MOVEMENT_BATCH_EMPTY',
-  // A device sent a movement whose UUID already belongs to another account
-  // (ADR-09). Never silently skipped: that would drop a real consumption.
-  'STOCK_MOVEMENT_ID_CONFLICT',
-  'SUPPLIER_NOT_FOUND',
-  'APPOINTMENT_NOT_FOUND',
-  'PURCHASE_ORDER_NOT_FOUND',
-  'ITEM_LOT_NOT_FOUND',
-  'STOCK_APPOINTMENT_ID_REQUIRED',
-  'STOCK_PURCHASE_ORDER_ID_REQUIRED',
 
-  // seu módulo entra aqui
+  // appointments
+  'APPOINTMENT_NOT_FOUND',
+  'APPOINTMENT_INVALID_INTERVAL',
+  'APPOINTMENT_TIME_CONFLICT',
+  // The transition needs a SCHEDULED appointment: it was already completed or
+  // canceled. Shared with the /cancel endpoint (US08 subtask 2).
+  'APPOINTMENT_NOT_SCHEDULED',
+
+  // stock-entry (purchase invoices)
+  'INVOICE_NOT_FOUND',
+  'INVOICE_NOT_EDITABLE',
+  'INVOICE_FILE_DUPLICATED',
+  'INVOICE_FILE_TOO_LARGE',
+  // The app said the upload finished, but HeadObject found no object: it
+  // reissues the presigned POST and resends, without losing the draft.
+  'INVOICE_UPLOAD_NOT_FINISHED',
+  // The object is there, but does not match what was declared and signed.
+  'INVOICE_UPLOAD_MISMATCH',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
