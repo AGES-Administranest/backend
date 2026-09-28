@@ -12,6 +12,7 @@ import {
   Decimal,
   DecimalInput,
   movementForDelta,
+  reversalOf,
   reversalType,
   signedQuantity,
   stockBalance,
@@ -107,6 +108,55 @@ describe('stock-movement rules', () => {
       const original = { type: INBOUND, quantity: 7 };
       const reversal = { type: reversalType(original.type), quantity: 7 };
       expectDecimal(stockBalance([original, reversal]), 0);
+    });
+  });
+
+  describe('reversalOf', () => {
+    const original = {
+      id: '6f1c2a3b-0000-4000-8000-000000000001',
+      type: OUTBOUND,
+      source: StockMovementSource.APPOINTMENT,
+      itemId: 'item-1',
+      lotId: 'lot-1',
+      quantity: new Prisma.Decimal('2.5'),
+      unitCost: new Prisma.Decimal('12.5'),
+      occurredAt: new Date('2026-09-25T13:00:00.000Z'),
+      appointmentId: 'appointment-1',
+    };
+
+    it('undoes the original: opposite type, same item, lot, quantity and cost', () => {
+      expect(reversalOf(original)).toEqual({
+        type: INBOUND,
+        source: StockMovementSource.CORRECTION_REVERSAL,
+        itemId: 'item-1',
+        lotId: 'lot-1',
+        quantity: original.quantity,
+        unitCost: original.unitCost,
+        occurredAt: original.occurredAt,
+        appointmentId: 'appointment-1',
+        reversedMovementId: original.id,
+        notes: `Reversal of stock movement ${original.id}`,
+      });
+    });
+
+    it('nets the original to zero in the balance', () => {
+      expect(stockBalance([original, reversalOf(original)]).isZero()).toBe(
+        true,
+      );
+    });
+
+    it('dates the reversal when told to, keeping the original date otherwise', () => {
+      const at = new Date('2026-09-27T10:00:00.000Z');
+      expect(reversalOf(original, at).occurredAt).toBe(at);
+    });
+
+    it('refuses to reverse a reversal: correct the original instead', () => {
+      const reversal = {
+        ...original,
+        id: '6f1c2a3b-0000-4000-8000-000000000002',
+        source: StockMovementSource.CORRECTION_REVERSAL,
+      };
+      expect(() => reversalOf(reversal)).toThrow(/reversal/);
     });
   });
 

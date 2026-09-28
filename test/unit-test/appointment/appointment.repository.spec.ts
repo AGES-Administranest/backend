@@ -57,9 +57,17 @@ describe('AppointmentsRepository', () => {
       },
       stockMovement: {
         findMany: jest.fn().mockResolvedValue([]),
-        create: jest.fn(),
+        create: jest.fn(({ data }: { data: object }) =>
+          Promise.resolve({ id: 'reversal-1', ...data }),
+        ),
       },
-      item: { update: jest.fn() },
+      item: {
+        update: jest.fn().mockResolvedValue({
+          id: 'item-1',
+          currentQuantity: new Prisma.Decimal(5),
+          needsAdjustment: false,
+        }),
+      },
       itemLot: { update: jest.fn() },
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
@@ -123,8 +131,11 @@ describe('AppointmentsRepository', () => {
       itemId: 'item-1',
       lotId: 'lot-1',
       type: 'OUTBOUND',
+      source: 'APPOINTMENT',
       quantity: new Prisma.Decimal(2),
       unitCost: new Prisma.Decimal(15),
+      occurredAt: new Date('2026-09-19T10:00:00.000Z'),
+      appointmentId: 'appointment-1',
       deletedAt: null,
     };
     prisma.financialEntry.findUnique.mockResolvedValue(financialEntry);
@@ -137,7 +148,28 @@ describe('AppointmentsRepository', () => {
       where: { appointmentId: 'appointment-1' },
     });
     expect(prisma.financialEntry.update).toHaveBeenCalledTimes(1);
+    // Only the supplies still in effect: never a reversal, never a supply
+    // that an edit or removal already reversed.
+    expect(prisma.stockMovement.findMany).toHaveBeenCalledWith({
+      where: {
+        appointmentId: 'appointment-1',
+        source: 'APPOINTMENT',
+        type: 'OUTBOUND',
+        deletedAt: null,
+        reversal: { is: null },
+      },
+    });
     expect(prisma.stockMovement.create).toHaveBeenCalledTimes(1);
+    expect(prisma.stockMovement.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'user-1',
+        type: 'INBOUND',
+        source: 'CORRECTION_REVERSAL',
+        reversedMovementId: 'movement-1',
+        quantity: new Prisma.Decimal(2),
+        occurredAt: result?.deletedAt,
+      }) as unknown,
+    });
     expect(prisma.item.update).toHaveBeenCalledWith({
       where: { id: 'item-1' },
       data: { currentQuantity: { increment: new Prisma.Decimal(2) } },

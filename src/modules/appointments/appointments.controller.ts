@@ -29,10 +29,15 @@ import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { CheckConflictQueryDto } from './dto/check-conflict-query.dto';
 import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
+import { EditAppointmentItemDto } from './dto/edit-appointment-item.dto';
 import { QueryAppointmentDto } from './dto/query-appointment.dto';
 import { RegisterAppointmentItemsDto } from './dto/register-appointment-items.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
-import { RegisterAppointmentItemsResultEntity } from './entities/appointment-items.entity';
+import {
+  EditAppointmentItemResultEntity,
+  RegisterAppointmentItemsResultEntity,
+  RemoveAppointmentItemResultEntity,
+} from './entities/appointment-items.entity';
 import {
   AppointmentEntity,
   CheckConflictResultEntity,
@@ -104,6 +109,63 @@ export class AppointmentsController {
     @Body() dto: RegisterAppointmentItemsDto,
   ) {
     return this.appointmentsService.registerItems(id, user.id, dto);
+  }
+
+  @Patch(':id/items/:movementId')
+  @ApiOperation({
+    summary: 'Corrects the quantity of a supply saved in an appointment',
+    description:
+      'Stock movements are never edited: the supply is reversed (CORRECTION_REVERSAL) and a new OUTBOUND movement records the new quantity, at the same lot, cost and date. The new movement replaces the supply — use its id from then on. Resending with the same `clientGeneratedId` returns that movement instead of correcting the stock again.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({
+    name: 'movementId',
+    format: 'uuid',
+    description: 'The OUTBOUND movement of the supply',
+  })
+  @ApiOkResponse({ type: EditAppointmentItemResultEntity })
+  @ApiBadRequestResponse({ description: 'Invalid payload' })
+  @ApiNotFoundResponse({
+    description:
+      'Appointment not found, or the movement is not one of its supplies',
+  })
+  @ApiConflictResponse({
+    description:
+      'The appointment is canceled, the supply was already corrected, or the clientGeneratedId was already used for something else',
+  })
+  editItem(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('movementId', ParseUUIDPipe) movementId: string,
+    @Body() dto: EditAppointmentItemDto,
+  ) {
+    return this.appointmentsService.editItem(id, movementId, user.id, dto);
+  }
+
+  @Delete(':id/items/:movementId')
+  @ApiOperation({
+    summary: 'Removes a supply saved in an appointment, giving the stock back',
+    description:
+      'Records a CORRECTION_REVERSAL of the supply. Idempotent: removing a supply that was already reversed returns that reversal and changes nothing.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({
+    name: 'movementId',
+    format: 'uuid',
+    description: 'The OUTBOUND movement of the supply',
+  })
+  @ApiOkResponse({ type: RemoveAppointmentItemResultEntity })
+  @ApiNotFoundResponse({
+    description:
+      'Appointment not found, or the movement is not one of its supplies',
+  })
+  @ApiConflictResponse({ description: 'The appointment is canceled' })
+  removeItem(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('movementId', ParseUUIDPipe) movementId: string,
+  ) {
+    return this.appointmentsService.removeItem(id, movementId, user.id);
   }
 
   @Get('check-conflict')

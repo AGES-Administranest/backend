@@ -55,6 +55,12 @@ export const ERROR_CODES = [
   // The clientGeneratedId was already used for a different movement (another
   // appointment, item or quantity): a retry must resend the same line.
   'STOCK_MOVEMENT_CLIENT_ID_CONFLICT',
+  // Not a supply of this appointment: missing, another account's, another
+  // appointment's, or not an APPOINTMENT consumption (e.g. a reversal).
+  'STOCK_MOVEMENT_NOT_FOUND',
+  // The supply was already corrected (edited or removed): the app must work
+  // on the movement that replaced it.
+  'STOCK_MOVEMENT_ALREADY_REVERSED',
 
   // appointments
   'APPOINTMENT_NOT_FOUND',

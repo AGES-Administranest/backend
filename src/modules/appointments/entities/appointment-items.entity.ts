@@ -30,6 +30,23 @@ export class AppointmentItemMovementEntity {
 
   occurredAt!: Date;
 
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description: 'On a CORRECTION_REVERSAL: the movement it reverses',
+  })
+  reversedMovementId!: string | null;
+
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'On a supply that corrects an earlier one (an edit): the movement it replaced',
+  })
+  replacedMovementId!: string | null;
+
   createdAt!: Date;
 }
 
@@ -53,4 +70,33 @@ export class RegisterAppointmentItemsResultEntity {
 
   @ApiProperty({ type: [InsufficientStockWarningEntity] })
   warnings!: InsufficientStockWarningEntity[];
+}
+
+export class EditAppointmentItemResultEntity {
+  appointmentId!: string;
+
+  @ApiProperty({
+    type: AppointmentItemMovementEntity,
+    description:
+      'The supply as it stands now: the movement that replaced the edited one (its id is the one to edit or remove next), or the same movement when the quantity did not change',
+  })
+  movement!: AppointmentItemMovementEntity;
+
+  @ApiProperty({
+    type: AppointmentItemMovementEntity,
+    nullable: true,
+    description:
+      'The reversal of the edited movement; null when nothing changed',
+  })
+  reversal!: AppointmentItemMovementEntity | null;
+
+  @ApiProperty({ type: [InsufficientStockWarningEntity] })
+  warnings!: InsufficientStockWarningEntity[];
+}
+
+export class RemoveAppointmentItemResultEntity {
+  appointmentId!: string;
+
+  @ApiProperty({ type: AppointmentItemMovementEntity })
+  reversal!: AppointmentItemMovementEntity;
 }

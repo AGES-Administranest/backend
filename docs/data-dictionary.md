@@ -32,6 +32,8 @@ This holds for **every** source, without exception:
   `type = OUTBOUND`, `source = MANUAL_ADJUSTMENT`, `adjustment_reason` filled in.
 - **Reversal** (`source = CORRECTION_REVERSAL`): `type` is the **opposite** of the
   record being corrected, same `quantity`. A reversal of an inbound is an outbound.
+  It points at the corrected record through `reversed_movement_id`; `notes` only
+  repeats that for humans.
 
 There is no `adjustment_in` / `adjustment_out` and no sign column: `type` already
 carries the direction for any movement. `adjustment_reason` only answers the
@@ -45,7 +47,7 @@ carries the direction for any movement. `adjustment_reason` only answers the
 | `ORDER_IMPORT` | Inbound generated when receiving a purchase order | `purchase_order_id` |
 | `APPOINTMENT` | Material consumed during an appointment | `appointment_id` |
 | `MANUAL_ADJUSTMENT` | Manual balance reconciliation | `adjustment_reason` |
-| `CORRECTION_REVERSAL` | Reversal of an incorrect entry | — (references the original via `notes`) |
+| `CORRECTION_REVERSAL` | Reversal of an incorrect entry | `reversed_movement_id` (unique: a movement is reversed at most once) |
 
 Inbound coming from invoice OCR uses `purchase_invoice_line_id` (source recorded
 according to the flow that created it).

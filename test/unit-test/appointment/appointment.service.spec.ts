@@ -1,5 +1,6 @@
 import { AppointmentStatus, Species } from '@prisma/client';
 
+import { UniqueConstraintError } from '../../../src/infra/prisma/prisma-errors';
 import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
 import { CreateAppointmentDto } from '../../../src/modules/appointments/dto/create-appointment.dto';
 import { UpdateAppointmentDto } from '../../../src/modules/appointments/dto/update-appointment.dto';
@@ -126,5 +127,19 @@ describe('AppointmentsService', () => {
     ).rejects.toMatchObject({
       code: 'APPOINTMENT_NOT_FOUND',
     } satisfies Partial<DomainError>);
+  });
+
+  it('retries a delete that raced a supply correction on the same appointment', async () => {
+    // A concurrent edit/removal reversed a supply first: this transaction
+    // rolled back on the unique reversed_movement_id, and the retry no longer
+    // sees that supply as in effect.
+    repository.delete
+      .mockRejectedValueOnce(new UniqueConstraintError(['reversedMovementId']))
+      .mockResolvedValueOnce(appointment({ deletedAt: new Date() }));
+
+    const result = await service.remove('appointment-1', 'user-1');
+
+    expect(repository.delete).toHaveBeenCalledTimes(2);
+    expect(result.id).toBe('appointment-1');
   });
 });
