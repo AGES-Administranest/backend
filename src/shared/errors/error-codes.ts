@@ -47,6 +47,7 @@ export const ERROR_CODES = [
   // client
   'CLIENT_NOT_FOUND',
   'DUPLICATED_CLIENT_NAME',
+  'DUPLICATED_CLIENT_TAX_ID',
 
   // stock-movements
   'STOCK_QUANTITY_INVALID',

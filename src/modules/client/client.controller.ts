@@ -38,9 +38,15 @@ export class ClientController {
   @Post()
   @ApiOperation({ summary: 'Create a new client (clinic or individual)' })
   @ApiCreatedResponse({ type: ClientEntity })
-  @ApiBadRequestResponse({ description: 'Invalid payload' })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid payload, including a taxId that does not match its taxIdType ' +
+      'or is sent without it',
+  })
   @ApiConflictResponse({
-    description: 'A client with this name already exists',
+    description:
+      'The owner already has a client with this name (DUPLICATED_CLIENT_NAME) ' +
+      'or this tax id (DUPLICATED_CLIENT_TAX_ID)',
   })
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateClientDto) {
     return this.clientService.create(user.id, dto);
@@ -74,10 +80,16 @@ export class ClientController {
   @ApiOperation({ summary: 'Update a client' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ClientEntity })
-  @ApiBadRequestResponse({ description: 'Invalid payload' })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid payload, including a taxId that does not match its taxIdType ' +
+      'or is sent without it',
+  })
   @ApiNotFoundResponse({ description: 'Client not found' })
   @ApiConflictResponse({
-    description: 'A client with this name already exists',
+    description:
+      'The owner already has a client with this name (DUPLICATED_CLIENT_NAME) ' +
+      'or this tax id (DUPLICATED_CLIENT_TAX_ID)',
   })
   update(
     @CurrentUser() user: AuthenticatedUser,

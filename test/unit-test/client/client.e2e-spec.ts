@@ -305,4 +305,196 @@ describe('Client (e2e)', () => {
       });
     });
   });
+
+  describe('tax id (CPF / CNPJ)', () => {
+    const TOGETHER =
+      'taxId and taxIdType must be sent together: both set, or both null to remove the tax id';
+
+    const post = (user: TestUser, payload: Record<string, unknown>) =>
+      request(server())
+        .post('/client')
+        .set('Authorization', bearer(user))
+        .send(payload);
+
+    const patch = (id: string, payload: Record<string, unknown>) =>
+      request(server())
+        .patch(`/client/${id}`)
+        .set('Authorization', bearer(owner))
+        .send(payload);
+
+    const errorOf = (res: { body: unknown }) =>
+      res.body as { code: string; details?: { fields: string[] } };
+
+    const stored = (id: string) =>
+      prisma.client.findUniqueOrThrow({ where: { id } });
+
+    it('stores a CNPJ sent as digits only', async () => {
+      const created = await createClient(owner, {
+        type: 'CLINIC',
+        name: 'CNPJ valido e2e',
+        taxId: '11222333000181',
+        taxIdType: 'CNPJ',
+      });
+
+      const row = await stored(created.id);
+      expect(row.taxId).toBe('11222333000181');
+      expect(row.taxIdType).toBe('CNPJ');
+    });
+
+    it('rejects a punctuated CNPJ (400) and says what it expects', async () => {
+      const res = await post(owner, {
+        type: 'CLINIC',
+        name: 'CNPJ pontuado e2e',
+        taxId: '11.222.333/0001-81',
+        taxIdType: 'CNPJ',
+      }).expect(400);
+
+      expect(errorOf(res).code).toBe('VALIDATION_ERROR');
+      expect(errorOf(res).details?.fields).toEqual([
+        'taxId must have exactly 14 digits, with no punctuation, when taxIdType is CNPJ',
+      ]);
+    });
+
+    it('rejects a CPF with the wrong number of digits (400)', async () => {
+      const res = await post(owner, {
+        type: 'INDIVIDUAL',
+        name: 'CPF curto e2e',
+        taxId: '1234567890',
+        taxIdType: 'CPF',
+      }).expect(400);
+
+      expect(errorOf(res).details?.fields).toEqual([
+        'taxId must have exactly 11 digits, with no punctuation, when taxIdType is CPF',
+      ]);
+    });
+
+    it('rejects a tax id sent without its type (400)', async () => {
+      const res = await post(owner, {
+        type: 'CLINIC',
+        name: 'CNPJ sem tipo e2e',
+        taxId: '11222333000181',
+      }).expect(400);
+
+      expect(errorOf(res).details?.fields).toEqual([TOGETHER]);
+    });
+
+    it('rejects a CNPJ the owner already registered (409)', async () => {
+      await createClient(owner, {
+        type: 'CLINIC',
+        name: 'Primeira com o CNPJ e2e',
+        taxId: '22333444000192',
+        taxIdType: 'CNPJ',
+      });
+
+      const res = await post(owner, {
+        type: 'CLINIC',
+        name: 'Segunda com o CNPJ e2e',
+        taxId: '22333444000192',
+        taxIdType: 'CNPJ',
+      }).expect(409);
+
+      expect(errorOf(res).code).toBe('DUPLICATED_CLIENT_TAX_ID');
+    });
+
+    it('lets another user register the same CNPJ (isolation — ADR-11)', async () => {
+      await createClient(owner, {
+        type: 'CLINIC',
+        name: 'Clinica compartilhada e2e',
+        taxId: '33444555000103',
+        taxIdType: 'CNPJ',
+      });
+
+      await createClient(other, {
+        type: 'CLINIC',
+        name: 'Clinica compartilhada e2e',
+        taxId: '33444555000103',
+        taxIdType: 'CNPJ',
+      });
+    });
+
+    it('frees the tax id of a deleted client', async () => {
+      const first = await createClient(owner, {
+        type: 'CLINIC',
+        name: 'CNPJ liberado e2e',
+        taxId: '44555666000114',
+        taxIdType: 'CNPJ',
+      });
+      await request(server())
+        .delete(`/client/${first.id}`)
+        .set('Authorization', bearer(owner))
+        .expect(200);
+
+      await createClient(owner, {
+        type: 'CLINIC',
+        name: 'CNPJ recadastrado e2e',
+        taxId: '44555666000114',
+        taxIdType: 'CNPJ',
+      });
+    });
+
+    it('rejects giving a client a CPF another of the owner’s clients holds (409)', async () => {
+      await createClient(owner, {
+        type: 'INDIVIDUAL',
+        name: 'Dono do CPF e2e',
+        taxId: '12345678909',
+        taxIdType: 'CPF',
+      });
+      const second = await createClient(owner, {
+        type: 'INDIVIDUAL',
+        name: 'Quer o mesmo CPF e2e',
+      });
+
+      const res = await patch(second.id, {
+        taxId: '12345678909',
+        taxIdType: 'CPF',
+      }).expect(409);
+
+      expect(errorOf(res).code).toBe('DUPLICATED_CLIENT_TAX_ID');
+      expect((await stored(second.id)).taxId).toBeNull();
+    });
+
+    it('saves a client again with its own tax id', async () => {
+      const created = await createClient(owner, {
+        type: 'CLINIC',
+        name: 'Mantem o CNPJ e2e',
+        taxId: '55666777000125',
+        taxIdType: 'CNPJ',
+      });
+
+      await patch(created.id, {
+        taxId: '55666777000125',
+        taxIdType: 'CNPJ',
+        city: 'Canoas',
+      }).expect(200);
+    });
+
+    it('removes the tax id when both fields are sent as null', async () => {
+      const created = await createClient(owner, {
+        type: 'CLINIC',
+        name: 'Remove o CNPJ e2e',
+        taxId: '66777888000136',
+        taxIdType: 'CNPJ',
+      });
+
+      await patch(created.id, { taxId: null, taxIdType: null }).expect(200);
+
+      const row = await stored(created.id);
+      expect(row.taxId).toBeNull();
+      expect(row.taxIdType).toBeNull();
+    });
+
+    it('rejects a lone taxId: null, which would leave the type behind (400)', async () => {
+      const created = await createClient(owner, {
+        type: 'CLINIC',
+        name: 'CNPJ pela metade e2e',
+        taxId: '77888999000147',
+        taxIdType: 'CNPJ',
+      });
+
+      const res = await patch(created.id, { taxId: null }).expect(400);
+
+      expect(errorOf(res).details?.fields).toEqual([TOGETHER]);
+      expect((await stored(created.id)).taxId).toBe('77888999000147');
+    });
+  });
 });
