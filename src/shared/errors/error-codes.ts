@@ -56,6 +56,9 @@ export const ERROR_CODES = [
   'APPOINTMENT_NOT_FOUND',
   'APPOINTMENT_INVALID_INTERVAL',
   'APPOINTMENT_TIME_CONFLICT',
+  // The transition needs a SCHEDULED appointment: it was already completed or
+  // canceled. Shared with the /cancel endpoint (US08 subtask 2).
+  'APPOINTMENT_NOT_SCHEDULED',
 
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
@@ -67,8 +70,6 @@ export const ERROR_CODES = [
   'INVOICE_UPLOAD_NOT_FINISHED',
   // The object is there, but does not match what was declared and signed.
   'INVOICE_UPLOAD_MISMATCH',
-
-  // seu módulo entra aqui
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

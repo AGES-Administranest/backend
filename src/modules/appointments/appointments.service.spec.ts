@@ -39,6 +39,8 @@ function buildAppointment(overrides: Partial<Appointment> = {}): Appointment {
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
+    asa: null,
+    clientGeneratedId: null,
     ...overrides,
   };
 }
@@ -182,10 +184,10 @@ class FakeAppointmentsRepository {
 
   create(
     data: Partial<Appointment> & { userId: string },
-  ): Promise<Appointment> {
+  ): Promise<{ appointment: Appointment; created: boolean }> {
     const appointment = buildAppointment({ ...data, id: randomUUID() });
     this.rows.set(appointment.id, appointment);
-    return Promise.resolve(appointment);
+    return Promise.resolve({ appointment, created: true });
   }
 
   update(
