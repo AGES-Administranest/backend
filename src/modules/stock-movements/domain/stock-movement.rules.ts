@@ -72,6 +72,68 @@ export function reversalType(original: StockMovementType): StockMovementType {
     : StockMovementType.INBOUND;
 }
 
+/** What a movement must carry to be reversed by {@link reversalOf}. */
+export interface ReversibleMovement {
+  id: string;
+  type: StockMovementType;
+  source: StockMovementSource;
+  itemId: string;
+  lotId: string | null;
+  quantity: Decimal;
+  unitCost: Decimal;
+  occurredAt: Date;
+  appointmentId: string | null;
+}
+
+/** The `CORRECTION_REVERSAL` row that undoes a movement. */
+export interface ReversalShape {
+  type: StockMovementType;
+  source: typeof StockMovementSource.CORRECTION_REVERSAL;
+  itemId: string;
+  lotId: string | null;
+  quantity: Decimal;
+  unitCost: Decimal;
+  occurredAt: Date;
+  appointmentId: string | null;
+  reversedMovementId: string;
+  notes: string;
+}
+
+/**
+ * The reversal that undoes `original` (see `docs/data-dictionary.md`): the
+ * opposite `type`, with the same item, lot, quantity and cost, so the two net
+ * to zero in the balance and in the lot. It points at the original through
+ * `reversedMovementId`; `notes` repeats that for humans.
+ *
+ * `occurredAt` defaults to the original's, keeping the corrected consumption in
+ * the period it belongs to; the reversal's own `createdAt` records when the
+ * correction was made.
+ *
+ * A reversal is never reversed itself — the original is corrected instead.
+ */
+export function reversalOf(
+  original: ReversibleMovement,
+  occurredAt: Date = original.occurredAt,
+): ReversalShape {
+  if (original.source === StockMovementSource.CORRECTION_REVERSAL) {
+    throw new Error(
+      `Stock movement ${original.id} is a reversal and cannot be reversed`,
+    );
+  }
+  return {
+    type: reversalType(original.type),
+    source: StockMovementSource.CORRECTION_REVERSAL,
+    itemId: original.itemId,
+    lotId: original.lotId,
+    quantity: original.quantity,
+    unitCost: original.unitCost,
+    occurredAt,
+    appointmentId: original.appointmentId,
+    reversedMovementId: original.id,
+    notes: `Reversal of stock movement ${original.id}`,
+  };
+}
+
 /**
  * Translates a balance correction (signed delta) into the canonical shape:
  * positive `quantity` + `type`. A delta of exactly zero produces no movement.
