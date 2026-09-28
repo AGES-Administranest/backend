@@ -34,11 +34,20 @@ export function decide(
   const candidates = ranked
     .filter(candidate => candidate.score >= thresholds.suggest)
     .slice(0, MAX_CANDIDATES);
-  const [best, runnerUp] = ranked;
 
-  if (!best || candidates.length === 0) return { decision: 'none', candidates };
+  if (candidates.length === 0) return { decision: 'none', candidates };
+  if (isClearWinner(ranked, thresholds)) {
+    return { decision: 'preselected', candidates };
+  }
+  return { decision: 'suggested', candidates };
+}
+
+// High enough, and far enough ahead of the runner-up that the two are not
+// look-alikes.
+function isClearWinner(
+  [best, runnerUp]: RankedCandidate[],
+  thresholds: MatchThresholds,
+): boolean {
   const lead = best.score - (runnerUp?.score ?? 0);
-  const preselected =
-    best.score >= thresholds.preselect && lead >= thresholds.margin;
-  return { decision: preselected ? 'preselected' : 'suggested', candidates };
+  return best.score >= thresholds.preselect && lead >= thresholds.margin;
 }

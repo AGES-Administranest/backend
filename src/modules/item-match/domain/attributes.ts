@@ -1,123 +1,110 @@
-export type Form = 'injectable' | 'oral' | 'topical' | 'inhaled';
-export type Flag = 'vaso' | 'cuff' | 'agulha' | 'po' | 'esteril';
+import {
+  DOSAGE_FORM_WORDS,
+  DosageForm,
+  Flag,
+  FLAG_WORDS,
+  flagWords,
+  FLAGS_NAMED_ALONE,
+  SIZE_WORDS,
+} from './vocabulary';
 
-/** Measures in canonical units, read from a normalized description. */
+/** What a normalized description says about the product, in fixed units. */
 export type Attributes = {
-  /** mg/mL */
+  /** mg/mL: `1%`, `10mg/ml`, `1:1000`. */
   concentrations: number[];
   /** mL */
   volumes: number[];
   /** mg */
   masses: number[];
+  /** As printed, without converting mm, cm and m. */
   lengths: number[];
   /** Sorted pairs: `25x7`, `7.5x7.5`. */
   dimensions: [number, number][];
+  /** Catheter and needle gauges: `22g`. */
   gauges: number[];
-  /** Units per package: `cx c/ 100`. */
-  counts: number[];
+  /** Units per package: `caixa 100`, `com 10`. */
+  packageCounts: number[];
   sizes: string[];
-  forms: Form[];
+  dosageForms: DosageForm[];
+  /** `true` for "com", `false` for "sem" or "nao". */
   flags: Map<Flag, boolean>;
-  /** Numbers with no unit: `nº 4,0`, `Zoletil 50`. */
+  /** Numbers standing alone: `nº 4.0`, `Zoletil 50`. */
   bareNumbers: number[];
+  /** Every number in the text, plus the measures read from it. */
   allNumbers: number[];
 };
 
-const NUM = String.raw`(\d+(?:\.\d+)?)`;
-const CONCENTRATION = new RegExp(
-  String.raw`${NUM}(mcg|mg|g)\/${NUM}?ml\b`,
+// 10mg/ml, 50mcg/ml, 200mg/20ml
+const MASS_PER_VOLUME = /(\d+(?:\.\d+)?)(mcg|mg|g)\/(\d+(?:\.\d+)?)?ml\b/g;
+// 1%
+const PERCENT = /(\d+(?:\.\d+)?)%/g;
+// 1:1000, the way epinephrine is written: 1 g in 1000 mL.
+const RATIO = /\b1:(\d{1,3}(?:\.\d{3})+|\d+)\b/g;
+// 20ml, 1l, 10cc, and not the "ml" of "mg/ml"
+const VOLUME = /(?:^|[\s/])(\d+(?:\.\d+)?)(ml|l|cc)\b(?!\/)/g;
+// 500mg, 1g, 22g, and not the "mg" of "mg/ml"
+const MASS = /(?:^|\s)(\d+(?:\.\d+)?)(mcg|mg|g|kg)\b(?!\/)/g;
+// 10cm, 4.5m
+const LENGTH = /(?:^|\s)(\d+(?:\.\d+)?)(mm|cm|m)\b/g;
+// 25x7, 7.5x7.5
+const DIMENSION = /(?:^|\s)(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?=\s|$)/g;
+// caixa 100, com 10
+const PACKAGE_COUNT = /\b(?:com|caixa|pacote|embalagem)\s+(\d+)(?=\s|$)/g;
+const NUMBER = /\d+(?:\.\d+)?/g;
+const WHOLE_NUMBER = /^\d+(?:\.\d+)?$/;
+
+const ANY_FLAG_WORD = flagWords(Object.keys(FLAG_WORDS) as Flag[]).join('|');
+const WORD_NAMED_ALONE = flagWords(FLAGS_NAMED_ALONE).join('|');
+// "sem vaso", "com agulha", "nao esteril"
+const FLAG_AFTER_MODE = new RegExp(
+  String.raw`\b(com|sem|nao)\s+(${ANY_FLAG_WORD})\b`,
   'g',
 );
-const PERCENT = new RegExp(String.raw`${NUM}%`, 'g');
-// 1 g in N mL: epinephrine's 1:1000.
-const RATIO = /\b1:(\d{1,3}(?:\.\d{3})+|\d+)\b/g;
-const VOLUME = new RegExp(String.raw`(?:^|[\s/])${NUM}(ml|l|cc)\b(?!\/)`, 'g');
-const MASS = new RegExp(String.raw`(?:^|\s)${NUM}(mcg|mg|g|kg)\b(?!\/)`, 'g');
-const LENGTH = new RegExp(String.raw`(?:^|\s)${NUM}(mm|cm|m)\b`, 'g');
-const DIMENSION = new RegExp(String.raw`(?:^|\s)${NUM}x${NUM}(?=\s|$)`, 'g');
-const COUNT = /\b(?:com|caixa|pacote|embalagem)\s+(\d+)(?=\s|$)/g;
-const FLAG =
-  /\b(com|sem|nao)\s+(v|vaso|vasoconstritor|adrenalina|cuff|agulha|po|esteril)\b/g;
-const PLAIN_FLAG = /(?<!\b(?:com|sem|nao)\s)\b(cuff|esteril)\b/g;
+// "cuff", "esteril", not preceded by com, sem or nao
+const FLAG_NAMED_ALONE = new RegExp(
+  String.raw`(?<!\b(?:com|sem|nao)\s)\b(${WORD_NAMED_ALONE})\b`,
+  'g',
+);
+const DOSAGE_FORM_PATTERNS = Object.entries(DOSAGE_FORM_WORDS).map(
+  ([form, words]) => ({
+    form: form as DosageForm,
+    pattern: new RegExp(String.raw`\b(?:${words.join('|')})\b`),
+  }),
+);
 
-const SIZES = new Set(['pp', 'p', 'm', 'g', 'gg', 'xg', 'eg']);
-const MIN_GAUGE = 14;
-const MAX_GAUGE = 34;
-
-const FORM_WORDS: Record<Form, RegExp> = {
-  injectable:
-    /\b(?:ampola|amp|inj|injetavel|iv|im|liof|liofilizado|endovenoso)\b/,
-  oral: /\b(?:comprimidos?|comp|capsulas?|caps|gotas|oral|xarope|orodispersivel|drageas?|mastigavel)\b/,
-  topical: /\b(?:geleia|gel|pomada|creme|bisnaga|topico|topica)\b/,
-  inhaled: /\b(?:inalacao|inal|inalatorio)\b/,
-};
-
-const MASS_IN_MG: Record<string, number> = {
+const MG_PER: Record<string, number> = {
   mcg: 0.001,
   mg: 1,
   g: 1000,
   kg: 1_000_000,
 };
-const VOLUME_IN_ML: Record<string, number> = { ml: 1, cc: 1, l: 1000 };
+const ML_PER: Record<string, number> = { ml: 1, cc: 1, l: 1000 };
+
+// "22g" on a catheter is a gauge, not 22 grams.
+const MIN_GAUGE = 14;
+const MAX_GAUGE = 34;
 
 export function extractAttributes(normalized: string): Attributes {
-  const concentrations = [
-    ...matches(CONCENTRATION, normalized).map(
-      ([, amount, unit, volume]) =>
-        (Number(amount) * MASS_IN_MG[unit]) / Number(volume ?? 1),
-    ),
-    ...matches(PERCENT, normalized).map(([, percent]) => Number(percent) * 10),
-    ...matches(RATIO, normalized).map(
-      ([, parts]) => 1000 / Number(parts.replace(/\./g, '')),
-    ),
-  ];
-  const volumes = matches(VOLUME, normalized).map(
-    ([, amount, unit]) => Number(amount) * VOLUME_IN_ML[unit],
-  );
-
-  const gauges: number[] = [];
-  const masses: number[] = [];
-  for (const [, amount, unit] of matches(MASS, normalized)) {
-    const value = Number(amount);
-    const isGauge =
-      unit === 'g' &&
-      Number.isInteger(value) &&
-      value >= MIN_GAUGE &&
-      value <= MAX_GAUGE;
-    if (isGauge) gauges.push(value);
-    else masses.push(value * MASS_IN_MG[unit]);
-  }
-  if (concentrations.length === 0 && masses.length === 1) {
-    if (volumes.length === 1) concentrations.push(masses[0] / volumes[0]);
-  }
-
-  const counts = matches(COUNT, normalized).map(([, count]) => Number(count));
-  const tokens = normalized.split(' ');
-  const bareNumbers = tokens
-    .filter(token => /^\d+(?:\.\d+)?$/.test(token))
-    .map(Number);
-  for (const count of counts) {
-    bareNumbers.splice(bareNumbers.indexOf(count), 1);
-  }
+  const words = normalized.split(' ');
+  const { masses, gauges } = readMassesAndGauges(normalized);
+  const volumes = readVolumes(normalized);
+  const concentrations = readConcentrations(normalized, masses, volumes);
+  const packageCounts = readPackageCounts(normalized);
 
   return {
     concentrations,
     volumes,
     masses,
-    lengths: matches(LENGTH, normalized).map(([, amount]) => Number(amount)),
-    dimensions: matches(DIMENSION, normalized).map(([, a, b]) =>
-      asPair(Number(a), Number(b)),
-    ),
+    lengths: readLengths(normalized),
+    dimensions: readDimensions(normalized),
     gauges,
-    counts,
-    sizes: tokens.filter(token => SIZES.has(token)),
-    forms: (Object.keys(FORM_WORDS) as Form[]).filter(form =>
-      FORM_WORDS[form].test(normalized),
-    ),
-    flags: flagsOf(normalized),
-    bareNumbers,
+    packageCounts,
+    sizes: words.filter(word => SIZE_WORDS.has(word)),
+    dosageForms: readDosageForms(normalized),
+    flags: readFlags(normalized),
+    bareNumbers: readBareNumbers(words, packageCounts),
     allNumbers: [
-      ...(normalized.match(/\d+(?:\.\d+)?/g) ?? []).map(Number),
+      ...findAll(NUMBER, normalized).map(([number]) => Number(number)),
       ...concentrations,
       ...volumes,
       ...masses,
@@ -125,128 +112,111 @@ export function extractAttributes(normalized: string): Attributes {
   };
 }
 
-// Needles print diameter × length in mm (`0,70x25`) as well as length × tenths
-// of a mm (`25x7`).
-function asPair(a: number, b: number): [number, number] {
+function readConcentrations(
+  normalized: string,
+  masses: number[],
+  volumes: number[],
+): number[] {
+  const stated = [
+    ...findAll(MASS_PER_VOLUME, normalized).map(
+      ([, amount, unit, volume]) =>
+        (Number(amount) * MG_PER[unit]) / Number(volume ?? 1),
+    ),
+    ...findAll(PERCENT, normalized).map(([, percent]) => Number(percent) * 10),
+    ...findAll(RATIO, normalized).map(
+      ([, parts]) => 1000 / Number(parts.replace(/\./g, '')),
+    ),
+  ];
+  if (stated.length > 0) return stated;
+
+  // "TRAMADOL 100MG INJ AMP 2ML": one mass in one volume.
+  if (masses.length === 1 && volumes.length === 1) {
+    return [masses[0] / volumes[0]];
+  }
+  return [];
+}
+
+function readVolumes(normalized: string): number[] {
+  return findAll(VOLUME, normalized).map(
+    ([, amount, unit]) => Number(amount) * ML_PER[unit],
+  );
+}
+
+function readMassesAndGauges(normalized: string) {
+  const masses: number[] = [];
+  const gauges: number[] = [];
+  for (const [, amount, unit] of findAll(MASS, normalized)) {
+    const value = Number(amount);
+    if (isGauge(value, unit)) gauges.push(value);
+    else masses.push(value * MG_PER[unit]);
+  }
+  return { masses, gauges };
+}
+
+function isGauge(value: number, unit: string): boolean {
+  return (
+    unit === 'g' &&
+    Number.isInteger(value) &&
+    value >= MIN_GAUGE &&
+    value <= MAX_GAUGE
+  );
+}
+
+function readLengths(normalized: string): number[] {
+  return findAll(LENGTH, normalized).map(([, amount]) => Number(amount));
+}
+
+function readDimensions(normalized: string): [number, number][] {
+  return findAll(DIMENSION, normalized).map(([, a, b]) =>
+    asNeedleSize(Number(a), Number(b)),
+  );
+}
+
+// Needles print diameter × length in mm (`0.70x25`) as well as length × tenths
+// of a mm (`25x7`); both become `[7, 25]`.
+function asNeedleSize(a: number, b: number): [number, number] {
   const [small, large] = a <= b ? [a, b] : [b, a];
   const scaled = small < 2 && large >= 10 ? small * 10 : small;
   return scaled <= large ? [scaled, large] : [large, scaled];
 }
 
-function flagsOf(normalized: string): Map<Flag, boolean> {
-  const flags = new Map<Flag, boolean>();
-  for (const [, word] of matches(PLAIN_FLAG, normalized)) {
-    flags.set(word as Flag, true);
+function readPackageCounts(normalized: string): number[] {
+  return findAll(PACKAGE_COUNT, normalized).map(([, count]) => Number(count));
+}
+
+// A package count is not a bare number: "cx c/ 10" says nothing of the item.
+function readBareNumbers(words: string[], packageCounts: number[]): number[] {
+  const numbers = words.filter(word => WHOLE_NUMBER.test(word)).map(Number);
+  for (const count of packageCounts) {
+    numbers.splice(numbers.indexOf(count), 1);
   }
-  for (const [, mode, word] of matches(FLAG, normalized)) {
-    const flag = ['v', 'vasoconstritor', 'adrenalina'].includes(word)
-      ? 'vaso'
-      : (word as Flag);
-    flags.set(flag, mode === 'com');
+  return numbers;
+}
+
+function readDosageForms(normalized: string): DosageForm[] {
+  return DOSAGE_FORM_PATTERNS.filter(({ pattern }) =>
+    pattern.test(normalized),
+  ).map(({ form }) => form);
+}
+
+function readFlags(normalized: string): Map<Flag, boolean> {
+  const flags = new Map<Flag, boolean>();
+  for (const [, word] of findAll(FLAG_NAMED_ALONE, normalized)) {
+    flags.set(flagOf(word), true);
+  }
+  for (const [, mode, word] of findAll(FLAG_AFTER_MODE, normalized)) {
+    flags.set(flagOf(word), mode === 'com');
   }
   return flags;
 }
 
-export type Comparison = {
-  /** A stated measure the other side contradicts: never the same product. */
-  veto: boolean;
-  /** Catalog measures the document states too, with the same value. */
-  confirmed: number;
-  /** Catalog measures the document does not state. */
-  unconfirmed: number;
-};
-
-type NumericKey =
-  'concentrations' | 'volumes' | 'masses' | 'lengths' | 'gauges' | 'counts';
-const NUMERIC_KEYS: NumericKey[] = [
-  'concentrations',
-  'volumes',
-  'masses',
-  'lengths',
-  'gauges',
-  'counts',
-];
-
-/**
- * How the document's measures stand against the catalog item's. Only what
- * both sides state can veto; a measure the document leaves out is only
- * unconfirmed, and one it prints bare (`CATETER 22`) still confirms.
- */
-export function compareAttributes(
-  doc: Attributes,
-  item: Attributes,
-): Comparison {
-  const result: Comparison = { veto: false, confirmed: 0, unconfirmed: 0 };
-  const tally = (outcome: 'confirmed' | 'unconfirmed' | 'veto') => {
-    if (outcome === 'veto') result.veto = true;
-    else result[outcome]++;
-  };
-
-  for (const key of NUMERIC_KEYS) {
-    if (item[key].length === 0) continue;
-    // `Esparadrapo 10cm` against `5cmx4,5m`.
-    const stated =
-      key === 'lengths' ? [...doc.lengths, ...doc.dimensions.flat()] : doc[key];
-    if (stated.length > 0) {
-      tally(overlaps(stated, item[key]) ? 'confirmed' : 'veto');
-    } else {
-      tally(overlaps(doc.bareNumbers, item[key]) ? 'confirmed' : 'unconfirmed');
-    }
-  }
-
-  if (item.dimensions.length > 0) {
-    if (doc.dimensions.length === 0) tally('unconfirmed');
-    else {
-      const same = doc.dimensions.some(([a, b]) =>
-        item.dimensions.some(([c, d]) => equal(a, c) && equal(b, d)),
-      );
-      tally(same ? 'confirmed' : 'veto');
-    }
-  }
-
-  if (item.sizes.length > 0) {
-    if (doc.sizes.length === 0) tally('unconfirmed');
-    else
-      tally(
-        doc.sizes.some(size => item.sizes.includes(size))
-          ? 'confirmed'
-          : 'veto',
-      );
-  }
-
-  for (const [flag, value] of item.flags) {
-    const stated = doc.flags.get(flag);
-    if (stated === undefined) tally('unconfirmed');
-    else tally(stated === value ? 'confirmed' : 'veto');
-  }
-
-  for (const number of item.bareNumbers) {
-    if (overlaps(doc.allNumbers, [number])) tally('confirmed');
-    else if (doc.bareNumbers.length > 0 || doc.lengths.length > 0)
-      tally('veto');
-    else tally('unconfirmed');
-  }
-
-  // Forms only veto: a catalog name rarely says it, the unit does.
-  if (
-    doc.forms.length > 0 &&
-    item.forms.length > 0 &&
-    !doc.forms.some(form => item.forms.includes(form))
-  ) {
-    result.veto = true;
-  }
-
-  return result;
+function flagOf(word: string): Flag {
+  const [flag] = Object.entries(FLAG_WORDS).find(([, words]) =>
+    words.includes(word),
+  ) as [Flag, string[]];
+  return flag;
 }
 
-function overlaps(a: number[], b: number[]): boolean {
-  return a.some(x => b.some(y => equal(x, y)));
-}
-
-function equal(a: number, b: number): boolean {
-  return Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(a), Math.abs(b));
-}
-
-function matches(pattern: RegExp, text: string): RegExpExecArray[] {
+function findAll(pattern: RegExp, text: string): RegExpExecArray[] {
   return [...text.matchAll(pattern)];
 }
