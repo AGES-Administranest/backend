@@ -229,6 +229,123 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('appointments', () => {
+    const createAppointment = async (
+      user: TestUser,
+      startsAt: string,
+      endsAt: string,
+    ): Promise<string> => {
+      const response = await request(http)
+        .post('/appointments')
+        .set('Authorization', bearer(user))
+        .send({ startsAt, endsAt, procedureName: 'Consulta' })
+        .expect(201);
+
+      return body(response).id as string;
+    };
+
+    // The seed migration creates this system category, but resetDatabase's
+    // TRUNCATE ... CASCADE wipes it along with everything that references
+    // "user". Without it a leaking /complete would fail with a 500 instead of
+    // posting revenue, and the "no entry was posted" check would prove nothing.
+    beforeEach(async () => {
+      await prisma.financialCategory.create({
+        data: {
+          userId: null,
+          name: 'Professional fees',
+          nature: 'INCOME',
+          defaultScope: 'PROFESSIONAL',
+        },
+      });
+    });
+
+    it('does not let one account conflict-check against another account schedule', async () => {
+      await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .get('/appointments/check-conflict')
+        .query({
+          startsAt: '2026-09-25T13:00:00.000Z',
+          endsAt: '2026-09-25T14:00:00.000Z',
+        })
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      expect(body(response)).toEqual({ conflict: false });
+    });
+
+    it('refuses to update another account appointment, and leaves it untouched', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}`)
+        .set('Authorization', bearer(bruno))
+        .send({ procedureName: 'Renomeado pelo Bruno' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.procedureName).toBe('Consulta');
+    });
+
+    it('refuses to complete another account appointment, and posts no revenue', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}/complete`)
+        .set('Authorization', bearer(bruno))
+        .send({ amount: 250 })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.status).toBe('SCHEDULED');
+      expect(stored.amount).toBeNull();
+      expect(await prisma.financialEntry.count()).toBe(0);
+    });
+
+    it('refuses to cancel another account appointment, and posts no revenue', async () => {
+      const anaAppointment = await createAppointment(
+        ana,
+        '2026-09-25T13:00:00.000Z',
+        '2026-09-25T14:00:00.000Z',
+      );
+
+      const response = await request(http)
+        .patch(`/appointments/${anaAppointment}/cancel`)
+        .set('Authorization', bearer(bruno))
+        .send({ reason: 'Patient did not attend' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
+
+      const stored = await prisma.appointment.findUniqueOrThrow({
+        where: { id: anaAppointment },
+      });
+      expect(stored.status).toBe('SCHEDULED');
+      expect(stored.notes).toBeNull();
+      expect(await prisma.financialEntry.count()).toBe(0);
+    });
+  });
+
   describe('users', () => {
     it('keeps each account terms consent to itself', async () => {
       await request(http)
