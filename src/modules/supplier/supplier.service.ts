@@ -12,6 +12,11 @@ function escapeLike(term: string): string {
   return term.replace(/[\\%_]/g, match => `\\${match}`);
 }
 
+// The alphanumeric CNPJ (July 2026) has letters too.
+function unmask(taxId: string): string {
+  return taxId.replace(/[^0-9a-z]/gi, '').toUpperCase();
+}
+
 @Injectable()
 export class SupplierService {
   constructor(private readonly supplierRepository: SupplierRepository) {}
@@ -34,6 +39,26 @@ export class SupplierService {
       query.limit,
     );
     return suppliers.map(supplier => this.sanitize(supplier));
+  }
+
+  /**
+   * The supplier a document names by its CNPJ. Compared without the mask: a
+   * tax id typed before the digits-only rule may still carry one.
+   */
+  async findIdByTaxId(
+    userId: string,
+    taxId: string,
+  ): Promise<string | undefined> {
+    const suppliers = await this.supplierRepository.findMany({
+      userId,
+      active: true,
+      deletedAt: null,
+      taxId: { not: null },
+    });
+    const wanted = unmask(taxId);
+    return suppliers.find(
+      supplier => supplier.taxId && unmask(supplier.taxId) === wanted,
+    )?.id;
   }
 
   async create(

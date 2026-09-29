@@ -44,6 +44,11 @@ export const ERROR_CODES = [
   // supplier
   'DUPLICATED_SUPPLIER_NAME',
 
+  // client
+  'CLIENT_NOT_FOUND',
+  'DUPLICATED_CLIENT_NAME',
+  'DUPLICATED_CLIENT_TAX_ID',
+
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
@@ -64,8 +69,37 @@ export const ERROR_CODES = [
   'ITEM_LOT_NOT_FOUND',
   'STOCK_APPOINTMENT_ID_REQUIRED',
   'STOCK_PURCHASE_ORDER_ID_REQUIRED',
+  // The clientGeneratedId was already used for a different movement (another
+  // appointment, item or quantity): a retry must resend the same line.
+  'STOCK_MOVEMENT_CLIENT_ID_CONFLICT',
+  // Not a supply of this appointment: missing, another account's, another
+  // appointment's, or not an APPOINTMENT consumption (e.g. a reversal).
+  'STOCK_MOVEMENT_NOT_FOUND',
+  // The supply was already corrected (edited or removed): the app must work
+  // on the movement that replaced it.
+  'STOCK_MOVEMENT_ALREADY_REVERSED',
 
-  // seu módulo entra aqui
+  // appointments
+  'APPOINTMENT_NOT_FOUND',
+  'APPOINTMENT_INVALID_INTERVAL',
+  'APPOINTMENT_TIME_CONFLICT',
+  // The transition needs a SCHEDULED appointment: it was already completed or
+  // canceled. Shared with the /cancel endpoint (US08 subtask 2).
+  'APPOINTMENT_NOT_SCHEDULED',
+  // Supplies cannot be registered on a canceled appointment: the procedure did
+  // not happen, so nothing was consumed (US06).
+  'APPOINTMENT_CANCELED',
+
+  // stock-entry (purchase invoices)
+  'INVOICE_NOT_FOUND',
+  'INVOICE_NOT_EDITABLE',
+  'INVOICE_FILE_DUPLICATED',
+  'INVOICE_FILE_TOO_LARGE',
+  // The app said the upload finished, but HeadObject found no object: it
+  // reissues the presigned POST and resends, without losing the draft.
+  'INVOICE_UPLOAD_NOT_FINISHED',
+  // The object is there, but does not match what was declared and signed.
+  'INVOICE_UPLOAD_MISMATCH',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

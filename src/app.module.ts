@@ -6,9 +6,13 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
+import { StorageModule } from './infra/storage';
+import { AppointmentsModule } from './modules/appointments';
 import { AuthModule } from './modules/auth';
+import { ClientModule } from './modules/client';
 import { ItemModule } from './modules/item/item.module';
 import { StockMovementsModule } from './modules/stock-movements';
+import { StockEntryModule } from './modules/stock-entry';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { UsersModule } from './modules/users/users.module';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
@@ -32,11 +36,15 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
     SharedAuthModule,
+    StorageModule,
     UsersModule,
     ItemModule,
     SupplierModule,
+    ClientModule,
     AuthModule,
     StockMovementsModule,
+    AppointmentsModule,
+    StockEntryModule,
   ],
   controllers: [AppController],
   // The guard is assembled here, and not in SharedAuthModule, because this is
