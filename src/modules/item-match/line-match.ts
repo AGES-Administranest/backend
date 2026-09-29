@@ -1,7 +1,15 @@
+import { MeasurementUnit } from '@prisma/client';
+
 /** Why a line came linked or preselected; `purchase_invoice_line.match_reason`. */
 export type MatchReason = 'ALIAS' | 'FUZZY';
 
-export type MatchCandidate = { itemId: string; name: string; score: number };
+/** `unit` is what the line's quantity is counted in once linked (§3.4). */
+export type MatchCandidate = {
+  itemId: string;
+  name: string;
+  unit: MeasurementUnit;
+  score: number;
+};
 
 export type LineMatch = {
   /**

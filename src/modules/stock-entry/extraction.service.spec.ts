@@ -36,7 +36,14 @@ const PRESELECTED: LineMatch = {
   itemId: 'propofol',
   reason: 'FUZZY',
   confidence: 0.912,
-  candidates: [{ itemId: 'propofol', name: 'Propofol 1% 20ml', score: 0.912 }],
+  candidates: [
+    {
+      itemId: 'propofol',
+      name: 'Propofol 1% 20ml',
+      unit: 'VIAL',
+      score: 0.912,
+    },
+  ],
 };
 
 class FakeExtractor {

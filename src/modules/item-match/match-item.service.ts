@@ -10,14 +10,14 @@ import { normalize } from './domain/normalize';
 import { ItemAliasLookup } from './item-alias-lookup';
 import { LineMatch, MatchCandidate } from './line-match';
 import { MatchSettings } from './match-settings';
-import { ItemService } from '../item';
+import { ItemCatalogEntry, ItemService } from '../item';
 
 /** What every line of one document is matched against. */
 type MatchContext = {
   userId: string;
   supplierId?: string;
   catalog: PreparedCatalog;
-  itemNames: Map<string, string>;
+  items: Map<string, ItemCatalogEntry>;
 };
 
 /** Alias, then text and measures against the user's catalog (US10 §4.4). */
@@ -39,7 +39,7 @@ export class MatchItemService {
       userId,
       supplierId,
       catalog: prepareCatalog(items),
-      itemNames: new Map(items.map(item => [item.id, item.name])),
+      items: new Map(items.map(item => [item.id, item])),
     };
     return Promise.all(
       descriptions.map(description => this.matchLine(description, context)),
@@ -54,15 +54,23 @@ export class MatchItemService {
       rankCandidates(context.catalog, description),
       this.settings,
     );
-    const shown = candidates.map(({ id, score }): MatchCandidate => ({
-      itemId: id,
-      name: context.itemNames.get(id) ?? '',
-      score: round(score),
-    }));
+    const shown = candidates.flatMap(({ id, score }): MatchCandidate[] => {
+      const item = context.items.get(id);
+      return item
+        ? [
+            {
+              itemId: id,
+              name: item.name,
+              unit: item.unit,
+              score: round(score),
+            },
+          ]
+        : [];
+    });
 
     const aliasedItemId = await this.findAlias(description, context);
     // An alias to an item deleted since is ignored.
-    if (aliasedItemId && context.itemNames.has(aliasedItemId)) {
+    if (aliasedItemId && context.items.has(aliasedItemId)) {
       return {
         decision: 'linked',
         itemId: aliasedItemId,

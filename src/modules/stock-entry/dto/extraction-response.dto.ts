@@ -1,5 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ExtractionFailureReason, ExtractionStatus } from '@prisma/client';
+import {
+  ExtractionFailureReason,
+  ExtractionStatus,
+  MeasurementUnit,
+} from '@prisma/client';
 
 export class MatchCandidateDto {
   @ApiProperty({ format: 'uuid' })
@@ -7,6 +11,12 @@ export class MatchCandidateDto {
 
   @ApiProperty({ example: 'Propofol 10mg/mL - frasco ampola 20mL' })
   name!: string;
+
+  @ApiProperty({
+    enum: MeasurementUnit,
+    description: "The line's quantity is counted in this unit once linked",
+  })
+  unit!: MeasurementUnit;
 
   @ApiProperty({ example: 0.912 })
   score!: number;
