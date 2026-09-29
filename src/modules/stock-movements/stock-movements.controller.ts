@@ -25,9 +25,19 @@ import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
 import { CreateStockCountDto } from './dto/create-stock-count.dto';
 import { CreateStockPurchaseDto } from './dto/create-stock-purchase.dto';
 import { QueryStockMovementDto } from './dto/query-stock-movement.dto';
+import { QueryStockSummaryDto } from './dto/query-stock-summary.dto';
+import {
+  QueryStockSyncDto,
+  SyncStockMovementsDto,
+} from './dto/sync-stock-movement.dto';
 import { StockBalanceReconciliationEntity } from './entities/stock-balance-reconciliation.entity';
 import { StockMovementResultEntity } from './entities/stock-movement-result.entity';
 import { StockMovementEntity } from './entities/stock-movement.entity';
+import { StockSummaryEntity } from './entities/stock-summary.entity';
+import {
+  StockSyncPullEntity,
+  StockSyncPushEntity,
+} from './entities/stock-sync.entity';
 import { StockMovementsService } from './stock-movements.service';
 import { CurrentUser } from '../../shared/auth';
 // `import type` is required by `emitDecoratorMetadata` on a decorated signature.
@@ -52,6 +62,74 @@ export class StockMovementsController {
     @Query() query: QueryStockMovementDto,
   ) {
     return this.stockMovementsService.findHistory(user.id, query);
+  }
+
+  @Get('summary')
+  @ApiOperation({
+    summary: 'What moved over a period, and what it was worth',
+    description:
+      'Totals in and out, consumption grouped by procedure, adjustments grouped ' +
+      'by reason, and the value of each block. Naming an item adds the balance ' +
+      'it opened the period with and the one it closed with — computed from the ' +
+      'movements before the period, not from the balance it carries today.',
+  })
+  @ApiOkResponse({ type: StockSummaryEntity })
+  @ApiBadRequestResponse({ description: 'Missing or inverted period' })
+  @ApiNotFoundResponse({ description: 'Item not found' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  summary(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryStockSummaryDto,
+  ) {
+    return this.stockMovementsService.buildSummary(user.id, query);
+  }
+
+  @Get('sync')
+  @ApiOperation({
+    summary: 'Delta of everything written to the ledger since a cursor',
+    description:
+      'For a device coming back online. Answers with the movements plus the ' +
+      'current balance of every item they touched, so the app does not have to ' +
+      'replay its local history to know where it stands. The cursor it returns ' +
+      'is what the next pull should send.',
+  })
+  @ApiOkResponse({ type: StockSyncPullEntity })
+  @ApiBadRequestResponse({ description: 'Missing or malformed cursor' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  syncPull(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryStockSyncDto,
+  ) {
+    return this.stockMovementsService.syncPull(user.id, query);
+  }
+
+  @Post('sync')
+  @ApiOperation({
+    summary: 'Push a batch of movements recorded while offline',
+    description:
+      'Idempotent by the device-generated id (ADR-09): re-sending a batch that ' +
+      'was half delivered applies only what is missing. Movements are applied ' +
+      'in occurredAt order, not arrival order, and one that would leave the ' +
+      'balance negative is kept — the consumption did happen — with the item ' +
+      'flagged for a count.',
+  })
+  @ApiCreatedResponse({ type: StockSyncPushEntity })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid payload, empty batch, or an origin that cannot exist offline',
+  })
+  @ApiNotFoundResponse({
+    description: 'An item in the batch does not exist yet — sync items first',
+  })
+  @ApiConflictResponse({
+    description: 'A movement id already belongs to another account',
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  syncPush(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SyncStockMovementsDto,
+  ) {
+    return this.stockMovementsService.syncPush(user.id, dto);
   }
 
   @Post('adjustment')

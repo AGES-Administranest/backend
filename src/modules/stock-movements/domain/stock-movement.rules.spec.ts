@@ -6,6 +6,8 @@ import {
 } from '@prisma/client';
 
 import {
+  CLOCK_SKEW_TOLERANCE_MS,
+  assertNotInTheFuture,
   assertPositiveQuantity,
   assertSufficientBalance,
   assertValidMovement,
@@ -356,6 +358,43 @@ describe('stock-movement rules', () => {
         allowNegativeBalance: false,
       });
       expect(result.toString()).toBe('0');
+    });
+  });
+
+  describe('assertNotInTheFuture', () => {
+    const now = Date.parse('2026-09-28T12:00:00Z');
+
+    it('accepts a movement dated now or earlier', () => {
+      expect(() =>
+        assertNotInTheFuture(new Date(now - 1000), { now }),
+      ).not.toThrow();
+    });
+
+    it('rejects one dated beyond the tolerance', () => {
+      const error = catchDomainError(() =>
+        assertNotInTheFuture(new Date(now + 60_000), { now }),
+      );
+      expect(error.code).toBe('STOCK_MOVEMENT_DATE_IN_FUTURE');
+      expect(error.kind).toBe('INVALID_INPUT');
+    });
+
+    it('allows drift inside the tolerance a device is entitled to', () => {
+      expect(() =>
+        assertNotInTheFuture(new Date(now + 60_000), {
+          now,
+          toleranceMs: CLOCK_SKEW_TOLERANCE_MS,
+        }),
+      ).not.toThrow();
+    });
+
+    it('still rejects a leap that no clock drift explains', () => {
+      const error = catchDomainError(() =>
+        assertNotInTheFuture(new Date(Date.parse('2099-01-01T00:00:00Z')), {
+          now,
+          toleranceMs: CLOCK_SKEW_TOLERANCE_MS,
+        }),
+      );
+      expect(error.code).toBe('STOCK_MOVEMENT_DATE_IN_FUTURE');
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   AdjustmentReason,
   Item,
@@ -8,7 +8,9 @@ import {
 } from '@prisma/client';
 
 import {
+  CLOCK_SKEW_TOLERANCE_MS,
   type DecimalInput,
+  assertNotInTheFuture,
   assertPositiveQuantity,
   assertSufficientBalance,
   assertValidMovement,
@@ -16,13 +18,26 @@ import {
   movementForDelta,
   stockBalance,
 } from './domain/stock-movement.rules';
+import {
+  adjustmentsByReason,
+  consumptionByProcedure,
+  directionTotals,
+  itemPeriodBalance,
+} from './domain/stock-summary.rules';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
 import { CreateStockCountDto } from './dto/create-stock-count.dto';
 import { CreateStockPurchaseDto } from './dto/create-stock-purchase.dto';
 import { QueryStockMovementDto } from './dto/query-stock-movement.dto';
+import { QueryStockSummaryDto } from './dto/query-stock-summary.dto';
+import {
+  QueryStockSyncDto,
+  SyncStockMovementDto,
+  SyncStockMovementsDto,
+} from './dto/sync-stock-movement.dto';
 import { StockBalanceReconciliationEntity } from './entities/stock-balance-reconciliation.entity';
 import { StockMovementResultEntity } from './entities/stock-movement-result.entity';
 import { StockMovementEntity } from './entities/stock-movement.entity';
+import { StockSummaryEntity } from './entities/stock-summary.entity';
 import {
   StockSyncPullEntity,
   StockSyncPushEntity,
@@ -36,13 +51,8 @@ import { InvalidReferenceError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 /**
- * Decides, inside the ledger's transaction and row lock, which lot the movement
- * belongs to — creating it or topping it up on the way.
- *
- * This is how receiving a lot stays a single write path: the caller owns the
- * lot rules (which expiration date joins which lot), the ledger owns the
- * movement and the balance, and both land in one transaction. `unitCost`
- * overrides the input's when the lot already exists and carries its own price.
+ * Creates or tops up the lot, inside the ledger's transaction and row lock.
+ * `unitCost` overrides the input's when the lot already carries its own price.
  */
 export type LotResolver = (
   tx: Prisma.TransactionClient,
@@ -50,14 +60,10 @@ export type LotResolver = (
 
 /** Everything the central ledger needs to record one movement. */
 export interface RecordMovementInput {
-  /**
-   * Only set when the movement was created on a device (ADR-09). The server
-   * generates it otherwise. It is what makes a re-sent batch idempotent.
-   */
+  /** Set only for movements created on a device (ADR-09); makes a resend idempotent. */
   id?: string;
   itemId: string;
   lotId?: string | null;
-  /** Alternative to `lotId` when the lot is created by this very movement. */
   resolveLot?: LotResolver;
   type: StockMovementType;
   source: StockMovementSource;
@@ -84,33 +90,18 @@ export interface RecordMovementResult {
 }
 
 export interface RecordOptions {
-  /**
-   * Lets an outbound drive the balance below zero. The US10 correction reversal
-   * is the reason this exists: it undoes stock that was never physically there,
-   * so it has to go through even though the result is negative. Off by default.
-   */
+  /** Lets an outbound go below zero — the US10 correction reversal needs it. */
   allowNegativeBalance?: boolean;
-  /**
-   * Turns `item.needsAdjustment` back off when the resulting balance is not
-   * negative. Only the physical count sets this: an ordinary movement does not
-   * answer the question the flag is asking.
-   */
+  /** Clears `needsAdjustment` when the balance is not negative. Only the count sets it. */
   clearsNeedsAdjustment?: boolean;
-  /**
-   * Extra columns to merge into the item's single UPDATE, decided inside the
-   * lock. Used by the manual purchase to carry the new unit cost.
-   */
+  /** Extra columns merged into the item's single UPDATE, decided inside the lock. */
   itemPatch?: (
     tx: Prisma.TransactionClient,
     context: { movement: MovementWithContext; lockedItem: Item },
   ) => Promise<Prisma.ItemUncheckedUpdateInput>;
 }
 
-/**
- * A movement recorded on a device. Same shape as any other, except the id is
- * not optional: it is the device's UUID (ADR-09) and the only thing that makes
- * re-sending the batch safe.
- */
+/** A movement recorded on a device: same shape, but the id is required (ADR-09). */
 export interface SyncMovementInput extends RecordMovementInput {
   id: string;
 }
@@ -124,11 +115,9 @@ interface PreparedMovement extends RecordMovementInput {
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * How far back the pull cursor is rewound, per ADR-08: a row written inside a
- * transaction that commits late carries an earlier `createdAt` than rows
- * already handed out, and a strict cursor would step over it forever. Re-sending
- * a few seconds of overlap costs nothing here, because the device applies
- * movements by id and a repeat is a no-op.
+ * ADR-08: a transaction that commits late carries an earlier `createdAt` than
+ * rows already handed out, so a strict cursor would skip it forever. The
+ * overlap re-sends a few seconds; the device applies by id, so a repeat is free.
  */
 const SYNC_CURSOR_OVERLAP_MS = 5_000;
 
@@ -136,23 +125,24 @@ const SYNC_CURSOR_OVERLAP_MS = 5_000;
 const SYNC_PULL_LIMIT = 500;
 
 /**
- * The stock ledger's single write path.
+ * The stock ledger's single write path (ADR-10).
  *
  * `record` and `recordBatch` are the only places a `stock_movement` row is
- * created. They persist the movement, recompute the balance from the ledger,
- * refresh the `item.currentQuantity` cache, run the minimum-stock check and
- * flip `needsAdjustment` when the balance goes negative (ADR-10, US10). Every
- * use case — the manual adjustment and purchase here, the appointment and
- * import flows later — goes through them, which is what keeps the sum of the
- * history and the cached balance from ever disagreeing.
+ * created: they write the movement, recompute the balance from the ledger,
+ * refresh the `item.currentQuantity` cache and flip `needsAdjustment` when the
+ * balance goes negative. Every stock flow goes through them, which is what
+ * keeps the sum of the history and the cached balance from disagreeing.
  *
- * Knows nothing about HTTP: failures are `DomainError` (ADR-07).
+ * Failures are `DomainError` (ADR-07).
  */
 @Injectable()
 export class StockMovementsService {
+  /** Offline sync fails silently into a wrong balance; these lines are the trail. */
+  private readonly logger = new Logger(StockMovementsService.name);
+
   constructor(private readonly repository: StockMovementsRepository) {}
 
-  /** Records one movement. A batch of one, with the same guarantees. */
+  /** One movement — a batch of one, with the same guarantees. */
   async record(
     userId: string,
     input: RecordMovementInput,
@@ -163,13 +153,9 @@ export class StockMovementsService {
   }
 
   /**
-   * Records several movements atomically — the items of one appointment, the
-   * lines of one received order.
-   *
-   * All of it lands or none of it does: one transaction, every item row locked
-   * up front, and the balance of an item that appears more than once carried
-   * forward between its own movements so the third line sees what the first two
-   * did. An item left short by line 3 rolls back lines 1 and 2 with it.
+   * Several movements atomically — the items of one appointment, the lines of
+   * one received order. One transaction, every item row locked up front, and
+   * the balance of a repeated item carried forward between its own movements.
    */
   async recordBatch(
     userId: string,
@@ -190,16 +176,9 @@ export class StockMovementsService {
       this.repository.withLockedItems(
         prepared.map(input => input.itemId),
         async (tx, lockedItems) => {
-          /** Balance per item as the batch walks through it. */
           const balances = new Map<string, Prisma.Decimal>();
-          /**
-           * The flag as the batch walks through it, so a movement that digs
-           * into the red still leaves the item marked even if a later line of
-           * the same batch brings the balance back up. Reading `lockedItem`
-           * every time would report an alert the stored row then contradicts.
-           */
+          /** Carried forward: a line that digs into the red keeps the item marked. */
           const flags = new Map<string, boolean>();
-          /** The single UPDATE each touched item gets at the end. */
           const patches = new Map<string, Prisma.ItemUncheckedUpdateInput>();
           const results: RecordMovementResult[] = [];
 
@@ -213,9 +192,7 @@ export class StockMovementsService {
               throw this.itemNotFound(input.itemId);
             }
 
-            // The lot is settled first: it has to exist before the movement can
-            // point at it, and the caller's rules for it belong inside this
-            // lock too.
+            // The lot has to exist before the movement can point at it.
             const lot = input.resolveLot ? await input.resolveLot(tx) : null;
             const resolved: PreparedMovement = {
               ...input,
@@ -302,8 +279,7 @@ export class StockMovementsService {
       ...(query.itemId ? { itemId: query.itemId } : {}),
       ...(query.type ? { type: query.type } : {}),
       ...(query.source?.length ? { source: { in: query.source } } : {}),
-      // Shorter than two characters matches almost everything, so it is not a
-      // filter — same threshold `GET /item` uses.
+      // Under two characters is not a filter — same threshold as `GET /item`.
       ...(query.search && query.search.length >= 2
         ? {
             item: {
@@ -333,11 +309,85 @@ export class StockMovementsService {
   }
 
   /**
-   * US11: a manual outbound adjustment — something was lost, expired, broke.
+   * US12: what moved over a period, and what it was worth.
    *
-   * The screen sends what it knows (which item, how much, why). Direction,
-   * origin, cost and timestamp are decided here: a loss is not an event the
-   * client gets to price or backdate.
+   * Aggregated in Node, not SQL: grouping by procedure means folding case and
+   * accents on a free-text column of a joined table. The rows still arrive in
+   * one query with the origins joined, so this is O(1) round trips.
+   */
+  async buildSummary(
+    userId: string,
+    query: QueryStockSummaryDto,
+  ): Promise<StockSummaryEntity> {
+    const periodStart = startOfPeriod(query.periodStart);
+    const periodEnd = endOfPeriod(query.periodEnd);
+
+    if (periodStart > periodEnd) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'INVALID_REQUEST',
+        'periodStart must not be after periodEnd',
+        { periodStart: query.periodStart, periodEnd: query.periodEnd },
+      );
+    }
+
+    const movements = await this.repository.findForSummary({
+      userId,
+      deletedAt: null,
+      occurredAt: { gte: periodStart, lte: periodEnd },
+      ...(query.itemId ? { itemId: query.itemId } : {}),
+    });
+
+    const { inbound, outbound } = directionTotals(movements);
+    const adjustments = adjustmentsByReason(movements);
+    const expired = adjustments.find(
+      group => group.reason === AdjustmentReason.EXPIRATION,
+    );
+
+    return {
+      periodStart,
+      periodEnd,
+      inbound,
+      outbound,
+      byProcedure: consumptionByProcedure(movements),
+      adjustments,
+      expiredValue: expired?.value ?? '0',
+      item: query.itemId
+        ? await this.itemPeriodSummary(
+            userId,
+            query.itemId,
+            periodStart,
+            movements,
+          )
+        : null,
+    };
+  }
+
+  /** The per-item block: where it opened, what moved, where it closed. */
+  private async itemPeriodSummary(
+    userId: string,
+    itemId: string,
+    periodStart: Date,
+    movements: readonly MovementWithContext[],
+  ) {
+    const item = await this.loadItem(userId, itemId);
+    const openingBalance = await this.repository.balanceBefore(
+      userId,
+      itemId,
+      periodStart,
+    );
+
+    return {
+      itemId: item.id,
+      itemName: item.name,
+      unit: item.unit,
+      ...itemPeriodBalance(openingBalance, movements),
+    };
+  }
+
+  /**
+   * US11: a manual outbound adjustment. Direction, origin, cost and timestamp
+   * are decided here — a loss is not an event the client gets to price or backdate.
    */
   async registerAdjustment(
     userId: string,
@@ -351,12 +401,8 @@ export class StockMovementsService {
       source: StockMovementSource.MANUAL_ADJUSTMENT,
       adjustmentReason: dto.reason,
       quantity: dto.quantity,
-      // The cost the item carries today. There is no lot to price a loss
-      // against, and the history needs a number to show.
       unitCost: item.defaultUnitCost ?? new Prisma.Decimal(0),
-      // The server's clock, not the client's: `occurredAt` is when the system
-      // learned about the loss, and letting a phone with a wrong date decide it
-      // would silently reorder the history.
+      // The server's clock: a phone with a wrong date would reorder the history.
       occurredAt: new Date(),
       notes: dto.notes ?? null,
     });
@@ -367,11 +413,9 @@ export class StockMovementsService {
   /**
    * US10: the physical count that closes the `needsAdjustment` loop.
    *
-   * A correction reversal can leave the balance negative — the ledger saying
-   * the inventory was wrong. No outbound can fix that (there is nothing left to
-   * take out), so the only honest input is the number counted on the shelf. The
-   * difference becomes one more movement, in whichever direction it needs to
-   * be: the ledger stays append-only, and the flag comes off.
+   * A negative balance cannot be fixed by an outbound — there is nothing left
+   * to take out — so the input is the number counted on the shelf. The
+   * difference is written as one more movement, in whichever direction it needs.
    */
   async registerCount(
     userId: string,
@@ -410,29 +454,20 @@ export class StockMovementsService {
   }
 
   /**
-   * Manual purchase entry: a purchase typed in by hand, for the cases with no
-   * order or invoice to import (over-the-counter, a supplier that issues no
-   * PDF). The item's cost becomes the price paid — unless this entry is
-   * backdated behind a more recent purchase, which must not have its price
-   * overwritten by older news.
+   * Manual purchase entry, for buys with no order or invoice to import. The
+   * item's cost becomes the price paid, unless this entry is backdated behind a
+   * more recent purchase.
    *
-   * Note: a manual purchase is also an EXPENSE / MANUAL financial event (money
-   * left to buy supplies). US03 owns that; it is intentionally NOT emitted here
-   * until the financial module exists.
+   * The matching EXPENSE entry belongs to US03 and is deliberately not emitted
+   * here until the financial module exists.
    */
   async registerPurchase(
     userId: string,
     dto: CreateStockPurchaseDto,
   ): Promise<StockMovementResultEntity> {
     const occurredAt = new Date(dto.date);
-    if (occurredAt.getTime() > Date.now()) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        'STOCK_MOVEMENT_DATE_IN_FUTURE',
-        'A purchase cannot be dated in the future.',
-        { date: dto.date },
-      );
-    }
+    // No tolerance: this date is typed on a screen, not read off a device clock.
+    assertNotInTheFuture(occurredAt);
 
     const unitCost = new Prisma.Decimal(dto.unitValue);
 
@@ -455,8 +490,7 @@ export class StockMovementsService {
             dto.itemId,
             tx,
           );
-          // The movement just written is already in that maximum, so a tie
-          // means this purchase is the newest one.
+          // The new movement is already in that maximum, so a tie means newest.
           const isLatestPrice =
             latestInbound === null ||
             occurredAt.getTime() >= latestInbound.getTime();
@@ -472,33 +506,52 @@ export class StockMovementsService {
   }
 
   /**
-   * Applies a batch of movements recorded while the device had no connection.
+   * Applies a batch recorded while the device had no connection.
    *
-   * Three things make this different from an ordinary batch:
+   * - Idempotent: ids come from the device (ADR-09), so a half-delivered batch
+   *   can be re-sent whole. Ids already held are reported back, not applied
+   *   again — otherwise a retry takes the same stock out twice.
+   * - Chronological: applied in `occurredAt` order, not arrival order.
+   * - Never refuses a negative balance: the offline consumption did happen, so
+   *   it is recorded and the item flagged for a count.
    *
-   * - **Idempotent.** The ids come from the device (ADR-09), so a batch that was
-   *   half-delivered before the network dropped can be re-sent whole. Ids the
-   *   ledger already holds are reported back, not applied again — the failure
-   *   this prevents is taking the same stock out twice, which nobody notices
-   *   until an appointment runs short.
-   * - **Chronological.** Movements are applied in `occurredAt` order, never in
-   *   the order they happened to arrive.
-   * - **Never refuses a negative balance.** If another device already took that
-   *   stock out, the offline consumption still happened — the answer is to
-   *   record it and flag the item for a count, not to pretend it did not.
-   *
-   * Movements referencing an item that only exists on the device fail the whole
-   * batch with `ITEM_NOT_FOUND`: items have to be synced before movements.
+   * An item that exists only on the device fails the whole batch with
+   * `ITEM_NOT_FOUND`: items sync before movements.
    */
   async syncPush(
     userId: string,
-    movements: readonly SyncMovementInput[],
+    dto: SyncStockMovementsDto,
   ): Promise<StockSyncPushEntity> {
-    if (movements.length === 0) {
+    if (dto.movements.length === 0) {
       throw new DomainError(
         'INVALID_INPUT',
         'STOCK_MOVEMENT_BATCH_EMPTY',
         'A sync batch needs at least one movement',
+      );
+    }
+
+    const movements = dto.movements.map(movement => this.toSyncInput(movement));
+
+    // ADR-08, first trap: a wrong phone clock. `occurredAt` decides the apply
+    // order, so a movement dated next year would sit at the top for good.
+    for (const movement of movements) {
+      assertNotInTheFuture(movement.occurredAt, {
+        toleranceMs: CLOCK_SKEW_TOLERANCE_MS,
+      });
+    }
+
+    // Importing a purchase order needs the network to begin with (US10), so a
+    // device can never have recorded one offline. Refusing it here keeps a
+    // confused client from inventing order entries through the sync door.
+    const online = movements.find(
+      movement => movement.source === StockMovementSource.ORDER_IMPORT,
+    );
+    if (online) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'STOCK_SYNC_SOURCE_NOT_ALLOWED',
+        'ORDER_IMPORT movements cannot be recorded offline — importing an order requires a connection',
+        { id: online.id, source: online.source },
       );
     }
 
@@ -522,8 +575,7 @@ export class StockMovementsService {
 
     const pending = movements
       .filter(movement => !alreadyMine.has(movement.id))
-      // Chronological, with the id breaking ties so the same batch always
-      // applies in the same order.
+      // Chronological; the id breaks ties so a batch always applies in one order.
       .sort(
         (a, b) =>
           a.occurredAt.getTime() - b.occurredAt.getTime() ||
@@ -541,31 +593,46 @@ export class StockMovementsService {
       ...new Set(movements.map(movement => movement.itemId)),
     ];
 
+    const flagged = [
+      ...new Set(
+        applied
+          .filter(result => result.needsAdjustment)
+          .map(result => result.movement.itemId),
+      ),
+    ];
+
+    this.logger.log(
+      `sync push user=${userId} sent=${movements.length} ` +
+        `applied=${applied.length} duplicated=${alreadyMine.size} ` +
+        `items=${touchedItems.length}`,
+    );
+    if (flagged.length > 0) {
+      // A warning, not a log line: the inventory now needs a human to count it.
+      this.logger.warn(
+        `sync push user=${userId} left ${flagged.length} item(s) negative, ` +
+          `flagged for a count: ${flagged.join(', ')}`,
+      );
+    }
+
     return {
       applied: applied.map(result => this.sanitize(result.movement)),
       duplicated: movements
         .filter(movement => alreadyMine.has(movement.id))
         .map(movement => movement.id),
       balances: await this.itemBalances(userId, touchedItems),
-      needsAdjustment: [
-        ...new Set(
-          applied
-            .filter(result => result.needsAdjustment)
-            .map(result => result.movement.itemId),
-        ),
-      ],
+      needsAdjustment: flagged,
     };
   }
 
   /**
-   * Everything written to the ledger since the device's cursor, plus where each
-   * affected item now stands.
-   *
-   * The balances ride along on purpose: without them the device would have to
-   * replay its entire local history to work out a single item's quantity, and
-   * any gap in that history would go unnoticed.
+   * Everything written since the device's cursor, plus where each affected item
+   * now stands — the balances spare the device replaying its whole local history.
    */
-  async syncPull(userId: string, since: Date): Promise<StockSyncPullEntity> {
+  async syncPull(
+    userId: string,
+    query: QueryStockSyncDto,
+  ): Promise<StockSyncPullEntity> {
+    const since = new Date(query.since);
     const from = new Date(since.getTime() - SYNC_CURSOR_OVERLAP_MS);
     const movements = await this.repository.findCreatedAfter(
       userId,
@@ -576,12 +643,38 @@ export class StockMovementsService {
     const touchedItems = [...new Set(movements.map(m => m.itemId))];
     const latest = movements.at(-1)?.createdAt;
 
+    this.logger.log(
+      `sync pull user=${userId} since=${since.toISOString()} ` +
+        `movements=${movements.length} items=${touchedItems.length}` +
+        (movements.length === SYNC_PULL_LIMIT
+          ? ' (page full, more to come)'
+          : ''),
+    );
+
     return {
       movements: movements.map(movement => this.sanitize(movement)),
       balances: await this.itemBalances(userId, touchedItems),
-      // A full page means there is more to come: the device should pull again
-      // from here rather than assume it is up to date.
       cursor: latest ?? since,
+      // Told, not inferred: the device cannot see the limit it would compare against.
+      hasMore: movements.length === SYNC_PULL_LIMIT,
+    };
+  }
+
+  /** Wire shape to ledger input. */
+  private toSyncInput(movement: SyncStockMovementDto): SyncMovementInput {
+    return {
+      id: movement.id,
+      itemId: movement.itemId,
+      lotId: movement.lotId ?? null,
+      type: movement.type,
+      source: movement.source,
+      quantity: movement.quantity,
+      unitCost: movement.unitCost,
+      occurredAt: new Date(movement.occurredAt),
+      adjustmentReason: movement.adjustmentReason ?? null,
+      appointmentId: movement.appointmentId ?? null,
+      supplierId: movement.supplierId ?? null,
+      notes: movement.notes ?? null,
     };
   }
 
@@ -600,10 +693,8 @@ export class StockMovementsService {
   }
 
   /**
-   * Verification/support routine, not part of the write path: recomputes an
-   * item's balance from the full movement history and reconciles
-   * `item.currentQuantity` if it drifted. Useful in tests, and in support when
-   * investigating a suspected divergence between the ledger and the cache.
+   * Support routine, not part of the write path: recomputes the balance from
+   * the full history and reconciles `item.currentQuantity` if it drifted.
    */
   reconcileItemBalance(
     userId: string,
@@ -635,8 +726,7 @@ export class StockMovementsService {
             itemId,
             {
               currentQuantity: reconciledBalance,
-              // A negative balance always means "count this item". The flag is
-              // never cleared here: only the user's count answers it.
+              // Never cleared here: only the user's count answers the flag.
               ...(balanceRequiresAdjustment(reconciledBalance)
                 ? { needsAdjustment: true }
                 : {}),
@@ -660,7 +750,6 @@ export class StockMovementsService {
     return item;
   }
 
-  /** Normalizes and validates an input before anything is written. */
   private prepare(input: RecordMovementInput): PreparedMovement {
     assertValidMovement({
       type: input.type,
@@ -680,9 +769,8 @@ export class StockMovementsService {
   }
 
   /**
-   * A foreign key proves the row exists, not that it belongs to whoever is
-   * writing. Without this, a caller could staple its movement to another
-   * account's appointment or purchase order (ADR-11).
+   * A foreign key proves the row exists, not that it belongs to the caller —
+   * without this a movement could point at another account's appointment (ADR-11).
    */
   private async assertReferencesExist(
     tx: Prisma.TransactionClient,
@@ -746,11 +834,7 @@ export class StockMovementsService {
     }
   }
 
-  /**
-   * US10. Turning the flag on is automatic — a negative balance is always
-   * something to count. Turning it off is not: it is workflow state, and only
-   * the count the user actually performed answers it.
-   */
+  /** US10: turning the flag on is automatic; only the user's count turns it off. */
   private nextNeedsAdjustment(
     current: boolean,
     balance: Prisma.Decimal,
@@ -768,11 +852,8 @@ export class StockMovementsService {
   }
 
   /**
-   * Prisma reports a broken foreign key long after the check that should have
-   * caught it. Everything reachable is validated up front; this is the backstop
-   * for a race (the appointment deleted between the check and the insert), and
-   * it keeps that case a 422 instead of a 500 — same handling `ItemService` and
-   * `SupplierService` give it.
+   * Backstop for a race the up-front checks cannot catch (a reference deleted
+   * between check and insert): keeps it a 422 instead of a 500, like `ItemService`.
    */
   private async runLedgerWrite<T>(write: () => Promise<T>): Promise<T> {
     try {
@@ -803,11 +884,7 @@ export class StockMovementsService {
     };
   }
 
-  /**
-   * Model to entity. `Decimal` columns leave as strings, the convention the
-   * rest of the API follows: `10.005` does not survive a round trip through a
-   * JavaScript number, and stock arithmetic is where that shows.
-   */
+  /** `Decimal` leaves as string: `10.005` does not survive a JavaScript number. */
   private sanitize(movement: MovementWithContext): StockMovementEntity {
     return {
       id: movement.id,
@@ -821,6 +898,7 @@ export class StockMovementsService {
       adjustmentReason: movement.adjustmentReason,
       quantity: movement.quantity.toString(),
       unitCost: movement.unitCost.toString(),
+      totalValue: movement.quantity.times(movement.unitCost).toString(),
       occurredAt: movement.occurredAt,
       appointmentId: movement.appointmentId,
       purchaseOrderId: movement.purchaseOrderId,
@@ -831,6 +909,16 @@ export class StockMovementsService {
             procedureName: movement.appointment.procedureName,
             patientName: movement.appointment.patientName,
           }
+        : null,
+      purchaseOrder: movement.purchaseOrder
+        ? {
+            id: movement.purchaseOrder.id,
+            number: movement.purchaseOrder.number,
+            status: movement.purchaseOrder.status,
+          }
+        : null,
+      supplier: movement.supplier
+        ? { id: movement.supplier.id, name: movement.supplier.name }
         : null,
       notes: movement.notes,
     };
@@ -850,11 +938,7 @@ function escapeLike(term: string): string {
   return term.replace(/[\\%_]/g, match => `\\${match}`);
 }
 
-/**
- * A calendar date has no time and no zone. Read as UTC it covers the whole day
- * the user picked on the calendar; pass a full timestamp with an offset when
- * the exact instant matters.
- */
+/** A calendar date has no zone: read as UTC it covers the whole day picked. */
 function startOfPeriod(value: string): Date {
   return new Date(CALENDAR_DATE.test(value) ? `${value}T00:00:00.000Z` : value);
 }
@@ -866,7 +950,6 @@ function endOfPeriod(value: string): Date {
 /** Used when an appointment has neither a procedure nor a patient recorded. */
 const UNLABELLED_APPOINTMENT = 'Atendimento';
 
-/** "procedure — patient", with whichever of the two the appointment has. */
 function appointmentLabel(appointment: {
   procedureName: string | null;
   patientName: string | null;

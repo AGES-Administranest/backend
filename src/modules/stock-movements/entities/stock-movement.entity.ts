@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   AdjustmentReason,
   MeasurementUnit,
+  PurchaseOrderStatus,
   StockMovementSource,
   StockMovementType,
 } from '@prisma/client';
@@ -27,6 +28,27 @@ export class MovementAppointmentEntity {
 
   @ApiProperty({ nullable: true })
   patientName!: string | null;
+}
+
+/** Shown when the movement came from a received purchase order. */
+export class MovementPurchaseOrderEntity {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  number!: string | null;
+
+  @ApiProperty({ enum: PurchaseOrderStatus })
+  status!: PurchaseOrderStatus;
+}
+
+/** Who the stock came from, when the entry records it. */
+export class MovementSupplierEntity {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
 }
 
 /**
@@ -93,6 +115,15 @@ export class StockMovementEntity {
 
   @ApiProperty({
     type: String,
+    example: '39.80',
+    description:
+      'quantity x unitCost, unsigned. The direction is `type` — the screen ' +
+      'decides whether to show it as money in or money out.',
+  })
+  totalValue!: string;
+
+  @ApiProperty({
+    type: String,
     format: 'date-time',
     description: 'ISO 8601 in UTC (trailing Z)',
   })
@@ -106,6 +137,12 @@ export class StockMovementEntity {
 
   @ApiPropertyOptional({ type: MovementAppointmentEntity, nullable: true })
   appointment!: MovementAppointmentEntity | null;
+
+  @ApiPropertyOptional({ type: MovementPurchaseOrderEntity, nullable: true })
+  purchaseOrder!: MovementPurchaseOrderEntity | null;
+
+  @ApiPropertyOptional({ type: MovementSupplierEntity, nullable: true })
+  supplier!: MovementSupplierEntity | null;
 
   @ApiProperty({ nullable: true })
   notes!: string | null;

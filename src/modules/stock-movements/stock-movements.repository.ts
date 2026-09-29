@@ -4,16 +4,17 @@ import { Item, Prisma, StockMovement, StockMovementType } from '@prisma/client';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
-/**
- * What the history endpoint reads besides the movement itself: the item it
- * moved and, when the movement came from an appointment, the appointment the
- * app turns into a link.
- */
+/** The origins the history resolves alongside the movement itself. */
 export const MOVEMENT_HISTORY_INCLUDE = {
   item: { select: { id: true, name: true, unit: true } },
   appointment: {
     select: { id: true, procedureName: true, patientName: true },
   },
+  // US12 asks the history to resolve the origin, not just point at it: an entry
+  // that came from a received order has to say which supplier it came from, or
+  // the screen needs a second round trip to be readable.
+  supplier: { select: { id: true, name: true } },
+  purchaseOrder: { select: { id: true, number: true, status: true } },
 } as const;
 
 export type MovementWithContext = Prisma.StockMovementGetPayload<{
@@ -47,12 +48,7 @@ const LOCKED_ITEM_COLUMNS = Prisma.sql`
 export class StockMovementsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * The only insert into `stock_movement` in the codebase. It returns the row
-   * with its item (and appointment, when there is one) already joined, because
-   * every caller answers with the movement and would otherwise read it straight
-   * back.
-   */
+  /** The only insert into `stock_movement`, with the origins already joined. */
   create(
     data: Prisma.StockMovementUncheckedCreateInput,
     tx?: Prisma.TransactionClient,
@@ -66,12 +62,9 @@ export class StockMovementsRepository {
   }
 
   /**
-   * Which of these ids the ledger already holds, and whose they are.
-   *
-   * Deliberately not scoped by user: a device generates its own UUIDs (ADR-09),
-   * and an id that landed in someone else's account has to be told apart from
-   * one the caller already sent. Treating the two the same would silently drop
-   * a real consumption.
+   * Which of these ids the ledger already holds, and whose. Not scoped by user
+   * on purpose: an id in someone else's account must be told apart from one the
+   * caller already sent, or a real consumption is dropped in silence (ADR-09).
    */
   findOwnersOfIds(
     ids: readonly string[],
@@ -93,6 +86,14 @@ export class StockMovementsRepository {
    * offline on Monday and synced on Friday has to reach the other devices on
    * Friday, and ordering by `occurredAt` would file it behind their cursor and
    * hide it forever.
+   *
+   * Soft-deleted rows are left out: the entity carries no `deletedAt`, so the
+   * device would file one as a live movement.
+   *
+   * KNOWN GAP: if soft delete is ever used here, a device will not learn that a
+   * movement it holds was removed — the row's `createdAt` stays behind the
+   * cursor. Closing it needs a "last changed" column, which an append-only
+   * table has no reason to carry. Solve that before the first soft delete.
    */
   findCreatedAfter(
     userId: string,
@@ -101,7 +102,7 @@ export class StockMovementsRepository {
   ): Promise<MovementWithContext[]> {
     return runQuery(() =>
       this.prisma.stockMovement.findMany({
-        where: { userId, createdAt: { gt: since } },
+        where: { userId, deletedAt: null, createdAt: { gt: since } },
         include: MOVEMENT_HISTORY_INCLUDE,
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take,
@@ -134,11 +135,7 @@ export class StockMovementsRepository {
     );
   }
 
-  /**
-   * When the item last received stock. Used to decide whether a manual purchase
-   * is recent enough to set the item's price, without reading the ledger: the
-   * `(item_id, occurred_at)` index answers it directly.
-   */
+  /** When the item last received stock — decides if a purchase sets the price. */
   async latestInboundOccurredAt(
     userId: string,
     itemId: string,
@@ -219,6 +216,46 @@ export class StockMovementsRepository {
     );
   }
 
+  /** Every movement in the period. No pagination: a partial summary would lie. */
+  findForSummary(
+    where: Prisma.StockMovementWhereInput,
+  ): Promise<MovementWithContext[]> {
+    return runQuery(() =>
+      this.prisma.stockMovement.findMany({
+        where,
+        include: MOVEMENT_HISTORY_INCLUDE,
+        orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+  }
+
+  /** Balance before `before`, from the ledger — not today's `current_quantity`. */
+  async balanceBefore(
+    userId: string,
+    itemId: string,
+    before: Date,
+  ): Promise<Prisma.Decimal> {
+    const totals = await runQuery(() =>
+      this.prisma.stockMovement.groupBy({
+        by: ['type'],
+        where: {
+          userId,
+          itemId,
+          deletedAt: null,
+          occurredAt: { lt: before },
+        },
+        _sum: { quantity: true },
+      }),
+    );
+
+    return totals.reduce((balance, group) => {
+      const sum = group._sum.quantity ?? new Prisma.Decimal(0);
+      return group.type === StockMovementType.INBOUND
+        ? balance.plus(sum)
+        : balance.minus(sum);
+    }, new Prisma.Decimal(0));
+  }
+
   findItemById(userId: string, itemId: string): Promise<Item | null> {
     return runQuery(() =>
       this.prisma.item.findFirst({
@@ -227,11 +264,7 @@ export class StockMovementsRepository {
     );
   }
 
-  /**
-   * Existence checks for the optional references a movement can carry. They all
-   * scope by `userId`: the foreign key only proves the row exists, not that it
-   * belongs to whoever is writing (ADR-11).
-   */
+  /** Reference checks, all scoped by `userId`: the FK alone proves nothing (ADR-11). */
   async supplierExists(
     userId: string,
     supplierId: string,
@@ -289,12 +322,7 @@ export class StockMovementsRepository {
     return lot !== null;
   }
 
-  /**
-   * One write per item per transaction. `currentQuantity` is the cache ADR-10
-   * describes; `needsAdjustment`, `defaultUnitCost` and `active` ride along so a
-   * movement never costs more than a single UPDATE on the row it already holds
-   * locked.
-   */
+  /** One UPDATE per item per transaction, on the row already held locked. */
   updateItem(
     itemId: string,
     data: Prisma.ItemUncheckedUpdateInput,
@@ -306,14 +334,9 @@ export class StockMovementsRepository {
   }
 
   /**
-   * Runs `fn` in one transaction with every item row it will touch locked
-   * (`SELECT ... FOR UPDATE`). This is what makes the ledger safe under
-   * concurrency (ADR-10): simultaneous movements on the same item serialize on
-   * the lock instead of racing on stale reads.
-   *
-   * The ids are locked in a single statement ordered by id, so two batches that
-   * overlap always take their locks in the same order and cannot deadlock
-   * against each other.
+   * Runs `fn` in one transaction with every item row locked (`SELECT ... FOR
+   * UPDATE`), which is what makes the ledger safe under concurrency (ADR-10).
+   * Locked in one statement ordered by id, so overlapping batches cannot deadlock.
    */
   async withLockedItems<T>(
     itemIds: readonly string[],

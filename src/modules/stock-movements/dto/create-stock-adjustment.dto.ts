@@ -12,13 +12,8 @@ import {
 } from 'class-validator';
 
 /**
- * Normalizes an enum value written in the client's own spelling.
- *
- * The API answers in the Prisma spelling (`LOSS`, `MANUAL_ADJUSTMENT`) — one
- * canonical vocabulary, the same one `GET /item` already returns. On the way in
- * it also accepts the camelCase the mobile app uses (`manualAdjustment`), which
- * costs one regex here and spares every client a mapping layer for values that
- * are otherwise identical.
+ * Accepts an enum in the client's spelling. The API answers in the Prisma one
+ * (`MANUAL_ADJUSTMENT`); on the way in it also takes the app's camelCase.
  */
 export const toEnumValue = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string'
@@ -26,12 +21,8 @@ export const toEnumValue = ({ value }: { value: unknown }): unknown =>
     : value;
 
 /**
- * Input for `POST /stock-movement/adjustment` (US11).
- *
- * Deliberately small: the screen that sends this picks an item, an amount and a
- * reason, and nothing else. Direction (always outbound), origin, cost and
- * timestamp are the server's to decide — a loss is not an event the client gets
- * to price or backdate.
+ * Input for `POST /stock-movement/adjustment` (US11). Direction, origin, cost
+ * and timestamp are the server's to decide, not the client's.
  */
 export class CreateStockAdjustmentDto {
   @ApiProperty({ format: 'uuid' })

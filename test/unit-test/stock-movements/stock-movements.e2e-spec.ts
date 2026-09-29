@@ -9,6 +9,9 @@ import {
   StockMovementEntity,
   StockMovementResultEntity,
   StockMovementsService,
+  StockSummaryEntity,
+  StockSyncPullEntity,
+  StockSyncPushEntity,
 } from '../../../src/modules/stock-movements';
 import {
   bearer,
@@ -354,22 +357,88 @@ describe('Stock ledger against a real Postgres (e2e)', () => {
       expect(await ledgerBalance(countedItemId)).toBe(4);
     });
   });
+  describe('GET /stock-movement/summary', () => {
+    const today = () => new Date().toISOString().slice(0, 10);
 
-  describe('offline sync', () => {
+    it('answers the period totals with the money', async () => {
+      const response = await request(server())
+        .get('/stock-movement/summary')
+        .query({ periodStart: '2026-01-01', periodEnd: today() })
+        .set('Authorization', auth())
+        .expect(200);
+
+      const body = response.body as StockSummaryEntity;
+      expect(Number(body.inbound.quantity)).toBeGreaterThan(0);
+      expect(Number(body.outbound.quantity)).toBeGreaterThan(0);
+      // Decimals travel as strings here too.
+      expect(typeof body.inbound.value).toBe('string');
+      expect(body.item).toBeNull();
+    });
+
+    it('adds the per-item block, opening from the ledger', async () => {
+      const response = await request(server())
+        .get('/stock-movement/summary')
+        .query({ periodStart: '2026-01-01', periodEnd: today(), itemId })
+        .set('Authorization', auth())
+        .expect(200);
+
+      const item = (response.body as StockSummaryEntity).item;
+      expect(item).not.toBeNull();
+      expect(item!.itemId).toBe(itemId);
+
+      // The block has to reconcile against the movements it reports.
+      const closes =
+        Number(item!.openingBalance) +
+        Number(item!.inbound.quantity) -
+        Number(item!.outbound.quantity);
+      expect(closes).toBe(Number(item!.closingBalance));
+      // And against the ledger itself.
+      expect(Number(item!.closingBalance)).toBe(await ledgerBalance(itemId));
+    });
+
+    it('requires the period and refuses an inverted one', async () => {
+      await request(server())
+        .get('/stock-movement/summary')
+        .set('Authorization', auth())
+        .expect(400);
+
+      await request(server())
+        .get('/stock-movement/summary')
+        .query({ periodStart: '2026-12-31', periodEnd: '2026-01-01' })
+        .set('Authorization', auth())
+        .expect(400);
+    });
+
+    it('refuses without a token', async () => {
+      await request(server())
+        .get('/stock-movement/summary')
+        .query({ periodStart: '2026-01-01', periodEnd: today() })
+        .expect(401);
+    });
+  });
+
+  describe('offline sync through the routes', () => {
+    /** A movement exactly as a device would put it on the wire. */
     const deviceMovement = (
       id: string,
       quantity: number,
-      occurredAt: Date,
+      occurredAt: string,
     ) => ({
       id,
       itemId: secondItemId,
-      type: StockMovementType.OUTBOUND,
-      source: StockMovementSource.MANUAL_ADJUSTMENT,
-      adjustmentReason: 'LOSS' as const,
+      type: 'OUTBOUND',
+      source: 'MANUAL_ADJUSTMENT',
+      adjustmentReason: 'LOSS',
       quantity,
       unitCost: 5,
       occurredAt,
     });
+
+    const pushSync = (movements: unknown[]) =>
+      request(server())
+        .post('/stock-movement/sync')
+        .set('Authorization', auth())
+        .send({ movements });
 
     it('re-sending a batch does not take the stock out twice', async () => {
       await request(server())
@@ -384,20 +453,21 @@ describe('Stock ledger against a real Postgres (e2e)', () => {
         .expect(201);
 
       const before = await cachedBalance(secondItemId);
-      const batch = [
-        deviceMovement(randomUUID(), 2, new Date('2026-09-10T08:00:00Z')),
-        deviceMovement(randomUUID(), 3, new Date('2026-09-10T09:00:00Z')),
+      const movements = [
+        deviceMovement(randomUUID(), 2, '2026-09-10T08:00:00.000Z'),
+        deviceMovement(randomUUID(), 3, '2026-09-10T09:00:00.000Z'),
       ];
 
-      const first = await stockMovements.syncPush(userId, batch);
-      expect(first.applied).toHaveLength(2);
+      const first = await pushSync(movements).expect(201);
+      expect((first.body as StockSyncPushEntity).applied).toHaveLength(2);
       expect(await cachedBalance(secondItemId)).toBe(before - 5);
 
-      // The primary key is what makes this safe — this is the assertion a fake
+      // The primary key is what makes this safe — the assertion a fake
       // repository cannot make on the project's behalf.
-      const retry = await stockMovements.syncPush(userId, batch);
-      expect(retry.applied).toEqual([]);
-      expect(retry.duplicated).toHaveLength(2);
+      const retry = await pushSync(movements).expect(201);
+      const retryBody = retry.body as StockSyncPushEntity;
+      expect(retryBody.applied).toEqual([]);
+      expect(retryBody.duplicated).toHaveLength(2);
       expect(await cachedBalance(secondItemId)).toBe(before - 5);
       expect(await cachedBalance(secondItemId)).toBe(
         await ledgerBalance(secondItemId),
@@ -406,32 +476,105 @@ describe('Stock ledger against a real Postgres (e2e)', () => {
 
     it('keeps the device ids it was given', async () => {
       const id = randomUUID();
-      await stockMovements.syncPush(userId, [
-        deviceMovement(id, 1, new Date('2026-09-11T08:00:00Z')),
-      ]);
+      await pushSync([
+        deviceMovement(id, 1, '2026-09-11T08:00:00.000Z'),
+      ]).expect(201);
 
       const stored = await prisma.stockMovement.findUnique({ where: { id } });
       expect(stored).not.toBeNull();
     });
 
+    it('applies in chronological order regardless of arrival order', async () => {
+      const [first, second] = [randomUUID(), randomUUID()];
+      const response = await pushSync([
+        deviceMovement(second, 1, '2026-09-14T10:00:00.000Z'),
+        deviceMovement(first, 1, '2026-09-13T10:00:00.000Z'),
+      ]).expect(201);
+
+      const applied = (response.body as StockSyncPushEntity).applied;
+      expect(applied.map(m => m.id)).toEqual([first, second]);
+    });
+
+    it('keeps an offline consumption the stock no longer covers', async () => {
+      const spent = await createItem(`Cetamina sync ${randomUUID()}`);
+      const response = await pushSync([
+        {
+          ...deviceMovement(randomUUID(), 4, '2026-09-15T10:00:00.000Z'),
+          itemId: spent,
+        },
+      ]).expect(201);
+
+      const body = response.body as StockSyncPushEntity;
+      expect(body.applied).toHaveLength(1);
+      expect(body.needsAdjustment).toEqual([spent]);
+      expect(await cachedBalance(spent)).toBe(-4);
+    });
+
+    it('refuses an origin that needs the network (US10)', async () => {
+      const response = await pushSync([
+        {
+          ...deviceMovement(randomUUID(), 1, '2026-09-16T10:00:00.000Z'),
+          type: 'INBOUND',
+          source: 'ORDER_IMPORT',
+          adjustmentReason: undefined,
+        },
+      ]).expect(400);
+
+      expect(response.body).toMatchObject({
+        code: 'STOCK_SYNC_SOURCE_NOT_ALLOWED',
+      });
+    });
+
+    it('rejects a malformed movement inside the batch', async () => {
+      await pushSync([
+        {
+          ...deviceMovement(randomUUID(), 1, '2026-09-17T10:00:00.000Z'),
+          id: 'not-a-uuid',
+        },
+      ]).expect(400);
+
+      await pushSync([]).expect(400);
+    });
+
     it('hands back a delta and a cursor that does not replay it forever', async () => {
       const cursor = new Date();
       const id = randomUUID();
-      await stockMovements.syncPush(userId, [
-        deviceMovement(id, 1, new Date('2026-09-12T08:00:00Z')),
-      ]);
+      await pushSync([
+        deviceMovement(id, 1, '2026-09-12T08:00:00.000Z'),
+      ]).expect(201);
 
-      const delta = await stockMovements.syncPull(userId, cursor);
-      expect(delta.movements.map(m => m.id)).toContain(id);
-      expect(delta.balances.map(b => b.itemId)).toContain(secondItemId);
+      const delta = await request(server())
+        .get('/stock-movement/sync')
+        .query({ since: cursor.toISOString() })
+        .set('Authorization', auth())
+        .expect(200);
 
-      // Pulling again from the returned cursor must not hand out the same row,
+      const body = delta.body as StockSyncPullEntity;
+      expect(body.movements.map(m => m.id)).toContain(id);
+      expect(body.balances.map(b => b.itemId)).toContain(secondItemId);
+
+      // Pulling again past the returned cursor must not hand out the same row,
       // beyond the deliberate overlap window.
-      const next = await stockMovements.syncPull(
-        userId,
-        new Date(delta.cursor.getTime() + 10_000),
-      );
-      expect(next.movements.map(m => m.id)).not.toContain(id);
+      const next = await request(server())
+        .get('/stock-movement/sync')
+        .query({
+          since: new Date(
+            new Date(body.cursor).getTime() + 10_000,
+          ).toISOString(),
+        })
+        .set('Authorization', auth())
+        .expect(200);
+
+      expect(
+        (next.body as StockSyncPullEntity).movements.map(m => m.id),
+      ).not.toContain(id);
+    });
+
+    it('requires the cursor on the pull', async () => {
+      await request(server())
+        .get('/stock-movement/sync')
+        .set('Authorization', auth())
+        .expect(400);
     });
   });
 

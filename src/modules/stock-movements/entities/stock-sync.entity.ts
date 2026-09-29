@@ -20,12 +20,9 @@ export class SyncedItemBalanceEntity {
 }
 
 /**
- * Result of pushing a batch of movements recorded offline.
- *
- * `duplicated` is the whole point of the operation: the network drops halfway
- * through a sync more often than anyone plans for, and the device re-sends.
- * Reporting the ids that were already here — instead of applying them again —
- * is what keeps a retry from taking the same stock out twice.
+ * Result of pushing a batch recorded offline. `duplicated` is the point: the
+ * network drops mid-sync and the device re-sends, and reporting the ids already
+ * here is what keeps a retry from taking the same stock out twice.
  */
 export class StockSyncPushEntity {
   @ApiProperty({ type: StockMovementEntity, isArray: true })
@@ -79,4 +76,12 @@ export class StockSyncPullEntity {
       'which is safe precisely because applying a movement twice is a no-op.',
   })
   cursor!: Date;
+
+  @ApiProperty({
+    description:
+      'The page filled up and there is more waiting. Pull again from `cursor` ' +
+      'before treating the device as up to date — a device that was offline for ' +
+      'weeks needs several rounds.',
+  })
+  hasMore!: boolean;
 }

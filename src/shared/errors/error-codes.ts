@@ -56,6 +56,8 @@ export const ERROR_CODES = [
   // A device sent a movement whose UUID already belongs to another account
   // (ADR-09). Never silently skipped: that would drop a real consumption.
   'STOCK_MOVEMENT_ID_CONFLICT',
+  // An origin that cannot exist offline arrived through the sync door.
+  'STOCK_SYNC_SOURCE_NOT_ALLOWED',
   'SUPPLIER_NOT_FOUND',
   'APPOINTMENT_NOT_FOUND',
   'PURCHASE_ORDER_NOT_FOUND',

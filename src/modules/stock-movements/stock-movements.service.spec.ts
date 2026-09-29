@@ -11,6 +11,12 @@ import { validate } from 'class-validator';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
 import { CreateStockPurchaseDto } from './dto/create-stock-purchase.dto';
 import { QueryStockMovementDto } from './dto/query-stock-movement.dto';
+import { QueryStockSummaryDto } from './dto/query-stock-summary.dto';
+import {
+  SYNC_PUSH_MAX_BATCH,
+  SyncStockMovementDto,
+  SyncStockMovementsDto,
+} from './dto/sync-stock-movement.dto';
 import {
   MovementWithContext,
   StockMovementsRepository,
@@ -158,6 +164,43 @@ class FakeRepository {
     return Promise.resolve(sorted.slice(skip, skip + take));
   }
 
+  findForSummary(
+    where: Prisma.StockMovementWhereInput,
+  ): Promise<MovementWithContext[]> {
+    const itemId = where.itemId as string | undefined;
+    const range = where.occurredAt as { gte?: Date; lte?: Date } | undefined;
+    return Promise.resolve(
+      this.movements
+        .filter(m => m.userId === where.userId && !m.deletedAt)
+        .filter(m => (itemId ? m.itemId === itemId : true))
+        .filter(m => (range?.gte ? m.occurredAt >= range.gte : true))
+        .filter(m => (range?.lte ? m.occurredAt <= range.lte : true)),
+    );
+  }
+
+  balanceBefore(
+    userId: string,
+    itemId: string,
+    before: Date,
+  ): Promise<Prisma.Decimal> {
+    const balance = this.movements
+      .filter(
+        m =>
+          m.userId === userId &&
+          m.itemId === itemId &&
+          !m.deletedAt &&
+          m.occurredAt < before,
+      )
+      .reduce(
+        (total, m) =>
+          m.type === StockMovementType.INBOUND
+            ? total.plus(m.quantity)
+            : total.minus(m.quantity),
+        decimal(0),
+      );
+    return Promise.resolve(balance);
+  }
+
   latestInboundOccurredAt(
     userId: string,
     itemId: string,
@@ -192,7 +235,7 @@ class FakeRepository {
   ): Promise<MovementWithContext[]> {
     return Promise.resolve(
       this.movements
-        .filter(m => m.userId === userId && m.createdAt > since)
+        .filter(m => m.userId === userId && !m.deletedAt && m.createdAt > since)
         .sort(
           (a, b) =>
             a.createdAt.getTime() - b.createdAt.getTime() ||
@@ -1011,17 +1054,224 @@ describe('StockMovementsService.findHistory', () => {
     expect(movement.appointmentId).toBeNull();
   });
 });
+describe('StockMovementsService.buildSummary (US12)', () => {
+  const summaryQuery = (over: Partial<QueryStockSummaryDto> = {}) =>
+    plainToInstance(QueryStockSummaryDto, {
+      periodStart: '2026-09-01',
+      periodEnd: '2026-09-30',
+      ...over,
+    });
+
+  const seeded = () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana, name: 'Propofol' });
+    repository.seedAppointment('appointment-1', ana, 'Castração', 'Mel');
+    repository.seedAppointment('appointment-2', ana, 'castracao', 'Thor');
+    repository.seedAppointment('appointment-3', ana, 'Orquiectomia', 'Rex');
+    return { repository, service };
+  };
+
+  const at = (day: string) => new Date(`2026-09-${day}T10:00:00Z`);
+
+  it('totals what came in and what went out, with the money', async () => {
+    const { service } = seeded();
+    await service.record(
+      ana,
+      inbound('item-1', 10, { occurredAt: at('02'), unitCost: 5 }),
+    );
+    await service.record(
+      ana,
+      outbound('item-1', 2, { occurredAt: at('03'), unitCost: 10 }),
+    );
+
+    const summary = await service.buildSummary(ana, summaryQuery());
+
+    expect(summary.inbound).toEqual({ count: 1, quantity: '10', value: '50' });
+    expect(summary.outbound).toEqual({ count: 1, quantity: '2', value: '20' });
+  });
+
+  it('groups consumption by procedure, folding the spelling variants', async () => {
+    const { service } = seeded();
+    await service.record(ana, inbound('item-1', 100, { occurredAt: at('01') }));
+    await service.record(
+      ana,
+      outbound('item-1', 2, {
+        occurredAt: at('05'),
+        appointmentId: 'appointment-1',
+      }),
+    );
+    await service.record(
+      ana,
+      outbound('item-1', 3, {
+        occurredAt: at('06'),
+        appointmentId: 'appointment-2',
+      }),
+    );
+    await service.record(
+      ana,
+      outbound('item-1', 1, {
+        occurredAt: at('07'),
+        appointmentId: 'appointment-3',
+      }),
+    );
+
+    const summary = await service.buildSummary(ana, summaryQuery());
+
+    // "Castração" and "castracao" are the same procedure typed two ways.
+    expect(summary.byProcedure).toHaveLength(2);
+    expect(summary.byProcedure[0]).toMatchObject({
+      label: 'Castração',
+      quantity: '5',
+    });
+  });
+
+  it('surfaces what expired — the number the report exists for', async () => {
+    const { service } = seeded();
+    await service.record(
+      ana,
+      inbound('item-1', 100, { occurredAt: at('01'), unitCost: 20 }),
+    );
+    await service.registerAdjustment(
+      ana,
+      adjustmentDto({ quantity: 3, reason: AdjustmentReason.EXPIRATION }),
+    );
+    await service.registerAdjustment(
+      ana,
+      adjustmentDto({ quantity: 1, reason: AdjustmentReason.BREAKAGE }),
+    );
+
+    const today = new Date().toISOString().slice(0, 10);
+    const summary = await service.buildSummary(
+      ana,
+      summaryQuery({ periodStart: '2026-09-01', periodEnd: today }),
+    );
+
+    const expired = summary.adjustments.find(
+      group => group.reason === AdjustmentReason.EXPIRATION,
+    );
+    expect(expired).toMatchObject({ count: 1, quantity: '3' });
+    expect(summary.expiredValue).toBe(expired!.value);
+  });
+
+  it('reports zero expired when nothing expired', async () => {
+    const { service } = seeded();
+    await service.record(ana, inbound('item-1', 5, { occurredAt: at('02') }));
+
+    const summary = await service.buildSummary(ana, summaryQuery());
+
+    expect(summary.expiredValue).toBe('0');
+    expect(summary.item).toBeNull();
+  });
+
+  it('opens the period from the ledger, not from the balance carried today', async () => {
+    const { repository, service } = seeded();
+    // Before the period.
+    await service.record(
+      ana,
+      inbound('item-1', 8, { occurredAt: new Date('2026-08-15T10:00:00Z') }),
+    );
+    // Inside it.
+    await service.record(ana, inbound('item-1', 10, { occurredAt: at('05') }));
+    await service.record(ana, outbound('item-1', 4, { occurredAt: at('06') }));
+
+    const summary = await service.buildSummary(
+      ana,
+      summaryQuery({ itemId: 'item-1' }),
+    );
+
+    // Today's balance is 14. The period opened at 8 — that is the whole point.
+    expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(14);
+    expect(summary.item).toMatchObject({
+      itemId: 'item-1',
+      itemName: 'Propofol',
+      openingBalance: '8',
+      closingBalance: '14',
+    });
+  });
+
+  it('closes where the movements say, so the block checks against the ledger', async () => {
+    const { service } = seeded();
+    await service.record(ana, inbound('item-1', 6, { occurredAt: at('04') }));
+    await service.record(ana, outbound('item-1', 2, { occurredAt: at('08') }));
+
+    const summary = await service.buildSummary(
+      ana,
+      summaryQuery({ itemId: 'item-1' }),
+    );
+
+    const {
+      openingBalance,
+      inbound: inb,
+      outbound: out,
+      closingBalance,
+    } = summary.item!;
+    expect(
+      Number(openingBalance) + Number(inb.quantity) - Number(out.quantity),
+    ).toBe(Number(closingBalance));
+  });
+
+  it('leaves out what happened outside the period', async () => {
+    const { service } = seeded();
+    await service.record(
+      ana,
+      inbound('item-1', 99, { occurredAt: new Date('2026-08-20T10:00:00Z') }),
+    );
+    await service.record(ana, inbound('item-1', 5, { occurredAt: at('10') }));
+
+    const summary = await service.buildSummary(ana, summaryQuery());
+
+    expect(summary.inbound.quantity).toBe('5');
+  });
+
+  it('counts the whole last day of the period', async () => {
+    const { service } = seeded();
+    await service.record(
+      ana,
+      inbound('item-1', 1, { occurredAt: new Date('2026-09-30T23:30:00Z') }),
+    );
+
+    const summary = await service.buildSummary(ana, summaryQuery());
+
+    expect(summary.inbound.count).toBe(1);
+  });
+
+  it('refuses an inverted period instead of answering an empty report', async () => {
+    const { service } = seeded();
+
+    await expect(
+      service.buildSummary(
+        ana,
+        summaryQuery({ periodStart: '2026-09-30', periodEnd: '2026-09-01' }),
+      ),
+    ).rejects.toMatchObject({ kind: 'INVALID_INPUT' });
+  });
+
+  it("never counts another account's movements (ADR-11)", async () => {
+    const { repository, service } = seeded();
+    repository.seedItem({ id: 'item-bob', userId: bob });
+    await service.record(
+      bob,
+      inbound('item-bob', 50, { occurredAt: at('05') }),
+    );
+
+    const summary = await service.buildSummary(ana, summaryQuery());
+
+    expect(summary.inbound.count).toBe(0);
+  });
+});
 
 describe('StockMovementsService.syncPush (offline sync)', () => {
-  const at = (iso: string) => new Date(iso);
+  const ID_A = '11111111-1111-4111-8111-111111111111';
+  const ID_B = '22222222-2222-4222-8222-222222222222';
+  const ID_C = '33333333-3333-4333-8333-333333333333';
 
-  /** A movement as a device records it: its own UUID, its own clock. */
+  /** A movement exactly as a device sends it: its own UUID, its own clock. */
   const offline = (
     id: string,
     quantity: number,
     occurredAt: string,
-    over: Partial<RecordMovementInput> = {},
-  ) => ({
+    over: Partial<SyncStockMovementDto> = {},
+  ): SyncStockMovementDto => ({
     id,
     itemId: 'item-1',
     type: StockMovementType.OUTBOUND,
@@ -1029,9 +1279,12 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
     adjustmentReason: AdjustmentReason.LOSS,
     quantity,
     unitCost: 10,
-    occurredAt: at(occurredAt),
+    occurredAt,
     ...over,
   });
+
+  /** The payload shape the route hands the service. */
+  const push = (...movements: SyncStockMovementDto[]) => ({ movements });
 
   const stocked = async (quantity = 20) => {
     const { repository, service } = build();
@@ -1043,18 +1296,13 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
   it('applies what was recorded offline, with the right balance', async () => {
     const { repository, service } = await stocked();
 
-    const result = await service.syncPush(ana, [
-      offline(
-        '11111111-1111-4111-8111-111111111111',
-        3,
-        '2026-09-10T08:00:00Z',
+    const result = await service.syncPush(
+      ana,
+      push(
+        offline(ID_A, 3, '2026-09-10T08:00:00Z'),
+        offline(ID_B, 2, '2026-09-10T09:00:00Z'),
       ),
-      offline(
-        '22222222-2222-4222-8222-222222222222',
-        2,
-        '2026-09-10T09:00:00Z',
-      ),
-    ]);
+    );
 
     expect(result.applied).toHaveLength(2);
     expect(result.duplicated).toEqual([]);
@@ -1066,32 +1314,21 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
 
   it('re-sending the same batch does not move the balance again', async () => {
     const { repository, service } = await stocked();
-    const batch = [
-      offline(
-        '11111111-1111-4111-8111-111111111111',
-        3,
-        '2026-09-10T08:00:00Z',
-      ),
-      offline(
-        '22222222-2222-4222-8222-222222222222',
-        2,
-        '2026-09-10T09:00:00Z',
-      ),
-    ];
+    const payload = push(
+      offline(ID_A, 3, '2026-09-10T08:00:00Z'),
+      offline(ID_B, 2, '2026-09-10T09:00:00Z'),
+    );
 
-    await service.syncPush(ana, batch);
+    await service.syncPush(ana, payload);
     const afterFirst = repository.items
       .get('item-1')!
       .currentQuantity.toNumber();
 
     // The network dropped before the device saw the answer, so it sends again.
-    const retry = await service.syncPush(ana, batch);
+    const retry = await service.syncPush(ana, payload);
 
     expect(retry.applied).toEqual([]);
-    expect(retry.duplicated).toEqual([
-      '11111111-1111-4111-8111-111111111111',
-      '22222222-2222-4222-8222-222222222222',
-    ]);
+    expect(retry.duplicated).toEqual([ID_A, ID_B]);
     expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(
       afterFirst,
     );
@@ -1099,23 +1336,15 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
 
   it('applies only the movements a partial delivery left behind', async () => {
     const { repository, service } = await stocked();
-    const first = offline(
-      '11111111-1111-4111-8111-111111111111',
-      3,
-      '2026-09-10T08:00:00Z',
+    const first = offline(ID_A, 3, '2026-09-10T08:00:00Z');
+    await service.syncPush(ana, push(first));
+
+    const result = await service.syncPush(
+      ana,
+      push(first, offline(ID_B, 2, '2026-09-10T09:00:00Z')),
     );
-    await service.syncPush(ana, [first]);
 
-    const result = await service.syncPush(ana, [
-      first,
-      offline(
-        '22222222-2222-4222-8222-222222222222',
-        2,
-        '2026-09-10T09:00:00Z',
-      ),
-    ]);
-
-    expect(result.duplicated).toEqual(['11111111-1111-4111-8111-111111111111']);
+    expect(result.duplicated).toEqual([ID_A]);
     expect(result.applied).toHaveLength(1);
     expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(15);
   });
@@ -1123,28 +1352,19 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
   it('applies in chronological order, not in arrival order', async () => {
     const { service } = await stocked();
 
-    const result = await service.syncPush(ana, [
-      offline(
-        '33333333-3333-4333-8333-333333333333',
-        1,
-        '2026-09-12T10:00:00Z',
+    const result = await service.syncPush(
+      ana,
+      push(
+        offline(ID_C, 1, '2026-09-12T10:00:00Z'),
+        offline(ID_A, 1, '2026-09-10T10:00:00Z'),
+        offline(ID_B, 1, '2026-09-11T10:00:00Z'),
       ),
-      offline(
-        '11111111-1111-4111-8111-111111111111',
-        1,
-        '2026-09-10T10:00:00Z',
-      ),
-      offline(
-        '22222222-2222-4222-8222-222222222222',
-        1,
-        '2026-09-11T10:00:00Z',
-      ),
-    ]);
+    );
 
     expect(result.applied.map(m => m.occurredAt)).toEqual([
-      at('2026-09-10T10:00:00Z'),
-      at('2026-09-11T10:00:00Z'),
-      at('2026-09-12T10:00:00Z'),
+      new Date('2026-09-10T10:00:00Z'),
+      new Date('2026-09-11T10:00:00Z'),
+      new Date('2026-09-12T10:00:00Z'),
     ]);
   });
 
@@ -1154,13 +1374,10 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
     // The other device took the last two units while this one was offline.
     await service.registerAdjustment(ana, adjustmentDto({ quantity: 2 }));
 
-    const result = await service.syncPush(ana, [
-      offline(
-        '11111111-1111-4111-8111-111111111111',
-        2,
-        '2026-09-10T08:00:00Z',
-      ),
-    ]);
+    const result = await service.syncPush(
+      ana,
+      push(offline(ID_A, 2, '2026-09-10T08:00:00Z')),
+    );
 
     // The stock really did leave the shelf: recorded, flagged, not discarded.
     expect(result.applied).toHaveLength(1);
@@ -1172,20 +1389,8 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
   it('adds up movements coming from two devices', async () => {
     const { repository, service } = await stocked();
 
-    await service.syncPush(ana, [
-      offline(
-        '11111111-1111-4111-8111-111111111111',
-        4,
-        '2026-09-10T08:00:00Z',
-      ),
-    ]);
-    await service.syncPush(ana, [
-      offline(
-        '22222222-2222-4222-8222-222222222222',
-        6,
-        '2026-09-10T07:00:00Z',
-      ),
-    ]);
+    await service.syncPush(ana, push(offline(ID_A, 4, '2026-09-10T08:00:00Z')));
+    await service.syncPush(ana, push(offline(ID_B, 6, '2026-09-10T07:00:00Z')));
 
     expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(10);
     expect(repository.movements).toHaveLength(3);
@@ -1194,23 +1399,34 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
   it('refuses an id that belongs to another account instead of dropping it', async () => {
     const { repository, service } = await stocked();
     repository.seedItem({ id: 'item-bob', userId: bob });
-    await service.record(bob, {
-      ...inbound('item-bob', 5),
-      id: '11111111-1111-4111-8111-111111111111',
-    });
+    await service.record(bob, { ...inbound('item-bob', 5), id: ID_A });
 
     await expect(
-      service.syncPush(ana, [
-        offline(
-          '11111111-1111-4111-8111-111111111111',
-          1,
-          '2026-09-10T08:00:00Z',
-        ),
-      ]),
+      service.syncPush(ana, push(offline(ID_A, 1, '2026-09-10T08:00:00Z'))),
     ).rejects.toMatchObject({
       kind: 'CONFLICT',
       code: 'STOCK_MOVEMENT_ID_CONFLICT',
     });
+  });
+
+  it('refuses an origin that cannot have happened offline (US10)', async () => {
+    const { repository, service } = await stocked();
+    const ledgerBefore = repository.movements.length;
+
+    await expect(
+      service.syncPush(
+        ana,
+        push(
+          offline(ID_A, 1, '2026-09-10T08:00:00Z', {
+            type: StockMovementType.INBOUND,
+            source: StockMovementSource.ORDER_IMPORT,
+            adjustmentReason: null,
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: 'STOCK_SYNC_SOURCE_NOT_ALLOWED' });
+
+    expect(repository.movements).toHaveLength(ledgerBefore);
   });
 
   it('fails the whole batch when the item was never synced (items come first)', async () => {
@@ -1218,31 +1434,50 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
     const ledgerBefore = repository.movements.length;
 
     await expect(
-      service.syncPush(ana, [
-        offline(
-          '11111111-1111-4111-8111-111111111111',
-          1,
-          '2026-09-10T08:00:00Z',
-        ),
-        offline(
-          '22222222-2222-4222-8222-222222222222',
-          1,
-          '2026-09-10T09:00:00Z',
-          {
+      service.syncPush(
+        ana,
+        push(
+          offline(ID_A, 1, '2026-09-10T08:00:00Z'),
+          offline(ID_B, 1, '2026-09-10T09:00:00Z', {
             itemId: 'item-created-offline',
-          },
+          }),
         ),
-      ]),
+      ),
     ).rejects.toMatchObject({ code: 'ITEM_NOT_FOUND' });
 
     expect(repository.movements).toHaveLength(ledgerBefore);
   });
 
+  it('refuses a movement dated in the future (ADR-08: wrong device clock)', async () => {
+    const { repository, service } = await stocked();
+    const ledgerBefore = repository.movements.length;
+
+    await expect(
+      service.syncPush(ana, push(offline(ID_A, 1, '2099-01-01T00:00:00Z'))),
+    ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_DATE_IN_FUTURE' });
+
+    // Nothing of the batch lands: a movement dated next year would sit at the
+    // top of the history for good.
+    expect(repository.movements).toHaveLength(ledgerBefore);
+  });
+
+  it('tolerates a few minutes of honest clock drift', async () => {
+    const { service } = await stocked();
+    const slightlyAhead = new Date(Date.now() + 60_000).toISOString();
+
+    const result = await service.syncPush(
+      ana,
+      push(offline(ID_A, 1, slightlyAhead)),
+    );
+
+    expect(result.applied).toHaveLength(1);
+  });
+
   it('refuses an empty batch', async () => {
     const { service } = build();
-    await expect(service.syncPush(ana, [])).rejects.toMatchObject({
-      code: 'STOCK_MOVEMENT_BATCH_EMPTY',
-    });
+    await expect(
+      service.syncPush(ana, { movements: [] }),
+    ).rejects.toMatchObject({ code: 'STOCK_MOVEMENT_BATCH_EMPTY' });
   });
 });
 
@@ -1257,7 +1492,7 @@ describe('StockMovementsService.syncPull (delta)', () => {
     const cursor = new Date();
     await service.registerAdjustment(ana, adjustmentDto({ quantity: 4 }));
 
-    const delta = await service.syncPull(ana, cursor);
+    const delta = await service.syncPull(ana, { since: cursor.toISOString() });
 
     expect(delta.movements).toHaveLength(1);
     expect(delta.movements[0].type).toBe(StockMovementType.OUTBOUND);
@@ -1271,7 +1506,9 @@ describe('StockMovementsService.syncPull (delta)', () => {
     repository.seedItem({ id: 'item-1', userId: ana });
     await service.record(ana, inbound('item-1', 10));
 
-    const delta = await service.syncPull(ana, new Date(Date.now() - 60_000));
+    const delta = await service.syncPull(ana, {
+      since: new Date(Date.now() - 60_000).toISOString(),
+    });
 
     expect(delta.cursor).toEqual(repository.movements.at(-1)!.createdAt);
   });
@@ -1284,7 +1521,9 @@ describe('StockMovementsService.syncPull (delta)', () => {
     // ADR-08: the overlap window means a movement written just before the
     // device's cursor still comes back. Applying it twice is a no-op, missing
     // it forever is not.
-    const delta = await service.syncPull(ana, new Date(Date.now() + 1000));
+    const delta = await service.syncPull(ana, {
+      since: new Date(Date.now() + 1000).toISOString(),
+    });
 
     expect(delta.movements).toHaveLength(1);
   });
@@ -1294,11 +1533,38 @@ describe('StockMovementsService.syncPull (delta)', () => {
     repository.seedItem({ id: 'item-1', userId: ana });
     const cursor = new Date(Date.now() + 60_000);
 
-    const delta = await service.syncPull(ana, cursor);
+    const delta = await service.syncPull(ana, { since: cursor.toISOString() });
 
     expect(delta.movements).toEqual([]);
     expect(delta.balances).toEqual([]);
     expect(delta.cursor).toEqual(cursor);
+  });
+
+  it('says whether there is more to pull instead of making the app guess', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    await service.record(ana, inbound('item-1', 10));
+
+    const delta = await service.syncPull(ana, {
+      since: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    expect(delta.hasMore).toBe(false);
+  });
+
+  it('leaves out a movement that was soft-deleted', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    await service.record(ana, inbound('item-1', 10));
+    // Handing it over would be worse than silence: the entity carries no
+    // deletedAt, so the device would file it as a live movement.
+    repository.movements[0].deletedAt = new Date();
+
+    const delta = await service.syncPull(ana, {
+      since: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    expect(delta.movements).toEqual([]);
   });
 
   it("never leaks another account's movements (ADR-11)", async () => {
@@ -1306,7 +1572,9 @@ describe('StockMovementsService.syncPull (delta)', () => {
     repository.seedItem({ id: 'item-bob', userId: bob });
     await service.record(bob, inbound('item-bob', 10));
 
-    const delta = await service.syncPull(ana, new Date(Date.now() - 60_000));
+    const delta = await service.syncPull(ana, {
+      since: new Date(Date.now() - 60_000).toISOString(),
+    });
 
     expect(delta.movements).toEqual([]);
   });
@@ -1416,6 +1684,84 @@ describe('CreateStockPurchaseDto', () => {
   it('rejects a supplierId that is not a uuid', async () => {
     const errors = await parse({ ...valid, supplierId: 'not-a-uuid' });
     expect(errors.some(e => e.property === 'supplierId')).toBe(true);
+  });
+});
+
+describe('SyncStockMovementsDto', () => {
+  const movement = (over: Record<string, unknown> = {}) => ({
+    id: '11111111-1111-4111-8111-111111111111',
+    itemId: '22222222-2222-4222-8222-222222222222',
+    type: 'OUTBOUND',
+    source: 'MANUAL_ADJUSTMENT',
+    adjustmentReason: 'LOSS',
+    quantity: 2,
+    unitCost: 10,
+    occurredAt: '2026-09-10T08:00:00.000Z',
+    ...over,
+  });
+
+  const parse = (raw: unknown) =>
+    validate(plainToInstance(SyncStockMovementsDto, raw));
+
+  const failedPaths = async (raw: unknown) => {
+    const errors = await parse(raw);
+    return errors.flatMap(error =>
+      (error.children ?? []).flatMap(child =>
+        (child.children ?? []).map(grandchild => grandchild.property),
+      ),
+    );
+  };
+
+  it('accepts a batch a device could realistically send', async () => {
+    expect(await parse({ movements: [movement()] })).toHaveLength(0);
+  });
+
+  it('requires a real UUID for the id — it is the idempotency key', async () => {
+    expect(
+      await failedPaths({ movements: [movement({ id: 'local-7' })] }),
+    ).toContain('id');
+  });
+
+  it('rejects an empty batch and one past the size cap', async () => {
+    expect(await parse({ movements: [] })).not.toHaveLength(0);
+
+    const tooMany = Array.from({ length: SYNC_PUSH_MAX_BATCH + 1 }, (_, i) =>
+      movement({ id: `1111111${i % 10}-1111-4111-8111-11111111111${i % 10}` }),
+    );
+    expect(await parse({ movements: tooMany })).not.toHaveLength(0);
+  });
+
+  it('validates every movement, not just the first', async () => {
+    const paths = await failedPaths({
+      movements: [movement(), movement({ quantity: -1 })],
+    });
+    expect(paths).toContain('quantity');
+  });
+
+  it('accepts the enums in the app own spelling', () => {
+    const dto = plainToInstance(SyncStockMovementsDto, {
+      movements: [
+        movement({
+          type: 'outbound',
+          source: 'manualAdjustment',
+          adjustmentReason: 'breakage',
+        }),
+      ],
+    });
+
+    expect(dto.movements[0]).toMatchObject({
+      type: StockMovementType.OUTBOUND,
+      source: StockMovementSource.MANUAL_ADJUSTMENT,
+      adjustmentReason: AdjustmentReason.BREAKAGE,
+    });
+  });
+
+  it('rejects a malformed occurredAt — it decides the apply order', async () => {
+    expect(
+      await failedPaths({
+        movements: [movement({ occurredAt: '10/09/2026' })],
+      }),
+    ).toContain('occurredAt');
   });
 });
 

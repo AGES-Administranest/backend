@@ -100,16 +100,11 @@ export function balanceRequiresAdjustment(balance: DecimalInput): boolean {
 }
 
 /**
- * Guards the balance against an outbound bigger than what is in stock.
- *
- * `allowNegativeBalance` is the explicit authorization the US10 correction
- * reversal needs: it has to go through even when it drives the balance below
- * zero, because the reversal is undoing stock that was never physically there.
- * Every ordinary outbound is blocked instead.
+ * Blocks an outbound bigger than the balance. `allowNegativeBalance` is the
+ * explicit authorization the US10 correction reversal needs.
  *
  * @returns the balance the item is left with.
- * @throws DomainError `INSUFFICIENT_STOCK`, carrying the balance still
- * available in `details.available` — the app interpolates that number.
+ * @throws DomainError `INSUFFICIENT_STOCK`, with what is left in `details.available`.
  */
 export function assertSufficientBalance(
   currentBalance: DecimalInput,
@@ -168,8 +163,7 @@ export function assertValidMovement(movement: MovementShape): void {
     );
   }
 
-  // `OTHER` says nothing on its own: without the note the history shows an
-  // adjustment whose reason is literally "other", which no one can audit later.
+  // `OTHER` without a note leaves a history entry nobody can audit later.
   if (
     movement.adjustmentReason === AdjustmentReason.OTHER &&
     (movement.notes == null || movement.notes.trim() === '')
@@ -199,6 +193,38 @@ export function assertValidMovement(movement: MovementShape): void {
       'STOCK_PURCHASE_ORDER_ID_REQUIRED',
       'source = ORDER_IMPORT requires purchaseOrderId',
       { source: movement.source },
+    );
+  }
+}
+
+/**
+ * How far ahead of the server's clock a device's timestamp may be (ADR-08).
+ * Not zero, because a few minutes of drift is normal; a movement dated next
+ * year is not, and it would sit at the top of the history for good.
+ */
+export const CLOCK_SKEW_TOLERANCE_MS = 10 * 60 * 1000;
+
+/**
+ * Rejects a timestamp the server's clock says cannot have happened yet.
+ *
+ * @throws DomainError `STOCK_MOVEMENT_DATE_IN_FUTURE`.
+ */
+export function assertNotInTheFuture(
+  occurredAt: Date,
+  options: { toleranceMs?: number; now?: number } = {},
+): void {
+  const now = options.now ?? Date.now();
+  const tolerance = options.toleranceMs ?? 0;
+
+  if (occurredAt.getTime() > now + tolerance) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_MOVEMENT_DATE_IN_FUTURE',
+      'A stock movement cannot be dated in the future. Check the clock on the device that recorded it.',
+      {
+        occurredAt: occurredAt.toISOString(),
+        serverTime: new Date(now).toISOString(),
+      },
     );
   }
 }

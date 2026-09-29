@@ -3,12 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { StockMovementEntity } from './stock-movement.entity';
 
 /**
- * What a write to the ledger answers: the movement, plus the two alerts the
- * caller cannot work out on its own.
- *
- * The alerts ride along with the write on purpose. Both are decided inside the
- * row lock, from the balance this very movement produced — asking for them in a
- * second request would be asking a question whose answer has already changed.
+ * The movement, plus the two alerts decided inside the row lock from the
+ * balance it produced — asking for them later would be asking a stale question.
  */
 export class StockMovementResultEntity {
   @ApiProperty({ type: StockMovementEntity })
