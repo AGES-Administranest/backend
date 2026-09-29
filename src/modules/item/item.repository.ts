@@ -66,6 +66,16 @@ export class ItemRepository {
     );
   }
 
+  async findActiveIds(userId: string, ids: string[]): Promise<string[]> {
+    const items = await runQuery(() =>
+      this.prisma.item.findMany({
+        where: { id: { in: ids }, userId, active: true },
+        select: { id: true },
+      }),
+    );
+    return items.map(item => item.id);
+  }
+
   findCatalog(userId: string): Promise<Pick<Item, 'id' | 'name' | 'unit'>[]> {
     return runQuery(() =>
       this.prisma.item.findMany({
