@@ -139,7 +139,6 @@ class FakeAppointmentsRepository {
   recordItemUsage(
     userId: string,
     appointmentId: string,
-    occurredAt: Date,
     usages: readonly ItemUsage[],
   ): Promise<RecordedItemUsage[] | null> {
     // Re-read inside the transaction, as the SELECT ... FOR SHARE does.
@@ -183,7 +182,7 @@ class FakeAppointmentsRepository {
           adjustmentReason: null,
           quantity: usage.quantity,
           unitCost: usage.unitCost,
-          occurredAt,
+          occurredAt: usage.occurredAt,
           appointmentId,
           purchaseOrderId: null,
           purchaseInvoiceLineId: null,
@@ -657,6 +656,18 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
       );
     });
 
+    it('dates the movement at the line occurredAt when the client sends one', async () => {
+      const item = buildItem({ currentQuantity: new Prisma.Decimal(10) });
+      repository.seedItem(item, [buildLot(item.id)]);
+      const occurredAt = '2026-09-24T10:15:00.000Z';
+
+      const result = await service.registerItems(appointment.id, USER_ID, {
+        items: [{ itemId: item.id, quantity: 1, occurredAt }],
+      });
+
+      expect(result.movements[0].occurredAt).toEqual(new Date(occurredAt));
+    });
+
     it('costs the movement at the lot that expires first among those with stock', async () => {
       const item = buildItem();
       const late = buildLot(item.id, {
@@ -870,6 +881,7 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
       it.each([
         ['another quantity', { quantity: 4 }],
         ['another item', { itemId: 'other' }],
+        ['another occurredAt', { occurredAt: '2026-09-24T10:15:00.000Z' }],
       ])(
         'rejects a key already used with %s (409) and records nothing',
         async (_label, change) => {
