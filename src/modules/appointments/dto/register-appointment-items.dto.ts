@@ -4,10 +4,12 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsISO8601,
   IsNumber,
   IsOptional,
   IsPositive,
   IsUUID,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 
@@ -29,6 +31,19 @@ export class AppointmentItemUsageDto {
   @IsNumber({ maxDecimalPlaces: 3 })
   @IsPositive()
   quantity!: number;
+
+  @ApiPropertyOptional({
+    example: '2026-09-25T13:05:00.000Z',
+    description:
+      'When the item was actually consumed. Lets an offline client preserve the real consumption time instead of the sync time; defaults to the appointment `startsAt` when omitted. Must carry an explicit offset (`Z` or `±hh:mm`).',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true, strictSeparator: true })
+  // Without an offset the instant would depend on the server's timezone.
+  @Matches(/T.+(Z|[+-]\d{2}:\d{2})$/, {
+    message: 'occurredAt must include a time and a UTC offset (Z or ±hh:mm)',
+  })
+  occurredAt?: string;
 }
 
 // No `userId`: the owner comes from the token, never from the request (ADR-11).

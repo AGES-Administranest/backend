@@ -31,6 +31,7 @@ export interface ItemUsage {
   lotId: string | null;
   quantity: Prisma.Decimal;
   unitCost: Prisma.Decimal;
+  occurredAt: Date;
 }
 
 /** A movement with what editing or removing it as a supply needs to know. */
@@ -450,7 +451,6 @@ export class AppointmentsRepository {
   recordItemUsage(
     userId: string,
     appointmentId: string,
-    occurredAt: Date,
     usages: readonly ItemUsage[],
   ): Promise<RecordedItemUsage[] | null> {
     return runQuery(() =>
@@ -472,7 +472,7 @@ export class AppointmentsRepository {
               source: StockMovementSource.APPOINTMENT,
               quantity: usage.quantity,
               unitCost: usage.unitCost,
-              occurredAt,
+              occurredAt: usage.occurredAt,
             },
           });
 
