@@ -1,5 +1,6 @@
 import { Prisma, PurchaseInvoice } from '@prisma/client';
 
+import { UniqueConstraintError } from '../../../infra/prisma/prisma-errors';
 import { StoredDocument } from '../../../infra/storage';
 
 /**
@@ -32,6 +33,13 @@ export class FakeStorage {
 /** One invoice, stored as the repository would leave it. */
 export class FakeStockEntryRepository {
   invoice: PurchaseInvoice | null = null;
+  /** Other invoices of the user, by the hash of the file they hold. */
+  readonly invoiceIdsByHash = new Map<string, string>();
+
+  findIdByFileHash(_userId: string, fileHash: string) {
+    return Promise.resolve(this.invoiceIdsByHash.get(fileHash));
+  }
+
 
   findByIdAndUser(id: string, userId: string) {
     const { invoice } = this;
@@ -43,6 +51,11 @@ export class FakeStockEntryRepository {
   }
 
   create(data: Prisma.PurchaseInvoiceUncheckedCreateInput) {
+    if (data.fileHash && this.invoiceIdsByHash.has(data.fileHash)) {
+      return Promise.reject(
+        new UniqueConstraintError(['user_id', 'file_hash']),
+      );
+    }
     this.invoice = {
       status: 'DRAFT',
       extractionStatus: 'PENDING',

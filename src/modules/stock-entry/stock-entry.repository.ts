@@ -18,6 +18,19 @@ export class StockEntryRepository {
     );
   }
 
+  async findIdByFileHash(
+    userId: string,
+    fileHash: string,
+  ): Promise<string | undefined> {
+    const invoice = await runQuery(() =>
+      this.prisma.purchaseInvoice.findFirst({
+        where: { userId, fileHash },
+        select: { id: true },
+      }),
+    );
+    return invoice?.id;
+  }
+
   create(data: Prisma.PurchaseInvoiceUncheckedCreateInput) {
     return runQuery(() => this.prisma.purchaseInvoice.create({ data }));
   }
