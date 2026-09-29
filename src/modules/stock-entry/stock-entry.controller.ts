@@ -58,17 +58,22 @@ export class StockEntryController {
   @Post(':id/uploaded')
   @HttpCode(200)
   @ApiOperation({
-    summary: 'Confirms that the document reached the bucket',
+    summary: 'Confirms the upload and reads the document',
     description:
       'The app calls this after S3 answers 204. The API verifies the object ' +
-      'with HeadObject rather than trusting the client. Becomes ' +
-      'POST /extrair once extraction runs on the server.',
+      'with HeadObject rather than trusting the client, then reads the PDF ' +
+      'and matches its lines against the catalog before answering. A photo ' +
+      'is not read: it is the receipt of a manual entry. Calling it again ' +
+      'after a successful reading answers the same result without reading ' +
+      'twice.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: UploadConfirmationResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiConflictResponse({
-    description: 'No object at the key, or it diverges from what was declared',
+    description:
+      'Invoice is not a draft, no object at the key, or it diverges from ' +
+      'what was declared',
   })
   confirmUpload(
     @CurrentUser() user: AuthenticatedUser,

@@ -22,9 +22,36 @@ export class StockEntryRepository {
     return runQuery(() => this.prisma.purchaseInvoice.create({ data }));
   }
 
-  update(id: string, data: Prisma.PurchaseInvoiceUpdateInput) {
+  update(id: string, data: Prisma.PurchaseInvoiceUncheckedUpdateInput) {
     return runQuery(() =>
       this.prisma.purchaseInvoice.update({ where: { id }, data }),
     );
+  }
+
+  /**
+   * Moves a draft waiting for a reading to PROCESSING, and says whether this
+   * call did it: of two confirmations racing, only one reads the file. A
+   * PROCESSING older than `staleBefore` was left by a process that died.
+   */
+  async claimExtraction(id: string, staleBefore: Date): Promise<boolean> {
+    const { count } = await runQuery(() =>
+      this.prisma.purchaseInvoice.updateMany({
+        where: {
+          id,
+          status: 'DRAFT',
+          deletedAt: null,
+          OR: [
+            { extractionStatus: { in: ['PENDING', 'FAILED'] } },
+            { extractionStatus: 'PROCESSING', updatedAt: { lt: staleBefore } },
+          ],
+        },
+        data: {
+          extractionStatus: 'PROCESSING',
+          failureReason: null,
+          updatedAt: new Date(),
+        },
+      }),
+    );
+    return count === 1;
   }
 }

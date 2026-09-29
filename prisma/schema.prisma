@@ -199,6 +199,9 @@ enum ExtractionFailureReason {
   NO_TABLE_FOUND
   TIMEOUT
   UNSUPPORTED_FORMAT
+  /// PDF with no text to read (a scan): the file stays as a receipt and the
+  /// items are typed by hand
+  NO_TEXT_LAYER
 
   @@map("extraction_failure_reason_enum")
 }

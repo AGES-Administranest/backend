@@ -44,7 +44,12 @@ describe('MatchItemService', () => {
       reason: 'FUZZY',
       confidence: 1,
       candidates: [
-        { itemId: 'propofol', name: 'Propofol 1% amp 20ml', score: 1 },
+        {
+          itemId: 'propofol',
+          name: 'Propofol 1% amp 20ml',
+          unit: 'AMPOULE',
+          score: 1,
+        },
       ],
     });
   });

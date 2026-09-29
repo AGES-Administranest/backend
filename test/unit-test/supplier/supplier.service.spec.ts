@@ -87,6 +87,34 @@ describe('SupplierService', () => {
     });
   });
 
+  describe('findIdByTaxId', () => {
+    it('finds the supplier whatever the mask it was typed with', async () => {
+      repository.findMany.mockResolvedValue([
+        supplier({ id: 'masked', taxId: '11.222.333/0001-81' }),
+      ]);
+
+      await expect(
+        service.findIdByTaxId('user-1', '11222333000181'),
+      ).resolves.toBe('masked');
+      expect(repository.findMany).toHaveBeenCalledWith({
+        userId: 'user-1',
+        active: true,
+        deletedAt: null,
+        taxId: { not: null },
+      });
+    });
+
+    it('answers nothing when no supplier has that CNPJ', async () => {
+      repository.findMany.mockResolvedValue([
+        supplier({ taxId: '11222333000181' }),
+      ]);
+
+      await expect(
+        service.findIdByTaxId('user-1', '44555666000199'),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   describe('create', () => {
     const dto = (overrides: Partial<CreateSupplierDto> = {}) =>
       Object.assign(new CreateSupplierDto(), {
