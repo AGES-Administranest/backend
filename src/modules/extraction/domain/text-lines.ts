@@ -16,7 +16,14 @@ export type TextCell = {
   text: string;
   x0: number;
   x1: number;
+  /**
+   * The PDF runs the cell was glued from, as offsets into `text`. Positions
+   * are exact at their ends and only estimated inside them.
+   */
+  runs?: TextRun[];
 };
+
+export type TextRun = { start: number; end: number; x0: number; x1: number };
 
 export type TextLine = {
   page: number;
@@ -88,15 +95,19 @@ function toLine(page: number, members: TextFragment[]): TextLine {
     const cell = cells.at(-1);
     const gap = cell ? fragment.x - cell.x1 : Infinity;
 
+    const x1 = fragment.x + fragment.width;
     if (cell && gap <= CELL_GAP_IN_CHARS * charWidth) {
       const glue = gap <= WORD_GAP_IN_CHARS * charWidth ? '' : ' ';
+      const start = cell.text.length + glue.length;
       cell.text = `${cell.text}${glue}${fragment.text}`;
-      cell.x1 = Math.max(cell.x1, fragment.x + fragment.width);
+      cell.x1 = Math.max(cell.x1, x1);
+      cell.runs?.push({ start, end: cell.text.length, x0: fragment.x, x1 });
     } else {
       cells.push({
         text: fragment.text,
         x0: fragment.x,
-        x1: fragment.x + fragment.width,
+        x1,
+        runs: [{ start: 0, end: fragment.text.length, x0: fragment.x, x1 }],
       });
     }
   }

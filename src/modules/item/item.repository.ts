@@ -66,6 +66,15 @@ export class ItemRepository {
     );
   }
 
+  findCatalog(userId: string): Promise<Pick<Item, 'id' | 'name' | 'unit'>[]> {
+    return runQuery(() =>
+      this.prisma.item.findMany({
+        where: { userId, active: true },
+        select: { id: true, name: true, unit: true },
+      }),
+    );
+  }
+
   findByPresentation(
     userId: string,
     name: string,

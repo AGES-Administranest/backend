@@ -254,6 +254,24 @@ describe('extractHeader', () => {
 
       expect(extractHeader(lines).orderDate).toBe('2026-08-12');
     });
+
+    it('takes the dispatch date of a delivery slip that prints no other', () => {
+      const lines = layout([
+        [40, [40, 'Romaneio Nº: 20931'], [300, 'Data Saída: 06/08/2026']],
+        [52, [40, 'Previsão de saída: 10/08/2026']],
+      ]);
+
+      expect(extractHeader(lines).orderDate).toBe('2026-08-06');
+    });
+
+    it('prefers the issue date over the dispatch date', () => {
+      const lines = layout([
+        [40, [40, 'Data da saída: 14/08/2026']],
+        [52, [40, 'Data de emissão: 12/08/2026']],
+      ]);
+
+      expect(extractHeader(lines).orderDate).toBe('2026-08-12');
+    });
   });
 
   describe('total', () => {

@@ -1,6 +1,6 @@
 import { extractItems } from './item-table';
-import { lineText } from './text-lines';
-import { layout, pages } from '../testing/layout';
+import { groupLines, lineText } from './text-lines';
+import { fragment, layout, pages } from '../testing/layout';
 
 const HEADER: [number, ...[number, string][]] = [
   100,
@@ -419,6 +419,68 @@ describe('extractItems', () => {
       unitValue: 68.45,
       totalValue: 136.9,
       arithmeticCheck: true,
+    });
+  });
+
+  describe('a truncated description glued to a lot column', () => {
+    const SLIP_HEADER: [number, ...[number, string][]] = [
+      100,
+      [30, 'Item'],
+      [60, 'Descrição do Produto'],
+      [260, 'Lote'],
+      [330, 'Un'],
+      [360, 'Qtde'],
+      [400, 'Vlr Unit'],
+      [470, 'Vlr Total'],
+    ];
+    const VALUES: [number, string][] = [
+      [330, 'BL'],
+      [370, '30'],
+      [420, '3,89'],
+      [485, '116,70'],
+    ];
+
+    it('splits off a lot code that runs past its label', () => {
+      const [item] = itemsOf([
+        SLIP_HEADER,
+        // One PDF run; the lot code ends past halfway to "Un".
+        [
+          115,
+          [30, '1'],
+          [62, 'SORO FISIOLOGICO 0,9% BOLSA 250ML HALEX HI25K5053'],
+          ...VALUES,
+        ],
+      ]);
+
+      expect(item.extractedDescription).toBe(
+        'SORO FISIOLOGICO 0,9% BOLSA 250ML HALEX',
+      );
+    });
+
+    it('places the words by their own run, not by the whole cell', () => {
+      // Narrow lowercase-like glyphs, then a lot code in wide ones: spread over
+      // the whole cell, the final "10" would land under "Lote".
+      const header = layout([SLIP_HEADER]);
+      const row = groupLines([
+        {
+          page: 1,
+          fragments: [
+            fragment('1', 30, 115),
+            {
+              ...fragment('CLORIDRATO DE CETAMINA 10% FRASCO 10', 92, 115),
+              width: 162,
+            },
+            { ...fragment('XF9685N', 260, 115), width: 45 },
+            ...VALUES.map(([x, text]) => fragment(text, x, 115)),
+          ],
+        },
+      ]);
+
+      const [item] = extractItems([...header, ...row]).items;
+
+      expect(item.extractedDescription).toBe(
+        'CLORIDRATO DE CETAMINA 10% FRASCO 10',
+      );
     });
   });
 

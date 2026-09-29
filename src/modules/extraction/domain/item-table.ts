@@ -349,20 +349,24 @@ function splitAcrossColumns(cell: TextCell, columns: Column[]): TextCell[] {
   );
   if (touched.length < 2 || !cell.text.includes(' ')) return [cell];
 
-  const charWidth = (cell.x1 - cell.x0) / cell.text.length;
-  const words = [...cell.text.matchAll(/\S+/g)].map(word => {
-    const x0 = cell.x0 + word.index * charWidth;
-    return { text: word[0], x0, x1: x0 + word[0].length * charWidth };
-  });
+  const at = positionOf(cell);
+  const words = [...cell.text.matchAll(/\S+/g)].map(word => ({
+    text: word[0],
+    x0: at(word.index),
+    x1: at(word.index + word[0].length),
+  }));
 
-  // Only whole words inside two columns prove two values; a word straddling an
-  // edge ("Lote:") just sits a little off.
-  const holders = new Set(
-    words.flatMap(word =>
-      touched.filter(c => word.x0 >= c.left && word.x1 <= c.right),
-    ),
-  );
-  if (holders.size < 2) return [cell];
+  // Only whole words on both sides of an edge prove two values; a word
+  // straddling it ("Lote:") just sits a little off. The word past the edge may
+  // run beyond its own column: a lot code is wider than its "Lote" label.
+  const splits = touched
+    .slice(1)
+    .some(
+      ({ left }) =>
+        words.some(word => word.x1 <= left) &&
+        words.some(word => word.x0 >= left),
+    );
+  if (!splits) return [cell];
 
   const parts = new Map<Column, TextCell>();
   for (const word of words) {
@@ -378,6 +382,26 @@ function splitAcrossColumns(cell: TextCell, columns: Column[]): TextCell[] {
     }
   }
   return [...parts.values()];
+}
+
+/**
+ * Where a character offset of the cell falls on the page. The PDF gives no
+ * position inside a run, so glyphs there share its width evenly; between runs
+ * the gap is real.
+ */
+function positionOf(cell: TextCell): (offset: number) => number {
+  const runs = cell.runs ?? [
+    { start: 0, end: cell.text.length, x0: cell.x0, x1: cell.x1 },
+  ];
+  return offset => {
+    const run =
+      runs.find(({ start, end }) => offset >= start && offset <= end) ??
+      runs.find(({ start }) => offset < start) ??
+      runs[runs.length - 1];
+    if (offset <= run.start) return run.x0;
+    const charWidth = (run.x1 - run.x0) / Math.max(run.end - run.start, 1);
+    return Math.min(run.x1, run.x0 + (offset - run.start) * charWidth);
+  };
 }
 
 function pagesOf(lines: TextLine[]): TextLine[][] {
