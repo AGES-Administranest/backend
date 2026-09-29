@@ -54,6 +54,10 @@ enum PaymentMethod {
 enum Species {
   CANINE
   FELINE
+  EQUINE
+  BOVINE
+  AVIAN
+  EXOTIC
   OTHER
 
   @@map("species_enum")
