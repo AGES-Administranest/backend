@@ -1,5 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Prisma, StockMovementSource, StockMovementType } from '@prisma/client';
+import {
+  MeasurementUnit,
+  Prisma,
+  StockMovementSource,
+  StockMovementType,
+} from '@prisma/client';
 
 export class AppointmentItemMovementEntity {
   id!: string;
@@ -99,4 +104,28 @@ export class RemoveAppointmentItemResultEntity {
 
   @ApiProperty({ type: AppointmentItemMovementEntity })
   reversal!: AppointmentItemMovementEntity;
+}
+
+export class AppointmentSupplyItemEntity {
+  @ApiProperty({ example: 'Dipirona 500mg' })
+  name!: string;
+
+  @ApiProperty({ enum: MeasurementUnit })
+  unit!: MeasurementUnit;
+}
+
+export class AppointmentSupplyEntity extends AppointmentItemMovementEntity {
+  @ApiProperty({ type: AppointmentSupplyItemEntity })
+  item!: AppointmentSupplyItemEntity;
+}
+
+export class AppointmentSuppliesEntity {
+  appointmentId!: string;
+
+  @ApiProperty({
+    type: [AppointmentSupplyEntity],
+    description:
+      'The supplies in effect: an edited supply appears once, as the movement that replaced it (its id is the one to edit or remove); a removed one does not appear',
+  })
+  supplies!: AppointmentSupplyEntity[];
 }

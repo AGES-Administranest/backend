@@ -8,6 +8,7 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import {
+  ActiveSupply,
   AppointmentsRepository,
   CorrectedItemUsage,
   ItemUsage,
@@ -223,6 +224,28 @@ class FakeAppointmentsRepository {
         currentQuantity: this.items.get(movement.itemId)!.currentQuantity,
       },
     });
+  }
+
+  findActiveSupplies(
+    appointmentId: string,
+    userId: string,
+  ): Promise<ActiveSupply[]> {
+    return Promise.resolve(
+      this.movements
+        .filter(
+          row =>
+            row.appointmentId === appointmentId &&
+            row.userId === userId &&
+            row.type === 'OUTBOUND' &&
+            row.source === 'APPOINTMENT' &&
+            !row.deletedAt &&
+            !this.movements.some(other => other.reversedMovementId === row.id),
+        )
+        .map(row => {
+          const { name, unit } = this.items.get(row.itemId)!;
+          return { ...row, item: { name, unit } };
+        }),
+    );
   }
 
   correctItemUsage(
@@ -1308,6 +1331,67 @@ describe('AppointmentsService — detecção de conflito de horário', () => {
           service.removeItem(appointment.id, supplyId, USER_ID),
         ).rejects.toMatchObject({ code: 'APPOINTMENT_CANCELED' });
         expect(repository.movements).toHaveLength(1);
+      });
+    });
+
+    describe('listItems', () => {
+      it('lists a saved supply with the item name and unit', async () => {
+        const { supplies } = await service.listItems(appointment.id, USER_ID);
+
+        expect(supplies).toHaveLength(1);
+        expect(supplies[0]).toMatchObject({
+          id: supplyId,
+          itemId: item.id,
+          lotId: lot.id,
+          item: { name: item.name, unit: item.unit },
+        });
+        expect(supplies[0].quantity.toString()).toBe('3');
+        expect(supplies[0].unitCost.toString()).toBe('7.25');
+      });
+
+      it('shows an edited supply once, as the movement that replaced it', async () => {
+        const { movement } = await service.editItem(
+          appointment.id,
+          supplyId,
+          USER_ID,
+          { quantity: 5 },
+        );
+
+        const { supplies } = await service.listItems(appointment.id, USER_ID);
+
+        expect(supplies.map(supply => supply.id)).toEqual([movement.id]);
+        expect(supplies[0].quantity.toString()).toBe('5');
+      });
+
+      it('leaves out a removed supply', async () => {
+        await service.removeItem(appointment.id, supplyId, USER_ID);
+
+        const { supplies } = await service.listItems(appointment.id, USER_ID);
+
+        expect(supplies).toEqual([]);
+      });
+
+      it("leaves out another appointment's supplies", async () => {
+        const other = buildAppointment();
+        repository.seed(other);
+
+        const { supplies } = await service.listItems(other.id, USER_ID);
+
+        expect(supplies).toEqual([]);
+      });
+
+      it('still answers for a canceled appointment', async () => {
+        repository.seed({ ...appointment, status: 'CANCELED' });
+
+        const { supplies } = await service.listItems(appointment.id, USER_ID);
+
+        expect(supplies.map(supply => supply.id)).toEqual([supplyId]);
+      });
+
+      it('answers 404 for another account (ADR-11)', async () => {
+        await expect(
+          service.listItems(appointment.id, OTHER_USER_ID),
+        ).rejects.toMatchObject({ code: 'APPOINTMENT_NOT_FOUND' });
       });
     });
 
