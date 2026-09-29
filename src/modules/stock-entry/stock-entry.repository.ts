@@ -4,6 +4,30 @@ import { Prisma, PurchaseInvoice } from '@prisma/client';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
+const WITH_SUPPLIER_NAME = {
+  supplier: { select: { name: true } },
+} satisfies Prisma.PurchaseInvoiceInclude;
+
+const WITH_LINES = {
+  lines: {
+    orderBy: { position: 'asc' },
+    include: { item: { select: { id: true, name: true, unit: true } } },
+  },
+} satisfies Prisma.PurchaseInvoiceInclude;
+
+export type InvoiceWithSupplier = Prisma.PurchaseInvoiceGetPayload<{
+  include: typeof WITH_SUPPLIER_NAME;
+}>;
+
+export type InvoiceWithLines = Prisma.PurchaseInvoiceGetPayload<{
+  include: typeof WITH_LINES;
+}>;
+
+export type DraftLineRow = Omit<
+  Prisma.PurchaseInvoiceLineCreateManyInput,
+  'purchaseInvoiceId'
+>;
+
 /** The module's only point of contact with the database (ADR-01). */
 @Injectable()
 export class StockEntryRepository {
@@ -14,6 +38,25 @@ export class StockEntryRepository {
     return runQuery(() =>
       this.prisma.purchaseInvoice.findFirst({
         where: { id, userId, deletedAt: null },
+      }),
+    );
+  }
+
+  findDrafts(userId: string): Promise<InvoiceWithSupplier[]> {
+    return runQuery(() =>
+      this.prisma.purchaseInvoice.findMany({
+        where: { userId, status: 'DRAFT', deletedAt: null },
+        include: WITH_SUPPLIER_NAME,
+        orderBy: { updatedAt: 'desc' },
+      }),
+    );
+  }
+
+  findWithLines(id: string, userId: string): Promise<InvoiceWithLines | null> {
+    return runQuery(() =>
+      this.prisma.purchaseInvoice.findFirst({
+        where: { id, userId, deletedAt: null },
+        include: WITH_LINES,
       }),
     );
   }
@@ -29,6 +72,24 @@ export class StockEntryRepository {
       }),
     );
     return invoice?.id;
+  }
+
+  /** The review saves every line at once: what is not sent is gone. */
+  async replaceLines(invoiceId: string, lines: DraftLineRow[]): Promise<void> {
+    await runQuery(() =>
+      this.prisma.$transaction([
+        this.prisma.purchaseInvoiceLine.deleteMany({
+          where: { purchaseInvoiceId: invoiceId },
+        }),
+        this.prisma.purchaseInvoiceLine.createMany({
+          data: lines.map(line => ({ ...line, purchaseInvoiceId: invoiceId })),
+        }),
+        this.prisma.purchaseInvoice.update({
+          where: { id: invoiceId },
+          data: { updatedAt: new Date() },
+        }),
+      ]),
+    );
   }
 
   create(data: Prisma.PurchaseInvoiceUncheckedCreateInput) {

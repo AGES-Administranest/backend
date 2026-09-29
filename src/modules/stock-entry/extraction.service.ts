@@ -7,6 +7,7 @@ import {
 
 import { buildDocumentKey } from './document-key';
 import { ExtractionResponseDto } from './dto/extraction-response.dto';
+import { fromIsoDate, toIsoDate } from './iso-date';
 import { EXTRACTION_TIMEOUT_MS } from './stock-entry.constants';
 import { StockEntryRepository } from './stock-entry.repository';
 import { DocumentStorage } from '../../infra/storage';
@@ -27,6 +28,12 @@ export type StoredExtraction = {
   /** One per item, in the same order. */
   matches: LineMatch[];
 };
+
+export function storedExtractionOf(
+  invoice: PurchaseInvoice,
+): StoredExtraction | null {
+  return invoice.rawExtraction as StoredExtraction | null;
+}
 
 const FAILURE_REASONS: Record<ExtractionFailureReason, FailureReasonColumn> = {
   unreadable: 'UNREADABLE',
@@ -88,7 +95,7 @@ export class ExtractionService {
   }
 
   view(invoice: PurchaseInvoice): ExtractionResponseDto {
-    const stored = invoice.rawExtraction as StoredExtraction | null;
+    const stored = storedExtractionOf(invoice);
     const result = stored?.result;
 
     return {
@@ -98,7 +105,7 @@ export class ExtractionService {
       ...(result?.supplier && { supplier: result.supplier }),
       ...(invoice.number && { invoiceNumber: invoice.number }),
       ...(invoice.issueDate && {
-        orderDate: invoice.issueDate.toISOString().slice(0, 10),
+        orderDate: toIsoDate(invoice.issueDate),
       }),
       ...(invoice.totalAmount !== null && {
         totalAmount: Number(invoice.totalAmount),
@@ -152,7 +159,7 @@ export class ExtractionService {
       // A failed reading still fills the header it found: it prefills the
       // manual entry. What the document leaves out keeps its value.
       ...(result.invoiceNumber && { number: result.invoiceNumber }),
-      ...(result.orderDate && { issueDate: new Date(result.orderDate) }),
+      ...(result.orderDate && { issueDate: fromIsoDate(result.orderDate) }),
       ...(result.totalAmount !== undefined && {
         totalAmount: result.totalAmount,
       }),
