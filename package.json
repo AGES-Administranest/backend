@@ -31,6 +31,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "test:unit": "jest --config ./test/jest-unit.json",
     "test:appointment": "jest --config ./test/unit-test/appointment/jest.config.json",
     "test:client": "jest --config ./test/unit-test/client/jest.config.json",
     "test:item": "jest --config ./test/unit-test/item/jest.config.json",
