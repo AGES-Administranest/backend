@@ -26,6 +26,9 @@ export const ERROR_CODES = [
   'TOKEN_INVALID',
   'FORBIDDEN',
   'TOO_MANY_REQUESTS',
+  // The body is over `JSON_BODY_LIMIT`: resending it will not help, so the app
+  // has to send less (a stock entry's review, split in two).
+  'REQUEST_TOO_LARGE',
   'ROUTE_NOT_FOUND',
   'HTTP_ERROR',
   'INTERNAL_SERVER_ERROR',

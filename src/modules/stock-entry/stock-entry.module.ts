@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 
 import { ExtractionService } from './extraction.service';
+import { StockEntryDraftService } from './stock-entry-draft.service';
 import { StockEntryController } from './stock-entry.controller';
 import { StockEntryRepository } from './stock-entry.repository';
 import { StockEntryService } from './stock-entry.service';
 import { ExtractionModule } from '../extraction';
+import { ItemModule } from '../item';
 import { ItemMatchModule } from '../item-match';
 import { SupplierModule } from '../supplier';
 
@@ -13,11 +15,16 @@ import { SupplierModule } from '../supplier';
  * `StorageModule`, registered once in `AppModule`.
  */
 @Module({
-  imports: [ExtractionModule, ItemMatchModule, SupplierModule],
+  imports: [ExtractionModule, ItemModule, ItemMatchModule, SupplierModule],
   controllers: [StockEntryController],
   // The repository stays internal: outside this module the only way in is the
   // service, same rule as `users`.
-  providers: [StockEntryService, ExtractionService, StockEntryRepository],
+  providers: [
+    StockEntryService,
+    StockEntryDraftService,
+    ExtractionService,
+    StockEntryRepository,
+  ],
   exports: [StockEntryService],
 })
 export class StockEntryModule {}

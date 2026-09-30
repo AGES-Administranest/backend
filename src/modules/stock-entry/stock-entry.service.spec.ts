@@ -81,6 +81,15 @@ describe('StockEntryService', () => {
   describe('upload url', () => {
     const issue = () => service.createUploadUrl(USER.id, INVOICE_ID, UPLOAD);
 
+    it('tells which entry already holds the same file', async () => {
+      repository.invoiceIdsByHash.set(UPLOAD.fileHash, 'other-invoice');
+
+      await expect(issue()).rejects.toMatchObject({
+        code: 'INVOICE_FILE_DUPLICATED',
+        details: { purchaseInvoiceId: 'other-invoice' },
+      });
+    });
+
     it('creates the draft with what the app declared', async () => {
       await issue();
 
