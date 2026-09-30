@@ -475,6 +475,25 @@ describe('Stock ledger against a real Postgres (e2e)', () => {
       );
     });
 
+    it('two copies of a batch sent at once take the stock out once', async () => {
+      const before = await cachedBalance(secondItemId);
+      const movements = [
+        deviceMovement(randomUUID(), 1, '2026-09-10T10:00:00.000Z'),
+        deviceMovement(randomUUID(), 1, '2026-09-10T11:00:00.000Z'),
+      ];
+
+      const [a, b] = await Promise.all([
+        pushSync(movements),
+        pushSync(movements),
+      ]);
+
+      expect([a.status, b.status]).toEqual([201, 201]);
+      const bodies = [a.body, b.body] as StockSyncPushEntity[];
+      expect(bodies.flatMap(body => body.applied)).toHaveLength(2);
+      expect(bodies.flatMap(body => body.duplicated)).toHaveLength(2);
+      expect(await cachedBalance(secondItemId)).toBe(before - 2);
+    });
+
     it('keeps the device ids it was given', async () => {
       const id = randomUUID();
       await pushSync([

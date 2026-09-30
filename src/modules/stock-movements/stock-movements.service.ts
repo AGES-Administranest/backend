@@ -48,7 +48,10 @@ import {
   MovementWithContext,
   StockMovementsRepository,
 } from './stock-movements.repository';
-import { InvalidReferenceError } from '../../infra/prisma/prisma-errors';
+import {
+  InvalidReferenceError,
+  UniqueConstraintError,
+} from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 /**
@@ -611,39 +614,17 @@ export class StockMovementsService {
       );
     }
 
-    const owners = await this.repository.findOwnersOfIds(
-      movements.map(movement => movement.id),
-    );
-    const alreadyMine = new Set(
-      owners.filter(row => row.userId === userId).map(row => row.id),
-    );
-    const someoneElses = owners.find(row => row.userId !== userId);
-    if (someoneElses) {
-      // A UUID cannot collide by chance. Skipping it would drop a real
-      // movement; applying it would fail on the primary key anyway.
-      throw new DomainError(
-        'CONFLICT',
-        'STOCK_MOVEMENT_ID_CONFLICT',
-        'A movement id in this batch already belongs to another account',
-        { id: someoneElses.id },
-      );
-    }
-
-    const pending = movements
-      .filter(movement => !alreadyMine.has(movement.id))
-      // Chronological; the id breaks ties so a batch always applies in one order.
-      .sort(
-        (a, b) =>
-          a.occurredAt.getTime() - b.occurredAt.getTime() ||
-          a.id.localeCompare(b.id),
-      );
-
-    const applied =
-      pending.length > 0
-        ? await this.recordBatch(userId, pending, {
-            allowNegativeBalance: true,
-          })
-        : [];
+    // Two pushes of the same batch (a retry fired before the first answered)
+    // both find the ids free, and the second then trips the primary key once
+    // the first commits. Sorting the ids again settles it: they are now
+    // duplicates, reported as such, and nothing is taken out twice.
+    const { applied, alreadyMine } = await this.applySyncBatch(
+      userId,
+      movements,
+    ).catch((error: unknown) => {
+      if (!(error instanceof UniqueConstraintError)) throw error;
+      return this.applySyncBatch(userId, movements);
+    });
 
     const touchedItems = [
       ...new Set(movements.map(movement => movement.itemId)),
@@ -725,6 +706,47 @@ export class StockMovementsService {
       hasMore,
       afterId: hasMore ? movements[movements.length - 1].id : null,
     };
+  }
+
+  /** Splits the batch into ids already held and new ones, and applies the new. */
+  private async applySyncBatch(
+    userId: string,
+    movements: readonly SyncMovementInput[],
+  ): Promise<{ applied: RecordMovementResult[]; alreadyMine: Set<string> }> {
+    const owners = await this.repository.findOwnersOfIds(
+      movements.map(movement => movement.id),
+    );
+    const alreadyMine = new Set(
+      owners.filter(row => row.userId === userId).map(row => row.id),
+    );
+    const someoneElses = owners.find(row => row.userId !== userId);
+    if (someoneElses) {
+      // A UUID cannot collide by chance. Skipping it would drop a real
+      // movement; applying it would fail on the primary key anyway.
+      throw new DomainError(
+        'CONFLICT',
+        'STOCK_MOVEMENT_ID_CONFLICT',
+        'A movement id in this batch already belongs to another account',
+        { id: someoneElses.id },
+      );
+    }
+
+    const pending = movements
+      .filter(movement => !alreadyMine.has(movement.id))
+      // Chronological; the id breaks ties so a batch always applies in one order.
+      .sort(
+        (a, b) =>
+          a.occurredAt.getTime() - b.occurredAt.getTime() ||
+          a.id.localeCompare(b.id),
+      );
+
+    const applied =
+      pending.length > 0
+        ? await this.recordBatch(userId, pending, {
+            allowNegativeBalance: true,
+          })
+        : [];
+    return { applied, alreadyMine };
   }
 
   /** Wire shape to ledger input. */

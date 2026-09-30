@@ -26,6 +26,7 @@ import {
   RecordMovementInput,
   StockMovementsService,
 } from './stock-movements.service';
+import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 const decimal = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value);
@@ -352,6 +353,9 @@ class FakeRepository {
   create(
     data: Prisma.StockMovementUncheckedCreateInput,
   ): Promise<MovementWithContext> {
+    if (data.id && this.movements.some(m => m.id === data.id)) {
+      return Promise.reject(new UniqueConstraintError(['id']));
+    }
     const item = this.items.get(data.itemId)!;
     const appointment = data.appointmentId
       ? this.appointments.get(data.appointmentId)
@@ -1419,6 +1423,20 @@ describe('StockMovementsService.syncPush (offline sync)', () => {
     await service.record(ana, inbound('item-1', quantity));
     return { repository, service };
   };
+
+  it('a copy of the batch that raced past the id check lands as duplicates', async () => {
+    const { repository, service } = await stocked();
+    const batch = push(offline(ID_A, 3, '2026-09-10T08:00:00Z'));
+    await service.syncPush(ana, batch);
+
+    // The copy read the ids before the first push committed.
+    jest.spyOn(repository, 'findOwnersOfIds').mockResolvedValueOnce([]);
+    const copy = await service.syncPush(ana, batch);
+
+    expect(copy.applied).toEqual([]);
+    expect(copy.duplicated).toEqual([ID_A]);
+    expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(17);
+  });
 
   it('applies what was recorded offline, with the right balance', async () => {
     const { repository, service } = await stocked();
