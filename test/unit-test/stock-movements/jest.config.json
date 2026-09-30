@@ -1,0 +1,15 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "../../..",
+  "testEnvironment": "node",
+  "testMatch": [
+    "<rootDir>/test/unit-test/stock-movements/**/*.spec.ts",
+    "<rootDir>/test/unit-test/stock-movements/**/*.e2e-spec.ts",
+    "<rootDir>/src/modules/stock-movements/**/*.spec.ts"
+  ],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "transformIgnorePatterns": ["node_modules/(?!jose/)"],
+  "testTimeout": 30000
+}

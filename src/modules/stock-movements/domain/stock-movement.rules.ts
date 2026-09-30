@@ -37,6 +37,9 @@ export interface MovementLike {
 export interface MovementShape extends MovementLike {
   source: StockMovementSource;
   adjustmentReason?: AdjustmentReason | null;
+  appointmentId?: string | null;
+  purchaseOrderId?: string | null;
+  notes?: string | null;
 }
 
 /**
@@ -159,6 +162,40 @@ export function balanceRequiresAdjustment(balance: DecimalInput): boolean {
 }
 
 /**
+ * Blocks an outbound bigger than the balance. `allowNegativeBalance` is the
+ * explicit authorization the US10 correction reversal needs.
+ *
+ * @returns the balance the item is left with.
+ * @throws DomainError `INSUFFICIENT_STOCK`, with what is left in `details.available`.
+ */
+export function assertSufficientBalance(
+  currentBalance: DecimalInput,
+  movement: MovementLike,
+  options: { allowNegativeBalance: boolean },
+): Decimal {
+  const balanceBefore = toDecimal(currentBalance);
+  const resultingBalance = balanceBefore.plus(signedQuantity(movement));
+
+  if (resultingBalance.isNegative() && !options.allowNegativeBalance) {
+    throw new DomainError(
+      'CONFLICT',
+      'INSUFFICIENT_STOCK',
+      "This movement would leave the item with a negative balance. Check the item's current balance before recording it.",
+      {
+        // What the caller can still take out. Never negative: an item already
+        // in the red has nothing available, not a negative amount of it.
+        available: Prisma.Decimal.max(balanceBefore, 0).toString(),
+        requested: toDecimal(movement.quantity).toString(),
+        currentBalance: balanceBefore.toString(),
+        resultingBalance: resultingBalance.toString(),
+      },
+    );
+  }
+
+  return resultingBalance;
+}
+
+/**
  * Invariant that Prisma does not express: `adjustmentReason` exists if and only
  * if `source = MANUAL_ADJUSTMENT`.
  *
@@ -185,6 +222,71 @@ export function assertValidMovement(movement: MovementShape): void {
       'STOCK_REASON_ADJUSTMENT_INVALID',
       'adjustmentReason is only valid when source = MANUAL_ADJUSTMENT',
       { source: movement.source },
+    );
+  }
+
+  // `OTHER` without a note leaves a history entry nobody can audit later.
+  if (
+    movement.adjustmentReason === AdjustmentReason.OTHER &&
+    (movement.notes == null || movement.notes.trim() === '')
+  ) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_REASON_ADJUSTMENT_INVALID',
+      'An adjustment with reason OTHER requires a note describing what happened',
+      { adjustmentReason: movement.adjustmentReason },
+    );
+  }
+
+  const isAppointment = movement.source === StockMovementSource.APPOINTMENT;
+  if (isAppointment && movement.appointmentId == null) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_APPOINTMENT_ID_REQUIRED',
+      'source = APPOINTMENT requires appointmentId',
+      { source: movement.source },
+    );
+  }
+
+  const isOrderImport = movement.source === StockMovementSource.ORDER_IMPORT;
+  if (isOrderImport && movement.purchaseOrderId == null) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_PURCHASE_ORDER_ID_REQUIRED',
+      'source = ORDER_IMPORT requires purchaseOrderId',
+      { source: movement.source },
+    );
+  }
+}
+
+/**
+ * How far ahead of the server's clock a device's timestamp may be (ADR-08).
+ * Not zero, because a few minutes of drift is normal; a movement dated next
+ * year is not, and it would sit at the top of the history for good.
+ */
+export const CLOCK_SKEW_TOLERANCE_MS = 10 * 60 * 1000;
+
+/**
+ * Rejects a timestamp the server's clock says cannot have happened yet.
+ *
+ * @throws DomainError `STOCK_MOVEMENT_DATE_IN_FUTURE`.
+ */
+export function assertNotInTheFuture(
+  occurredAt: Date,
+  options: { toleranceMs?: number; now?: number } = {},
+): void {
+  const now = options.now ?? Date.now();
+  const tolerance = options.toleranceMs ?? 0;
+
+  if (occurredAt.getTime() > now + tolerance) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      'STOCK_MOVEMENT_DATE_IN_FUTURE',
+      'A stock movement cannot be dated in the future. Check the clock on the device that recorded it.',
+      {
+        occurredAt: occurredAt.toISOString(),
+        serverTime: new Date(now).toISOString(),
+      },
     );
   }
 }

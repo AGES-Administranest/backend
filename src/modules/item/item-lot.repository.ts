@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  Item,
-  ItemLot,
-  StockMovementSource,
-  StockMovementType,
-} from '@prisma/client';
+import { Item, ItemLot, Prisma } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -17,6 +12,16 @@ export interface NewLotEntry {
   lotNumber?: string;
 }
 
+/**
+ * Lots only — this repository does not touch `stock_movement` or
+ * `item.current_quantity`.
+ *
+ * It used to write both, which made receiving a lot a second, parallel way into
+ * the ledger: no row lock, no minimum-stock check, and the balance bumped with
+ * `increment` instead of recomputed from the history. `StockMovementsService`
+ * owns that now (ADR-10), and these methods run inside the transaction it
+ * opens, so the lot and its movement still land together or not at all.
+ */
 @Injectable()
 export class ItemLotRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -27,77 +32,52 @@ export class ItemLotRepository {
     );
   }
 
+  /**
+   * The lot an entry should join: same item, same expiration date. Read inside
+   * the ledger's transaction, so two receipts of the same expiration date
+   * cannot both decide they are the first one.
+   */
   findByExpiration(
     itemId: string,
     expirationDate: Date | null,
+    tx?: Prisma.TransactionClient,
   ): Promise<ItemLot | null> {
     return runQuery(() =>
-      this.prisma.itemLot.findFirst({ where: { itemId, expirationDate } }),
+      (tx ?? this.prisma).itemLot.findFirst({
+        where: { itemId, expirationDate },
+      }),
     );
   }
 
-  addToLot(lot: ItemLot, userId: string, quantity: number): Promise<ItemLot> {
+  /** Tops up an existing lot's cached quantity. */
+  addQuantity(
+    lotId: string,
+    quantity: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<ItemLot> {
     return runQuery(() =>
-      this.prisma.$transaction(async tx => {
-        const updatedLot = await tx.itemLot.update({
-          where: { id: lot.id },
-          data: { currentQuantity: { increment: quantity } },
-        });
-        await tx.item.update({
-          where: { id: lot.itemId },
-          data: { currentQuantity: { increment: quantity } },
-        });
-        await tx.stockMovement.create({
-          data: {
-            userId,
-            itemId: lot.itemId,
-            lotId: lot.id,
-            type: StockMovementType.INBOUND,
-            source: StockMovementSource.MANUAL_PURCHASE,
-            quantity,
-            unitCost: lot.unitCost,
-            occurredAt: new Date(),
-          },
-        });
-        return updatedLot;
+      (tx ?? this.prisma).itemLot.update({
+        where: { id: lotId },
+        data: { currentQuantity: { increment: quantity } },
       }),
     );
   }
 
   createLot(
     itemId: string,
-    userId: string,
     entry: NewLotEntry,
+    tx?: Prisma.TransactionClient,
   ): Promise<ItemLot> {
     return runQuery(() =>
-      this.prisma.$transaction(async tx => {
-        const lot = await tx.itemLot.create({
-          data: {
-            itemId,
-            lotNumber: entry.lotNumber,
-            expirationDate: entry.expirationDate,
-            unitCost: entry.unitCost,
-            currentQuantity: entry.quantity,
-            receivedOn: entry.receivedOn,
-          },
-        });
-        await tx.item.update({
-          where: { id: itemId },
-          data: { currentQuantity: { increment: entry.quantity } },
-        });
-        await tx.stockMovement.create({
-          data: {
-            userId,
-            itemId,
-            lotId: lot.id,
-            type: StockMovementType.INBOUND,
-            source: StockMovementSource.MANUAL_PURCHASE,
-            quantity: entry.quantity,
-            unitCost: entry.unitCost,
-            occurredAt: new Date(),
-          },
-        });
-        return lot;
+      (tx ?? this.prisma).itemLot.create({
+        data: {
+          itemId,
+          lotNumber: entry.lotNumber,
+          expirationDate: entry.expirationDate,
+          unitCost: entry.unitCost,
+          currentQuantity: entry.quantity,
+          receivedOn: entry.receivedOn,
+        },
       }),
     );
   }

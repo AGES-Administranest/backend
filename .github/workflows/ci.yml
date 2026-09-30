@@ -77,3 +77,54 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # The specs under test/unit-test/ sit outside `src`, where `npm test`
+      # looks, so they get a run of their own.
+      - name: Unit tests (test/unit-test)
+        run: npm run test:unit
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    # Same Postgres as docker-compose.yml. The e2e suite never reaches AWS or
+    # Cognito (test/helpers/test-app.ts swaps the verifier), but the modules
+    # still read these variables at boot, so any value serves.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      COGNITO_ISSUER: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ci
+      COGNITO_CLIENT_ID: ci-client
+      S3_BUCKET: ci-bucket
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: E2E tests
+        run: npm run test:e2e

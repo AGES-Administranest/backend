@@ -55,6 +55,24 @@ export const ERROR_CODES = [
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
+  // The outbound does not fit in the balance. `details.available` carries the
+  // balance the caller can still take out, because the app interpolates that
+  // number into the message it shows.
+  'INSUFFICIENT_STOCK',
+  'STOCK_MOVEMENT_DATE_IN_FUTURE',
+  'STOCK_MOVEMENT_BATCH_EMPTY',
+  // A count raced other movements on the item every time it was retried.
+  'STOCK_BALANCE_CHANGED',
+  // A device sent a movement whose UUID already belongs to another account
+  // (ADR-09). Never silently skipped: that would drop a real consumption.
+  'STOCK_MOVEMENT_ID_CONFLICT',
+  // An origin that cannot exist offline arrived through the sync door.
+  'STOCK_SYNC_SOURCE_NOT_ALLOWED',
+  'SUPPLIER_NOT_FOUND',
+  'PURCHASE_ORDER_NOT_FOUND',
+  'ITEM_LOT_NOT_FOUND',
+  'STOCK_APPOINTMENT_ID_REQUIRED',
+  'STOCK_PURCHASE_ORDER_ID_REQUIRED',
   // The clientGeneratedId was already used for a different movement (another
   // appointment, item or quantity): a retry must resend the same line.
   'STOCK_MOVEMENT_CLIENT_ID_CONFLICT',

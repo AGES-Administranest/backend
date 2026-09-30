@@ -31,11 +31,14 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
-    "test:item": "jest --config ./test/unit-test/item/jest.config.json",
-    "test:supplier": "jest --config ./test/unit-test/supplier/jest.config.json",
-    "test:client": "jest --config ./test/unit-test/client/jest.config.json",
+    "test:unit": "jest --config ./test/jest-unit.json",
     "test:appointment": "jest --config ./test/unit-test/appointment/jest.config.json",
-    "test:db": "bash scripts/test-db.sh"
+    "test:client": "jest --config ./test/unit-test/client/jest.config.json",
+    "test:item": "jest --config ./test/unit-test/item/jest.config.json",
+    "test:stock": "jest --config ./test/unit-test/stock-movements/jest.config.json --runInBand",
+    "test:supplier": "jest --config ./test/unit-test/supplier/jest.config.json",
+    "test:db": "bash scripts/test-db.sh",
+    "stock:smoke": "ts-node -r tsconfig-paths/register scripts/stock-ledger-smoke.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1128.0",

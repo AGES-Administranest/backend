@@ -61,3 +61,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .aws-local.env
 /docker/ministack-data
 coverage-e2e
+
+# Ajuste local do Compose: portas do docker-compose.yml ocupadas por outro
+# projeto na máquina de quem desenvolve.
+docker-compose.override.yml

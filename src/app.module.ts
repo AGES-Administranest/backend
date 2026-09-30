@@ -12,6 +12,7 @@ import { AuthModule } from './modules/auth';
 import { ClientModule } from './modules/client';
 import { ItemModule } from './modules/item/item.module';
 import { StockEntryModule } from './modules/stock-entry';
+import { StockMovementsModule } from './modules/stock-movements';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { UsersModule } from './modules/users/users.module';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
@@ -41,6 +42,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     SupplierModule,
     ClientModule,
     AuthModule,
+    StockMovementsModule,
     AppointmentsModule,
     StockEntryModule,
   ],

@@ -44,7 +44,12 @@ export class CreateItemDto {
   @Min(0)
   minimumStock?: number;
 
-  @ApiPropertyOptional({ example: 0 })
+  @ApiPropertyOptional({
+    example: 0,
+    description:
+      'Opening balance. Recorded as the first stock movement, into a lot ' +
+      'without an expiration date; it cannot be edited afterwards.',
+  })
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)

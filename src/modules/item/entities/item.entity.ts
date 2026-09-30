@@ -25,6 +25,13 @@ export class ItemEntity {
   belowMinimum!: boolean;
 
   @ApiProperty({
+    description:
+      'US10: the item needs a physical count. Turned on when a movement leaves ' +
+      'the balance negative; only POST /stock-movement/count turns it off.',
+  })
+  needsAdjustment!: boolean;
+
+  @ApiProperty({
     type: String,
     format: 'date',
     nullable: true,

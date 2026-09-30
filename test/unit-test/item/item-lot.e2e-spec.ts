@@ -125,6 +125,40 @@ describe('ItemLot (e2e)', () => {
       });
     });
 
+    it('goes through the stock ledger instead of writing the movement itself', async () => {
+      // The whole point of the central service (ADR-10): receiving a lot is a
+      // stock movement, so it has to leave the same trail as any other one.
+      const movements = await prisma.stockMovement.findMany({
+        where: { userId, itemId },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      expect(movements).toHaveLength(3);
+      expect(movements.every(m => m.type === 'INBOUND')).toBe(true);
+      expect(movements.every(m => m.source === 'MANUAL_PURCHASE')).toBe(true);
+      // Each movement points at the lot it filled.
+      expect(movements.every(m => m.lotId !== null)).toBe(true);
+    });
+
+    it('leaves the cached balance equal to the sum of the ledger', async () => {
+      const movements = await prisma.stockMovement.findMany({
+        where: { userId, itemId, deletedAt: null },
+      });
+      const fromLedger = movements.reduce(
+        (total, movement) =>
+          movement.type === 'INBOUND'
+            ? total + movement.quantity.toNumber()
+            : total - movement.quantity.toNumber(),
+        0,
+      );
+      const item = await prisma.item.findUniqueOrThrow({
+        where: { id: itemId },
+      });
+
+      expect(item.currentQuantity.toNumber()).toBe(fromLedger);
+      expect(fromLedger).toBe(10); // 5 + 3 + 2
+    });
+
     it('404 quando o item não existe', async () => {
       const res = await request(server())
         .post(`/item/${randomUUID()}/lot`)

@@ -522,6 +522,10 @@ model StockMovement {
   @@index([supplierId])
   @@unique([userId, clientGeneratedId])
   @@index([userId, type])
+  /// Offline sync pulls the delta by "written after this cursor", which filters
+  /// on user_id + created_at and orders by created_at. Every other index here
+  /// is on occurred_at (when it happened on the device), which cannot serve it.
+  @@index([userId, createdAt])
   @@map("stock_movement")
 }
 
