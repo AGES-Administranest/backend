@@ -229,6 +229,9 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
 
       expect(body(response)).toMatchObject({ code: 'SUPPLIER_NOT_FOUND' });
       expect(await prisma.stockMovement.count()).toBe(0);
+    });
+  });
+
   describe('stock-entry', () => {
     const uploadRequest = (fileHash: string) => ({
       filename: 'nota.pdf',

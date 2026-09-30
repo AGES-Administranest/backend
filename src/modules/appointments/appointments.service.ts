@@ -403,7 +403,12 @@ export class AppointmentsService {
     const itemsById = new Map(items.map(item => [item.id, item]));
 
     const usages = pending.map(line =>
-      this.toUsage(line, itemsById.get(line.itemId), appointment.startsAt),
+      this.toUsage(
+        line,
+        itemsById.get(line.itemId),
+        appointment.startsAt,
+        appointment.id,
+      ),
     );
 
     // Checked only when there is something new to record: a pure replay still
@@ -499,6 +504,7 @@ export class AppointmentsService {
     line: AppointmentItemUsageDto,
     item: ItemWithLots | undefined,
     fallbackOccurredAt: Date,
+    appointmentId: string,
   ): ItemUsage {
     // An item of another account is indistinguishable from a missing one
     // (ADR-11): answering anything but 404 would confirm the id exists.
@@ -508,6 +514,7 @@ export class AppointmentsService {
       type: StockMovementType.OUTBOUND,
       source: StockMovementSource.APPOINTMENT,
       quantity: line.quantity,
+      appointmentId,
     });
 
     const lot = currentLot(item.lots);
@@ -631,6 +638,7 @@ export class AppointmentsService {
       type: StockMovementType.OUTBOUND,
       source: StockMovementSource.APPOINTMENT,
       quantity: dto.quantity,
+      appointmentId: appointment.id,
     });
     if (original.quantity.equals(dto.quantity)) {
       return this.toEditResult(

@@ -6,8 +6,14 @@
  *
  * `StockMovementsService` is the whole write surface on purpose: every stock
  * flow goes through `record`/`recordBatch` and nothing else, and the repository
- * is deliberately not exported (ADR-10).
+ * is deliberately not exported (ADR-10). The domain rules below are pure and
+ * safe to share — they read a movement, they never write one.
  */
+export {
+  assertValidMovement,
+  balanceRequiresAdjustment,
+  reversalOf,
+} from './domain/stock-movement.rules';
 export { StockMovementResultEntity } from './entities/stock-movement-result.entity';
 export { StockMovementEntity } from './entities/stock-movement.entity';
 export { StockSummaryEntity } from './entities/stock-summary.entity';

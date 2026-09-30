@@ -64,7 +64,6 @@ export const ERROR_CODES = [
   // An origin that cannot exist offline arrived through the sync door.
   'STOCK_SYNC_SOURCE_NOT_ALLOWED',
   'SUPPLIER_NOT_FOUND',
-  'APPOINTMENT_NOT_FOUND',
   'PURCHASE_ORDER_NOT_FOUND',
   'ITEM_LOT_NOT_FOUND',
   'STOCK_APPOINTMENT_ID_REQUIRED',
