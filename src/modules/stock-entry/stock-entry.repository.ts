@@ -74,21 +74,52 @@ export class StockEntryRepository {
     return invoice?.id;
   }
 
-  /** The review saves every line at once: what is not sent is gone. */
-  async replaceLines(invoiceId: string, lines: DraftLineRow[]): Promise<void> {
-    await runQuery(() =>
-      this.prisma.$transaction([
-        this.prisma.purchaseInvoiceLine.deleteMany({
-          where: { purchaseInvoiceId: invoiceId },
-        }),
-        this.prisma.purchaseInvoiceLine.createMany({
-          data: lines.map(line => ({ ...line, purchaseInvoiceId: invoiceId })),
-        }),
-        this.prisma.purchaseInvoice.update({
-          where: { id: invoiceId },
+  /**
+   * Writes to the invoice only while it is still this user's draft, and says
+   * whether it did. The check is the write's own `where`, so an entry
+   * discarded or confirmed after the service looked at it is left alone.
+   */
+  async updateDraft(
+    id: string,
+    userId: string,
+    data: Prisma.PurchaseInvoiceUncheckedUpdateManyInput,
+  ): Promise<boolean> {
+    const { count } = await runQuery(() =>
+      this.prisma.purchaseInvoice.updateMany({
+        where: { id, userId, status: 'DRAFT', deletedAt: null },
+        data: { ...data, updatedAt: new Date() },
+      }),
+    );
+    return count === 1;
+  }
+
+  /**
+   * The review saves every line at once: what is not sent is gone. Nothing is
+   * written unless the invoice is still this user's draft, and touching it
+   * first takes its row lock: a discard arriving meanwhile waits for these
+   * lines, or wins before them and this answers false.
+   */
+  replaceLines(
+    id: string,
+    userId: string,
+    lines: DraftLineRow[],
+  ): Promise<boolean> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const { count } = await tx.purchaseInvoice.updateMany({
+          where: { id, userId, status: 'DRAFT', deletedAt: null },
           data: { updatedAt: new Date() },
-        }),
-      ]),
+        });
+        if (count === 0) return false;
+
+        await tx.purchaseInvoiceLine.deleteMany({
+          where: { purchaseInvoiceId: id },
+        });
+        await tx.purchaseInvoiceLine.createMany({
+          data: lines.map(line => ({ ...line, purchaseInvoiceId: id })),
+        });
+        return true;
+      }),
     );
   }
 

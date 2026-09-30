@@ -51,13 +51,18 @@ const STORED: StoredExtraction = {
 describe('StockEntryDraftService', () => {
   let service: StockEntryDraftService;
   let repository: FakeStockEntryRepository;
+  /** Runs while the service checks the items: another request's moment. */
+  let meanwhile: () => void;
 
   beforeEach(() => {
     repository = new FakeStockEntryRepository();
     repository.catalog.set(PROPOFOL.id, PROPOFOL);
+    meanwhile = () => undefined;
     const items = {
-      findActiveIds: (_userId: string, ids: string[]) =>
-        Promise.resolve(ids.filter(id => repository.catalog.has(id))),
+      findActiveIds: (_userId: string, ids: string[]) => {
+        meanwhile();
+        return Promise.resolve(ids.filter(id => repository.catalog.has(id)));
+      },
     };
     const extraction = new ExtractionService(
       repository as unknown as StockEntryRepository,
@@ -183,6 +188,17 @@ describe('StockEntryDraftService', () => {
         service.replaceLines(USER_ID, INVOICE_ID, { lines: [] }),
       ).rejects.toMatchObject({ code: 'INVOICE_NOT_EDITABLE' });
     });
+
+    it('does not write over a draft discarded while its items were checked', async () => {
+      meanwhile = () => draft({ status: 'CANCELLED' });
+
+      await expect(
+        service.replaceLines(USER_ID, INVOICE_ID, {
+          lines: [{ description: 'PROPOFOL', itemId: PROPOFOL.id }],
+        }),
+      ).rejects.toMatchObject({ code: 'INVOICE_NOT_EDITABLE' });
+      expect(repository.lines).toEqual([]);
+    });
   });
 
   describe('saving the header', () => {
@@ -198,6 +214,15 @@ describe('StockEntryDraftService', () => {
         totalAmount: 94.5,
       });
     });
+
+    it('refuses to change an entry that is no longer a draft, and leaves it as it was', async () => {
+      draft({ status: 'CANCELLED' });
+
+      await expect(
+        service.updateHeader(USER_ID, INVOICE_ID, { invoiceNumber: '9999' }),
+      ).rejects.toMatchObject({ code: 'INVOICE_NOT_EDITABLE' });
+      expect(repository.invoice).toMatchObject({ number: '4521' });
+    });
   });
 
   describe('discarding', () => {
@@ -208,6 +233,13 @@ describe('StockEntryDraftService', () => {
         status: 'CANCELLED',
         fileHash: null,
       });
+    });
+
+    it("answers not found for someone else's draft, and leaves it a draft", async () => {
+      await expect(
+        service.discard('someone-else', INVOICE_ID),
+      ).rejects.toMatchObject({ code: 'INVOICE_NOT_FOUND' });
+      expect(repository.invoice).toMatchObject({ status: 'DRAFT' });
     });
   });
 });

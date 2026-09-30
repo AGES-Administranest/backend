@@ -91,7 +91,7 @@ export function toLineRows(lines: DraftLineInputDto[]): DraftLineRow[] {
 
 export function toHeaderChanges(
   dto: UpdateDraftHeaderDto,
-): Prisma.PurchaseInvoiceUncheckedUpdateInput {
+): Prisma.PurchaseInvoiceUncheckedUpdateManyInput {
   return {
     ...(dto.invoiceNumber !== undefined && { number: dto.invoiceNumber }),
     ...(dto.orderDate !== undefined && {

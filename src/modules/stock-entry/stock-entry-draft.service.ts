@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { PurchaseInvoice } from '@prisma/client';
 
 import {
   linkedItemIds,
@@ -19,6 +18,7 @@ import {
   lineItemNotFound,
 } from './stock-entry.errors';
 import { StockEntryRepository } from './stock-entry.repository';
+import { DomainError } from '../../shared/errors/domain-error';
 import { ItemService } from '../item';
 
 /** The review of a draft: reading it back, saving it and discarding it. */
@@ -46,8 +46,12 @@ export class StockEntryDraftService {
     id: string,
     dto: UpdateDraftHeaderDto,
   ): Promise<void> {
-    const draft = await this.findEditableDraft(userId, id);
-    await this.stockEntryRepository.update(draft.id, toHeaderChanges(dto));
+    const saved = await this.stockEntryRepository.updateDraft(
+      id,
+      userId,
+      toHeaderChanges(dto),
+    );
+    if (!saved) throw await this.refusal(userId, id);
   }
 
   async replaceLines(
@@ -55,12 +59,13 @@ export class StockEntryDraftService {
     id: string,
     dto: ReplaceDraftLinesDto,
   ): Promise<void> {
-    const draft = await this.findEditableDraft(userId, id);
     await this.ensureItemsBelongTo(userId, linkedItemIds(dto.lines));
-    await this.stockEntryRepository.replaceLines(
-      draft.id,
+    const saved = await this.stockEntryRepository.replaceLines(
+      id,
+      userId,
       toLineRows(dto.lines),
     );
+    if (!saved) throw await this.refusal(userId, id);
   }
 
   /**
@@ -68,21 +73,21 @@ export class StockEntryDraftService {
    * Its hash is released so the same file can start a new entry.
    */
   async discard(userId: string, id: string): Promise<void> {
-    const draft = await this.findEditableDraft(userId, id);
-    await this.stockEntryRepository.update(draft.id, {
+    const discarded = await this.stockEntryRepository.updateDraft(id, userId, {
       status: 'CANCELLED',
       fileHash: null,
     });
+    if (!discarded) throw await this.refusal(userId, id);
   }
 
-  private async findEditableDraft(
-    userId: string,
-    id: string,
-  ): Promise<PurchaseInvoice> {
+  /**
+   * The writes above carry their own condition — still this user's draft —
+   * rather than checking first and writing after, a gap a discard or a
+   * confirmation could slip into. When one matched nothing, this says why.
+   */
+  private async refusal(userId: string, id: string): Promise<DomainError> {
     const invoice = await this.stockEntryRepository.findByIdAndUser(id, userId);
-    if (!invoice) throw invoiceNotFound(id);
-    if (invoice.status !== 'DRAFT') throw invoiceNotEditable(invoice);
-    return invoice;
+    return invoice ? invoiceNotEditable(invoice) : invoiceNotFound(id);
   }
 
   private async ensureItemsBelongTo(

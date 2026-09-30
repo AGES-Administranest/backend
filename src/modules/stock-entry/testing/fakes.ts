@@ -68,9 +68,26 @@ export class FakeStockEntryRepository {
     return Promise.resolve(this.invoiceIdsByHash.get(fileHash));
   }
 
-  replaceLines(_invoiceId: string, lines: DraftLineRow[]) {
+  /** Same condition as the real repository's `where`. */
+  async updateDraft(
+    id: string,
+    userId: string,
+    data: Prisma.PurchaseInvoiceUncheckedUpdateManyInput,
+  ) {
+    if (!(await this.isDraftOf(id, userId))) return false;
+    await this.update(id, data);
+    return true;
+  }
+
+  async replaceLines(id: string, userId: string, lines: DraftLineRow[]) {
+    if (!(await this.isDraftOf(id, userId))) return false;
     this.lines = lines;
-    return Promise.resolve();
+    return true;
+  }
+
+  private async isDraftOf(id: string, userId: string) {
+    const invoice = await this.findByIdAndUser(id, userId);
+    return invoice?.status === 'DRAFT';
   }
 
   private savedLine(
