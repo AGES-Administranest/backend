@@ -17,6 +17,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiPayloadTooLargeResponse,
   ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -99,6 +100,9 @@ export class StockEntryController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Saved' })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
+  @ApiPayloadTooLargeResponse({
+    description: 'The body is over the JSON limit (REQUEST_TOO_LARGE)',
+  })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({
     description: 'The entry or a linked item is missing or not yours (ADR-11)',

@@ -65,6 +65,39 @@ describe('AllExceptionsFilter', () => {
     });
   });
 
+  /** Shaped as `http-errors` builds them for Express's body parser. */
+  const bodyParserError = (message: string, status: number, type: string) =>
+    Object.assign(new Error(message), {
+      status,
+      statusCode: status,
+      expose: true,
+      type,
+    });
+
+  it('answers a body over the size limit with 413, not 500', () => {
+    filter.catch(
+      bodyParserError('request entity too large', 413, 'entity.too.large'),
+      host(),
+    );
+
+    expect(status).toHaveBeenCalledWith(HttpStatus.PAYLOAD_TOO_LARGE);
+    expect(responseBody()).toMatchObject({ code: 'REQUEST_TOO_LARGE' });
+  });
+
+  it('answers JSON that does not parse with 400, not 500', () => {
+    filter.catch(
+      bodyParserError(
+        'Unexpected end of JSON input',
+        400,
+        'entity.parse.failed',
+      ),
+      host(),
+    );
+
+    expect(status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
+    expect(responseBody()).toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
   it('does not leak internal detail on an unexpected error', () => {
     filter.catch(new Error('connect ECONNREFUSED 10.0.0.1:5432'), host());
 
