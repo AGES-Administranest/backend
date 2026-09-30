@@ -48,6 +48,13 @@ const STORED: StoredExtraction = {
   ],
 };
 
+/** The catalog as `ItemService.findActiveIds` filters it. */
+const CATALOG = [
+  { id: PROPOFOL.id, userId: USER_ID, active: true },
+  { id: 'ketamine', userId: 'someone-else', active: true },
+  { id: 'deleted-item', userId: USER_ID, active: false },
+];
+
 describe('StockEntryDraftService', () => {
   let service: StockEntryDraftService;
   let repository: FakeStockEntryRepository;
@@ -59,9 +66,15 @@ describe('StockEntryDraftService', () => {
     repository.catalog.set(PROPOFOL.id, PROPOFOL);
     meanwhile = () => undefined;
     const items = {
-      findActiveIds: (_userId: string, ids: string[]) => {
+      findActiveIds: (userId: string, ids: string[]) => {
         meanwhile();
-        return Promise.resolve(ids.filter(id => repository.catalog.has(id)));
+        return Promise.resolve(
+          ids.filter(id =>
+            CATALOG.some(
+              item => item.id === id && item.userId === userId && item.active,
+            ),
+          ),
+        );
       },
     };
     const extraction = new ExtractionService(
@@ -172,10 +185,14 @@ describe('StockEntryDraftService', () => {
       ]);
     });
 
-    it("refuses an item that is not the user's, and keeps the lines", async () => {
+    it.each([
+      ["someone else's", 'ketamine'],
+      ['deleted from the catalog', 'deleted-item'],
+      ['that does not exist', 'no-such-item'],
+    ])('refuses an item %s, and keeps the lines', async (_label, itemId) => {
       await expect(
         service.replaceLines(USER_ID, INVOICE_ID, {
-          lines: [{ description: 'X', itemId: 'not-mine' }],
+          lines: [{ description: 'X', itemId }],
         }),
       ).rejects.toMatchObject({ code: 'ITEM_NOT_FOUND' });
       expect(repository.lines).toEqual([]);
