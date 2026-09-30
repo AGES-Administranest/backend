@@ -18,7 +18,6 @@ import {
   SupplyMovement,
 } from './appointments.repository';
 import { FinancialEntryEntity } from '../financial';
-import { currentLot } from './domain/current-lot';
 import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
 import { CompleteAppointmentDto } from './dto/complete-appointment.dto';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -53,6 +52,7 @@ import { DomainError } from '../../shared/errors/domain-error';
 import {
   assertValidMovement,
   balanceRequiresAdjustment,
+  currentLot,
 } from '../stock-movements';
 
 @Injectable()

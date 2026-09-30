@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { Item, Prisma, StockMovement, StockMovementType } from '@prisma/client';
+import {
+  Item,
+  ItemLot,
+  Prisma,
+  StockMovement,
+  StockMovementType,
+} from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -364,6 +370,51 @@ export class StockMovementsRepository {
       }),
     );
     return lot !== null;
+  }
+
+  /** Every lot of the item, for the ledger to pick the one a movement touches. */
+  findLots(itemId: string, tx?: Prisma.TransactionClient): Promise<ItemLot[]> {
+    return runQuery(() =>
+      (tx ?? this.prisma).itemLot.findMany({ where: { itemId } }),
+    );
+  }
+
+  /** Opens an empty lot; the movement that fills it moves its quantity. */
+  createEmptyLot(
+    itemId: string,
+    data: { unitCost: Prisma.Decimal; receivedOn: Date },
+    tx?: Prisma.TransactionClient,
+  ): Promise<ItemLot> {
+    return runQuery(() =>
+      (tx ?? this.prisma).itemLot.create({
+        data: {
+          itemId,
+          unitCost: data.unitCost,
+          receivedOn: data.receivedOn,
+          currentQuantity: 0,
+        },
+      }),
+    );
+  }
+
+  /** Applies one movement to its lot's cached quantity. */
+  async moveLotQuantity(
+    lotId: string,
+    type: StockMovementType,
+    quantity: Prisma.Decimal,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    await runQuery(() =>
+      (tx ?? this.prisma).itemLot.update({
+        where: { id: lotId },
+        data: {
+          currentQuantity:
+            type === StockMovementType.INBOUND
+              ? { increment: quantity }
+              : { decrement: quantity },
+        },
+      }),
+    );
   }
 
   /** One UPDATE per item per transaction, on the row already held locked. */

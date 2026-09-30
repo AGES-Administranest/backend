@@ -89,6 +89,7 @@ describe('Stock ledger against a real Postgres (e2e)', () => {
 
   afterAll(async () => {
     await prisma.stockMovement.deleteMany({ where: { userId } });
+    await prisma.itemLot.deleteMany({ where: { item: { userId } } });
     await prisma.item.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
     await app.close();
@@ -617,6 +618,34 @@ describe('Stock ledger against a real Postgres (e2e)', () => {
         .get('/stock-movement/sync')
         .set('Authorization', auth())
         .expect(400);
+    });
+  });
+
+  describe('lot caches', () => {
+    it('the lots still add up to the balance after a purchase, a loss and a count', async () => {
+      const id = await createItem(`Cetamina e2e ${randomUUID()}`);
+      const post = (path: string, body: object) =>
+        request(server())
+          .post(`/stock-movement/${path}`)
+          .set('Authorization', auth())
+          .send({ itemId: id, ...body })
+          .expect(201);
+
+      await post('purchase', {
+        quantity: 10,
+        unitValue: 4,
+        date: new Date().toISOString(),
+      });
+      await post('adjustment', { quantity: 3, reason: 'LOSS' });
+      await post('count', { countedQuantity: 5 });
+
+      const lots = await prisma.itemLot.findMany({ where: { itemId: id } });
+      const inLots = lots.reduce(
+        (total, lot) => total + lot.currentQuantity.toNumber(),
+        0,
+      );
+      expect(await cachedBalance(id)).toBe(5);
+      expect(inLots).toBe(5);
     });
   });
 

@@ -9,6 +9,7 @@
  * is deliberately not exported (ADR-10). The domain rules below are pure and
  * safe to share — they read a movement, they never write one.
  */
+export { currentLot, type LotLike } from './domain/current-lot';
 export {
   assertValidMovement,
   balanceRequiresAdjustment,

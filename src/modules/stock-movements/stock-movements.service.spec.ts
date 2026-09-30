@@ -1,6 +1,7 @@
 import {
   AdjustmentReason,
   Item,
+  ItemLot,
   Prisma,
   StockMovementSource,
   StockMovementType,
@@ -48,6 +49,7 @@ class FakeRepository {
   >();
   readonly purchaseOrders = new Map<string, string>();
   readonly lots = new Map<string, string>();
+  readonly lotRows = new Map<string, ItemLot>();
   private sequence = 0;
 
   seedItem(item: Partial<Item> & Pick<Item, 'id' | 'userId'>): Item {
@@ -87,8 +89,20 @@ class FakeRepository {
     this.purchaseOrders.set(id, userId);
   }
 
-  seedLot(id: string, itemId: string) {
+  seedLot(id: string, itemId: string, over: Partial<ItemLot> = {}) {
     this.lots.set(id, itemId);
+    this.lotRows.set(id, {
+      id,
+      itemId,
+      lotNumber: null,
+      expirationDate: null,
+      unitCost: decimal(10),
+      currentQuantity: decimal(0),
+      receivedOn: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...over,
+    });
   }
 
   findItemById(userId: string, itemId: string): Promise<Item | null> {
@@ -112,9 +126,19 @@ class FakeRepository {
     const itemsBefore = new Map(
       [...this.items].map(([id, item]) => [id, { ...item }]),
     );
+    const lotsBefore = new Map(
+      [...this.lotRows].map(([id, lot]) => [id, { ...lot }]),
+    );
     return fn(undefined, locked).catch((error: unknown) => {
       this.movements.length = ledgerLength;
       for (const [id, item] of itemsBefore) this.items.set(id, item);
+      for (const id of this.lotRows.keys()) {
+        if (!lotsBefore.has(id)) {
+          this.lotRows.delete(id);
+          this.lots.delete(id);
+        }
+      }
+      for (const [id, lot] of lotsBefore) this.lotRows.set(id, lot);
       throw error;
     });
   }
@@ -291,6 +315,34 @@ class FakeRepository {
 
   purchaseOrderExists(userId: string, orderId: string): Promise<boolean> {
     return Promise.resolve(this.purchaseOrders.get(orderId) === userId);
+  }
+
+  findLots(itemId: string): Promise<ItemLot[]> {
+    return Promise.resolve(
+      [...this.lotRows.values()].filter(lot => lot.itemId === itemId),
+    );
+  }
+
+  createEmptyLot(
+    itemId: string,
+    data: { unitCost: Prisma.Decimal; receivedOn: Date },
+  ): Promise<ItemLot> {
+    const id = `lot-${++this.sequence}`;
+    this.seedLot(id, itemId, data);
+    return Promise.resolve(this.lotRows.get(id)!);
+  }
+
+  moveLotQuantity(
+    lotId: string,
+    type: StockMovementType,
+    quantity: Prisma.Decimal,
+  ): Promise<void> {
+    const lot = this.lotRows.get(lotId)!;
+    lot.currentQuantity =
+      type === StockMovementType.INBOUND
+        ? lot.currentQuantity.plus(quantity)
+        : lot.currentQuantity.minus(quantity);
+    return Promise.resolve();
   }
 
   lotBelongsToItem(itemId: string, lotId: string): Promise<boolean> {
@@ -1939,5 +1991,109 @@ describe('QueryStockMovementDto', () => {
       page: 2,
       limit: 25,
     });
+  });
+});
+
+describe('StockMovementsService — lot caches', () => {
+  const lotQuantities = (repository: FakeRepository, itemId: string) =>
+    Object.fromEntries(
+      [...repository.lotRows.values()]
+        .filter(lot => lot.itemId === itemId)
+        .map(lot => [lot.id, lot.currentQuantity.toNumber()]),
+    );
+
+  it('lands an inbound without a lot in the undated lot, opening it once', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+
+    await service.registerPurchase(ana, purchaseDto({ quantity: 4 }));
+    await service.registerPurchase(ana, purchaseDto({ quantity: 6 }));
+
+    const lots = [...repository.lotRows.values()];
+    expect(lots).toHaveLength(1);
+    expect(lots[0].expirationDate).toBeNull();
+    expect(lots[0].currentQuantity.toNumber()).toBe(10);
+    expect(repository.movements.every(m => m.lotId === lots[0].id)).toBe(true);
+  });
+
+  it('takes an adjustment out of the lot that expires first', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    repository.seedLot('later', 'item-1', {
+      expirationDate: new Date('2027-12-31'),
+    });
+    repository.seedLot('sooner', 'item-1', {
+      expirationDate: new Date('2027-01-31'),
+    });
+    await service.record(ana, inbound('item-1', 5, { lotId: 'later' }));
+    await service.record(ana, inbound('item-1', 5, { lotId: 'sooner' }));
+
+    await service.registerAdjustment(ana, adjustmentDto({ quantity: 2 }));
+
+    expect(lotQuantities(repository, 'item-1')).toEqual({
+      later: 5,
+      sooner: 3,
+    });
+  });
+
+  it('moves the lot a synced movement names', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    repository.seedLot('lot-a', 'item-1');
+    repository.seedLot('lot-b', 'item-1', {
+      expirationDate: new Date('2027-01-31'),
+    });
+    await service.record(ana, inbound('item-1', 8, { lotId: 'lot-a' }));
+
+    // lot-b expires first, but the device said lot-a.
+    await service.syncPush(ana, {
+      movements: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          itemId: 'item-1',
+          lotId: 'lot-a',
+          type: StockMovementType.OUTBOUND,
+          source: StockMovementSource.MANUAL_ADJUSTMENT,
+          adjustmentReason: AdjustmentReason.LOSS,
+          quantity: 3,
+          unitCost: 10,
+          occurredAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    expect(lotQuantities(repository, 'item-1')).toEqual({
+      'lot-a': 5,
+      'lot-b': 0,
+    });
+  });
+
+  it('leaves the lot to a resolver that already set it', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    repository.seedLot('resolved', 'item-1', { currentQuantity: decimal(7) });
+
+    await service.record(
+      ana,
+      inbound('item-1', 7, {
+        resolveLot: () => Promise.resolve({ lotId: 'resolved' }),
+      }),
+    );
+
+    expect(lotQuantities(repository, 'item-1')).toEqual({ resolved: 7 });
+  });
+
+  it('undoes the lot it opened when the batch fails', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+
+    await expect(
+      service.recordBatch(ana, [
+        inbound('item-1', 5),
+        inbound('missing-item', 1),
+      ]),
+    ).rejects.toMatchObject({ code: 'ITEM_NOT_FOUND' });
+
+    expect(repository.lotRows.size).toBe(0);
   });
 });

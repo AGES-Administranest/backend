@@ -7,6 +7,7 @@ import {
   StockMovementType,
 } from '@prisma/client';
 
+import { currentLot } from './domain/current-lot';
 import {
   CLOCK_SKEW_TOLERANCE_MS,
   type DecimalInput,
@@ -220,6 +221,9 @@ export class StockMovementsService {
             };
 
             await this.assertReferencesExist(tx, userId, resolved);
+            if (!input.resolveLot && !resolved.lotId) {
+              resolved.lotId = await this.defaultLot(tx, resolved);
+            }
 
             const carried = balances.get(resolved.itemId);
             const balanceBefore =
@@ -256,6 +260,16 @@ export class StockMovementsService {
               },
               tx,
             );
+            // A resolver already set its lot's quantity; any other lot moves here,
+            // so the lots keep adding up to the item's balance.
+            if (!input.resolveLot && resolved.lotId) {
+              await this.repository.moveLotQuantity(
+                resolved.lotId,
+                resolved.type,
+                resolved.quantity,
+                tx,
+              );
+            }
             balances.set(input.itemId, balance);
 
             const needsAdjustment = this.nextNeedsAdjustment(
@@ -885,6 +899,33 @@ export class StockMovementsService {
         { lotId: input.lotId, itemId: input.itemId },
       );
     }
+  }
+
+  /**
+   * The lot a movement that named none draws from or lands in. An outbound
+   * takes from the current lot — FEFO, the same rule a consumption follows; an
+   * inbound joins the item's lot without an expiration date, opened on demand.
+   */
+  private async defaultLot(
+    tx: Prisma.TransactionClient,
+    movement: PreparedMovement,
+  ): Promise<string | null> {
+    const lots = await this.repository.findLots(movement.itemId, tx);
+    if (movement.type === StockMovementType.OUTBOUND) {
+      return currentLot(lots)?.id ?? null;
+    }
+
+    const [undated] = lots
+      .filter(lot => lot.expirationDate === null)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    if (undated) return undated.id;
+
+    const opened = await this.repository.createEmptyLot(
+      movement.itemId,
+      { unitCost: movement.unitCost, receivedOn: movement.occurredAt },
+      tx,
+    );
+    return opened.id;
   }
 
   /** US10: turning the flag on is automatic; only the user's count turns it off. */
