@@ -11,6 +11,7 @@ import {
   Put,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiConflictResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
@@ -77,6 +78,7 @@ export class StockEntryController {
   @ApiOperation({ summary: "Saves the draft's header" })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Saved' })
+  @ApiBadRequestResponse({ description: 'Invalid payload' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({ description: 'Missing, or another account (ADR-11)' })
   @ApiConflictResponse({ description: 'The entry is no longer a draft' })
@@ -96,6 +98,7 @@ export class StockEntryController {
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Saved' })
+  @ApiBadRequestResponse({ description: 'Invalid payload' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({
     description: 'The entry or a linked item is missing or not yours (ADR-11)',

@@ -3,7 +3,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsDateString,
   IsInt,
   IsNumber,
   IsOptional,
@@ -15,6 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { IsIsoDate } from '../iso-date';
 import { MAX_DRAFT_AMOUNT, MAX_DRAFT_LINES } from '../stock-entry.constants';
 
 /** Values stay optional in a draft: the confirmation is what requires them. */
@@ -71,7 +71,7 @@ export class DraftLineInputDto {
 
   @ApiPropertyOptional({ example: '2027-05-31', format: 'date' })
   @IsOptional()
-  @IsDateString()
+  @IsIsoDate()
   expirationDate?: string;
 }
 
