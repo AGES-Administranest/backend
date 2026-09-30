@@ -7,10 +7,17 @@ import { UploadConfirmationResponseDto } from './dto/upload-confirmation-respons
 import { UploadUrlResponseDto } from './dto/upload-url-response.dto';
 import { ExtractionService } from './extraction.service';
 import { MAX_FILE_BYTES_SIZE, PRESIGNED_TTL_MS } from './stock-entry.constants';
+import {
+  fileDuplicated,
+  fileTooLarge,
+  invoiceNotEditable,
+  invoiceNotFound,
+  uploadMismatch,
+  uploadNotFinished,
+} from './stock-entry.errors';
 import { StockEntryRepository } from './stock-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DocumentStorage } from '../../infra/storage';
-import { DomainError } from '../../shared/errors/domain-error';
 
 @Injectable()
 export class StockEntryService {
@@ -29,7 +36,9 @@ export class StockEntryService {
     // Before signing anything: the presigned POST pins `content-length-range`
     // to this exact size, so past the limit S3 would reject the upload itself —
     // late, and with an error the app cannot read.
-    if (dto.fileBytesSize > MAX_FILE_BYTES_SIZE) throw this.fileTooLarge(dto);
+    if (dto.fileBytesSize > MAX_FILE_BYTES_SIZE) {
+      throw fileTooLarge(dto.fileBytesSize);
+    }
 
     const key = buildDocumentKey(userId, purchaseInvoiceId);
     await this.saveDocumentMetadata(userId, purchaseInvoiceId, key, dto);
@@ -52,18 +61,18 @@ export class StockEntryService {
       purchaseInvoiceId,
       userId,
     );
-    if (!invoice) throw this.notFound(purchaseInvoiceId);
-    if (invoice.status !== 'DRAFT') throw this.notEditable(invoice);
+    if (!invoice) throw invoiceNotFound(purchaseInvoiceId);
+    if (invoice.status !== 'DRAFT') throw invoiceNotEditable(invoice);
 
     const key = buildDocumentKey(userId, purchaseInvoiceId);
     const stored = await this.documentStorage.headDocument(key);
-    if (!stored) throw this.uploadNotFinished(purchaseInvoiceId);
+    if (!stored) throw uploadNotFinished(purchaseInvoiceId);
 
     // The policy pinned type and size to what the app declared, so a
     // divergence here means the object in the bucket is not the one this
     // invoice was signed for — the app reissues the presigned POST and resends.
     if (invoice.fileMimeType && stored.contentType !== invoice.fileMimeType) {
-      throw this.uploadMismatch(
+      throw uploadMismatch(
         'contentType',
         invoice.fileMimeType,
         stored.contentType,
@@ -73,7 +82,7 @@ export class StockEntryService {
       invoice.fileBytesSize !== null &&
       stored.contentLength !== invoice.fileBytesSize
     ) {
-      throw this.uploadMismatch(
+      throw uploadMismatch(
         'contentLength',
         invoice.fileBytesSize,
         stored.contentLength,
@@ -112,7 +121,9 @@ export class StockEntryService {
       await this.createDraft(userId, purchaseInvoiceId, key, dto);
     } catch (error) {
       if (!(error instanceof UniqueConstraintError)) throw error;
-      if (this.isFileHashViolation(error)) throw this.duplicateFile();
+      if (this.isFileHashViolation(error)) {
+        throw await this.fileDuplicatedFor(userId, dto.fileHash);
+      }
 
       // The primary key collided: either we raced against our own retry, or the
       // app sent an id that belongs to someone else.
@@ -120,7 +131,7 @@ export class StockEntryService {
         purchaseInvoiceId,
         userId,
       );
-      if (!raced) throw this.notFound(purchaseInvoiceId);
+      if (!raced) throw invoiceNotFound(purchaseInvoiceId);
 
       await this.updateDocument(raced, key, dto);
     }
@@ -152,7 +163,7 @@ export class StockEntryService {
       invoice.extractionStatus === 'PROCESSING' ||
       invoice.extractionStatus === 'SUCCESS';
     if (invoice.status !== 'DRAFT' || extractionStarted) {
-      throw this.notEditable(invoice);
+      throw invoiceNotEditable(invoice);
     }
 
     try {
@@ -168,7 +179,7 @@ export class StockEntryService {
         error instanceof UniqueConstraintError &&
         this.isFileHashViolation(error)
       ) {
-        throw this.duplicateFile();
+        throw await this.fileDuplicatedFor(invoice.userId, dto.fileHash);
       }
       throw error;
     }
@@ -222,68 +233,9 @@ export class StockEntryService {
     return error.fields.some(field => field.includes('file_hash'));
   }
 
-  /** 404 and not 403: confirming that the invoice exists already leaks it. */
-  private notFound(id: string) {
-    return new DomainError(
-      'NOT_FOUND',
-      'INVOICE_NOT_FOUND',
-      `Purchase invoice ${id} not found`,
-      { id },
-    );
-  }
-
-  private fileTooLarge(dto: CreateUploadUrlDto) {
-    return new DomainError(
-      'PAYLOAD_TOO_LARGE',
-      'INVOICE_FILE_TOO_LARGE',
-      `The file exceeds the ${MAX_FILE_BYTES_SIZE} byte limit`,
-      {
-        fileBytesSize: dto.fileBytesSize,
-        maxFileBytesSize: MAX_FILE_BYTES_SIZE,
-      },
-    );
-  }
-
-  private uploadNotFinished(id: string) {
-    return new DomainError(
-      'CONFLICT',
-      'INVOICE_UPLOAD_NOT_FINISHED',
-      'No document was found for this purchase invoice',
-      { id },
-    );
-  }
-
-  private notEditable(invoice: PurchaseInvoice) {
-    return new DomainError(
-      'CONFLICT',
-      'INVOICE_NOT_EDITABLE',
-      'The purchase invoice no longer accepts a document',
-      {
-        id: invoice.id,
-        status: invoice.status,
-        extractionStatus: invoice.extractionStatus,
-      },
-    );
-  }
-
-  private uploadMismatch(
-    field: 'contentType' | 'contentLength',
-    declared: string | number,
-    stored?: string | number,
-  ) {
-    return new DomainError(
-      'CONFLICT',
-      'INVOICE_UPLOAD_MISMATCH',
-      'The stored document does not match what was declared',
-      { field, declared, stored: stored ?? null },
-    );
-  }
-
-  private duplicateFile() {
-    return new DomainError(
-      'CONFLICT',
-      'INVOICE_FILE_DUPLICATED',
-      'This file was already uploaded',
+  private async fileDuplicatedFor(userId: string, fileHash: string) {
+    return fileDuplicated(
+      await this.stockEntryRepository.findIdByFileHash(userId, fileHash),
     );
   }
 }

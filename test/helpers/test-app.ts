@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { generateKeyPair, JWTVerifyGetKey, SignJWT } from 'jose';
 
@@ -6,6 +7,7 @@ import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/infra/prisma/prisma.service';
 import { CognitoJwtVerifier, SubIdCache } from '../../src/shared/auth';
 import { AllExceptionsFilter } from '../../src/shared/filters/all-exceptions.filter';
+import { JSON_BODY_LIMIT } from '../../src/shared/validation/json-body-limit';
 
 export interface TestUser {
   cognitoSub: string;
@@ -140,10 +142,11 @@ export async function createTestApp(): Promise<TestContext> {
     .useValue(new SubIdCache(0, 0))
     .compile();
 
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
 
   // Same wiring as src/main.ts: testing against a different configuration than
   // production runs would prove nothing about production.
+  app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

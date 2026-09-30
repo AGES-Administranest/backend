@@ -52,6 +52,11 @@ export class ItemService {
     return this.itemRepository.findCatalog(userId);
   }
 
+  /** Of `ids`, the ones that are this user's and still active. */
+  findActiveIds(userId: string, ids: string[]): Promise<string[]> {
+    return this.itemRepository.findActiveIds(userId, ids);
+  }
+
   async findOne(id: string, userId: string): Promise<ItemEntity> {
     const item = await this.getOrThrow(id, userId);
     return this.sanitize(item);

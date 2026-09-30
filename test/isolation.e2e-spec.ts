@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
@@ -289,6 +289,100 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       expect(
         await prisma.purchaseInvoice.count({ where: { id: invoiceId } }),
       ).toBe(0);
+    });
+
+    /** A draft, with the header the app would have read. */
+    const draftOf = async (user: TestUser): Promise<string> => {
+      const invoiceId = randomUUID();
+      const fileHash = randomBytes(32).toString('hex');
+      await issueUploadUrl(user, invoiceId, fileHash).expect(200);
+      await prisma.purchaseInvoice.update({
+        where: { id: invoiceId },
+        data: { number: '4521' },
+      });
+      return invoiceId;
+    };
+
+    const readInvoice = (invoiceId: string) =>
+      prisma.purchaseInvoice.findUniqueOrThrow({
+        where: { id: invoiceId },
+        include: { lines: true },
+      });
+
+    it('does not list another account drafts', async () => {
+      await draftOf(ana);
+      const brunoDraft = await draftOf(bruno);
+
+      const response = await request(http)
+        .get('/stock-entries')
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      // Bruno's own draft is there: an empty list would pass for a query that
+      // returns nothing to anyone.
+      const ids = (response.body as { id: string }[]).map(draft => draft.id);
+      expect(ids).toEqual([brunoDraft]);
+    });
+
+    it('answers 404, not 403, when reading another account draft', async () => {
+      const invoiceId = await draftOf(ana);
+
+      const response = await request(http)
+        .get(`/stock-entries/${invoiceId}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
+
+      // Its owner reads it: the 404 is about the account, not a broken read.
+      await request(http)
+        .get(`/stock-entries/${invoiceId}`)
+        .set('Authorization', bearer(ana))
+        .expect(200);
+    });
+
+    it('refuses to save the review of another account draft, and leaves it untouched', async () => {
+      const invoiceId = await draftOf(ana);
+
+      await request(http)
+        .patch(`/stock-entries/${invoiceId}`)
+        .set('Authorization', bearer(bruno))
+        .send({ invoiceNumber: '9999' })
+        .expect(404);
+      await request(http)
+        .put(`/stock-entries/${invoiceId}/items`)
+        .set('Authorization', bearer(bruno))
+        .send({ lines: [{ description: 'SERINGA 10ML' }] })
+        .expect(404);
+
+      const stored = await readInvoice(invoiceId);
+      expect(stored.number).toBe('4521');
+      expect(stored.lines).toEqual([]);
+    });
+
+    it('refuses to discard another account draft, and leaves it a draft', async () => {
+      const invoiceId = await draftOf(ana);
+
+      await request(http)
+        .delete(`/stock-entries/${invoiceId}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect((await readInvoice(invoiceId)).status).toBe('DRAFT');
+    });
+
+    it('does not let a line be linked to another account item', async () => {
+      const invoiceId = await draftOf(ana);
+      const brunoItem = await createItem(bruno, 'Cetamina do Bruno');
+
+      const response = await request(http)
+        .put(`/stock-entries/${invoiceId}/items`)
+        .set('Authorization', bearer(ana))
+        .send({ lines: [{ description: 'CETAMINA', itemId: brunoItem }] })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'ITEM_NOT_FOUND' });
+      expect((await readInvoice(invoiceId)).lines).toEqual([]);
     });
   });
 

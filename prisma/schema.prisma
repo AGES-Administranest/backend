@@ -682,22 +682,34 @@ model ExtractionJob {
 /// item_id is optional: the OCR may return a line that does not match any
 /// registered item.
 model PurchaseInvoiceLine {
-  id                String   @id @default(uuid()) @db.Uuid
-  purchaseInvoiceId String   @map("purchase_invoice_id") @db.Uuid
-  itemId            String?  @map("item_id") @db.Uuid
+  id                String    @id @default(uuid()) @db.Uuid
+  purchaseInvoiceId String    @map("purchase_invoice_id") @db.Uuid
+  itemId            String?   @map("item_id") @db.Uuid
   /// the lot created by this purchase
-  lotId             String?  @map("lot_id") @db.Uuid
+  lotId             String?   @map("lot_id") @db.Uuid
+  /// order on the review screen
+  position          Int
+  /// index of the document line it came from, in `raw_extraction`; null when
+  /// added by hand. The parts of a split line share it
+  sourceIndex       Int?      @map("source_index")
   /// text exactly as it came on the invoice, even without a match to a
   /// registered item
   description       String
-  quantity          Decimal  @db.Decimal(14, 3)
-  unitCost          Decimal  @map("unit_cost") @db.Decimal(14, 4)
-  /// line total exactly as it came on the invoice
-  totalValue        Decimal? @map("total_value") @db.Decimal(14, 2)
+  /// null while the draft is being reviewed; confirming requires it
+  quantity          Decimal?  @db.Decimal(14, 3)
+  /// null while the draft is being reviewed; confirming requires it
+  unitCost          Decimal?  @map("unit_cost") @db.Decimal(14, 4)
+  /// line total as printed on the invoice, kept while it disagrees with
+  /// quantity x unit_cost and the user has not taken the computed one
+  totalValue        Decimal?  @map("total_value") @db.Decimal(14, 2)
   /// quantity x unit_cost ~= total_value — this is what measures
   /// confidence, not a model score
-  arithmeticCheck   Boolean? @map("arithmetic_check")
-  matchConfidence   Decimal? @map("match_confidence") @db.Decimal(4, 3)
+  arithmeticCheck   Boolean?  @map("arithmetic_check")
+  matchConfidence   Decimal?  @map("match_confidence") @db.Decimal(4, 3)
+  /// typed during the review; becomes the lot's number on confirmation
+  lotNumber         String?   @map("lot_number")
+  /// typed during the review; becomes the lot's expiration on confirmation
+  expirationDate    DateTime? @map("expiration_date") @db.Date
 
   purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
   item            Item?           @relation(fields: [itemId], references: [id])

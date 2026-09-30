@@ -1,6 +1,14 @@
-import { Prisma, PurchaseInvoice } from '@prisma/client';
+import { MeasurementUnit, Prisma, PurchaseInvoice } from '@prisma/client';
 
+import { UniqueConstraintError } from '../../../infra/prisma/prisma-errors';
 import { StoredDocument } from '../../../infra/storage';
+import {
+  DraftLineRow,
+  InvoiceWithLines,
+  InvoiceWithSupplier,
+} from '../stock-entry.repository';
+
+type CatalogItem = { id: string; name: string; unit: MeasurementUnit };
 
 /**
  * A fake bucket instead of a mock: the point of the upload confirmation is
@@ -32,6 +40,82 @@ export class FakeStorage {
 /** One invoice, stored as the repository would leave it. */
 export class FakeStockEntryRepository {
   invoice: PurchaseInvoice | null = null;
+  lines: DraftLineRow[] = [];
+  /** Other invoices of the user, by the hash of the file they hold. */
+  readonly invoiceIdsByHash = new Map<string, string>();
+  /** What a saved line's item resolves to, as the join would. */
+  readonly catalog = new Map<string, CatalogItem>();
+
+  findDrafts(userId: string): Promise<InvoiceWithSupplier[]> {
+    const { invoice } = this;
+    const isDraft = invoice?.userId === userId && invoice.status === 'DRAFT';
+    return Promise.resolve(isDraft ? [{ ...invoice, supplier: null }] : []);
+  }
+
+  async findWithLines(
+    id: string,
+    userId: string,
+  ): Promise<InvoiceWithLines | null> {
+    const invoice = await this.findByIdAndUser(id, userId);
+    if (!invoice) return null;
+    return {
+      ...invoice,
+      lines: this.lines.map((line, index) => this.savedLine(line, index)),
+    };
+  }
+
+  findIdByFileHash(_userId: string, fileHash: string) {
+    return Promise.resolve(this.invoiceIdsByHash.get(fileHash));
+  }
+
+  /** Same condition as the real repository's `where`. */
+  async updateDraft(
+    id: string,
+    userId: string,
+    data: Prisma.PurchaseInvoiceUncheckedUpdateManyInput,
+  ) {
+    if (!(await this.isDraftOf(id, userId))) return false;
+    await this.update(id, data);
+    return true;
+  }
+
+  async replaceLines(id: string, userId: string, lines: DraftLineRow[]) {
+    if (!(await this.isDraftOf(id, userId))) return false;
+    this.lines = lines;
+    return true;
+  }
+
+  private async isDraftOf(id: string, userId: string) {
+    const invoice = await this.findByIdAndUser(id, userId);
+    return invoice?.status === 'DRAFT';
+  }
+
+  private savedLine(
+    line: DraftLineRow,
+    index: number,
+  ): InvoiceWithLines['lines'][number] {
+    const decimal = (value: unknown) =>
+      value === null || value === undefined
+        ? null
+        : new Prisma.Decimal(value as number);
+    return {
+      id: `line-${index}`,
+      purchaseInvoiceId: this.invoice?.id ?? '',
+      itemId: line.itemId ?? null,
+      lotId: null,
+      position: line.position,
+      sourceIndex: line.sourceIndex ?? null,
+      description: line.description,
+      quantity: decimal(line.quantity),
+      unitCost: decimal(line.unitCost),
+      totalValue: decimal(line.totalValue),
+      arithmeticCheck: null,
+      matchConfidence: null,
+      lotNumber: line.lotNumber ?? null,
+      expirationDate: (line.expirationDate as Date | null) ?? null,
+      item: line.itemId ? (this.catalog.get(line.itemId) ?? null) : null,
+    };
+  }
 
   findByIdAndUser(id: string, userId: string) {
     const { invoice } = this;
@@ -43,6 +127,11 @@ export class FakeStockEntryRepository {
   }
 
   create(data: Prisma.PurchaseInvoiceUncheckedCreateInput) {
+    if (data.fileHash && this.invoiceIdsByHash.has(data.fileHash)) {
+      return Promise.reject(
+        new UniqueConstraintError(['user_id', 'file_hash']),
+      );
+    }
     this.invoice = {
       status: 'DRAFT',
       extractionStatus: 'PENDING',
