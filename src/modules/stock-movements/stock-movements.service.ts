@@ -633,12 +633,24 @@ export class StockMovementsService {
     query: QueryStockSyncDto,
   ): Promise<StockSyncPullEntity> {
     const since = new Date(query.since);
-    const from = new Date(since.getTime() - SYNC_CURSOR_OVERLAP_MS);
-    const movements = await this.repository.findCreatedAfter(
-      userId,
-      from,
-      SYNC_PULL_LIMIT,
-    );
+    // Continuing a page goes strictly past its last row. Only a fresh pull
+    // steps back: re-sending the overlap on every page would, once a full page
+    // fits in the window, hand the same page back forever.
+    const continued = query.afterId
+      ? await this.repository.findCreatedAfterMovement(
+          userId,
+          query.afterId,
+          SYNC_PULL_LIMIT,
+        )
+      : null;
+    const movements =
+      continued ??
+      (await this.repository.findCreatedAfter(
+        userId,
+        new Date(since.getTime() - SYNC_CURSOR_OVERLAP_MS),
+        SYNC_PULL_LIMIT,
+      ));
+    const hasMore = movements.length === SYNC_PULL_LIMIT;
 
     const touchedItems = [...new Set(movements.map(m => m.itemId))];
     const latest = movements.at(-1)?.createdAt;
@@ -646,9 +658,7 @@ export class StockMovementsService {
     this.logger.log(
       `sync pull user=${userId} since=${since.toISOString()} ` +
         `movements=${movements.length} items=${touchedItems.length}` +
-        (movements.length === SYNC_PULL_LIMIT
-          ? ' (page full, more to come)'
-          : ''),
+        (hasMore ? ' (page full, more to come)' : ''),
     );
 
     return {
@@ -656,7 +666,8 @@ export class StockMovementsService {
       balances: await this.itemBalances(userId, touchedItems),
       cursor: latest ?? since,
       // Told, not inferred: the device cannot see the limit it would compare against.
-      hasMore: movements.length === SYNC_PULL_LIMIT,
+      hasMore,
+      afterId: hasMore ? movements[movements.length - 1].id : null,
     };
   }
 

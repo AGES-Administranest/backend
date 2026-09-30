@@ -245,6 +245,27 @@ class FakeRepository {
     );
   }
 
+  findCreatedAfterMovement(
+    userId: string,
+    afterId: string,
+    take: number,
+  ): Promise<MovementWithContext[] | null> {
+    const byCursor = (a: MovementWithContext, b: MovementWithContext) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id);
+    const anchor = this.movements.find(
+      m => m.id === afterId && m.userId === userId,
+    );
+    if (!anchor) return Promise.resolve(null);
+    return Promise.resolve(
+      this.movements
+        .filter(
+          m => m.userId === userId && !m.deletedAt && byCursor(m, anchor) > 0,
+        )
+        .sort(byCursor)
+        .slice(0, take),
+    );
+  }
+
   findItemBalances(userId: string, itemIds: readonly string[]) {
     return Promise.resolve(
       [...this.items.values()]
@@ -1550,6 +1571,63 @@ describe('StockMovementsService.syncPull (delta)', () => {
     });
 
     expect(delta.hasMore).toBe(false);
+  });
+
+  it('pages through a burst sharing one timestamp without repeating a page', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    for (let i = 0; i < 1200; i++) {
+      await service.record(ana, inbound('item-1', 1));
+    }
+    // One push is one transaction, and they all get its created_at.
+    const burst = new Date();
+    for (const movement of repository.movements) movement.createdAt = burst;
+
+    const seen: string[] = [];
+    let query: { since: string; afterId?: string } = {
+      since: new Date(burst.getTime() - 60_000).toISOString(),
+    };
+    for (let round = 0; round < 5; round++) {
+      const page = await service.syncPull(ana, query);
+      seen.push(...page.movements.map(m => m.id));
+      if (!page.hasMore) break;
+      expect(page.afterId).toBe(page.movements.at(-1)!.id);
+      query = {
+        since: new Date(page.cursor).toISOString(),
+        afterId: page.afterId!,
+      };
+    }
+
+    expect(seen).toHaveLength(1200);
+    expect(new Set(seen).size).toBe(1200);
+  });
+
+  it('has no afterId on the last page', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    await service.record(ana, inbound('item-1', 10));
+
+    const delta = await service.syncPull(ana, {
+      since: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    expect(delta.afterId).toBeNull();
+  });
+
+  it('falls back to the cursor when afterId is not one of the caller movements', async () => {
+    const { repository, service } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    repository.seedItem({ id: 'item-bob', userId: bob });
+    await service.record(ana, inbound('item-1', 10));
+    await service.record(bob, inbound('item-bob', 10));
+    const bobsMovement = repository.movements.find(m => m.userId === bob)!;
+
+    const delta = await service.syncPull(ana, {
+      since: new Date(Date.now() - 60_000).toISOString(),
+      afterId: bobsMovement.id,
+    });
+
+    expect(delta.movements.map(m => m.itemId)).toEqual(['item-1']);
   });
 
   it('leaves out a movement that was soft-deleted', async () => {

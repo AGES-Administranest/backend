@@ -135,4 +135,15 @@ export class QueryStockSyncDto {
   })
   @IsISO8601()
   since!: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'The `afterId` of the previous page, sent back while `hasMore` is true. ' +
+      'The page then continues right after that movement, with no overlap, ' +
+      'so a burst of rows sharing one timestamp cannot pin the pull in place.',
+  })
+  @IsOptional()
+  @IsUUID()
+  afterId?: string;
 }

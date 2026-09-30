@@ -71,9 +71,10 @@ export class StockSyncPullEntity {
     type: String,
     format: 'date-time',
     description:
-      'Cursor for the next pull. Already stepped back by a safety window, so a ' +
-      'row committed out of order is re-sent rather than skipped (ADR-08) — ' +
-      'which is safe precisely because applying a movement twice is a no-op.',
+      'Cursor for the next pull: when the newest row of this page was stored. ' +
+      'A pull without `afterId` steps back a safety window from it, so a row ' +
+      'committed out of order is re-sent rather than skipped (ADR-08) — which ' +
+      'is safe precisely because applying a movement twice is a no-op.',
   })
   cursor!: Date;
 
@@ -84,4 +85,15 @@ export class StockSyncPullEntity {
       'weeks needs several rounds.',
   })
   hasMore!: boolean;
+
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'Set while `hasMore`: the last movement of this page. The next pull ' +
+      'sends it as `afterId` (with `cursor` as `since`) and continues exactly ' +
+      'where this one stopped. Null on the last page.',
+  })
+  afterId!: string | null;
 }

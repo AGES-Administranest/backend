@@ -570,6 +570,48 @@ describe('Stock ledger against a real Postgres (e2e)', () => {
       ).not.toContain(id);
     });
 
+    it('pages through pushes that land within one overlap window', async () => {
+      // Three full pushes in a row: 600 rows inside the 5 s overlap, more than
+      // one 500-row page. Each push shares one created_at.
+      const ids: string[] = [];
+      const start = new Date();
+      for (let push = 0; push < 3; push++) {
+        const batch = Array.from({ length: 200 }, (_, i) => {
+          const id = randomUUID();
+          ids.push(id);
+          return deviceMovement(
+            id,
+            0.001,
+            new Date(start.getTime() - 60_000 + push * 200 + i).toISOString(),
+          );
+        });
+        await pushSync(batch).expect(201);
+      }
+
+      const seen = new Set<string>();
+      let query: Record<string, string> = {
+        since: new Date(start.getTime() - 1000).toISOString(),
+      };
+      let rounds = 0;
+      for (; rounds < 10; rounds++) {
+        const res = await request(server())
+          .get('/stock-movement/sync')
+          .query(query)
+          .set('Authorization', auth())
+          .expect(200);
+        const body = res.body as StockSyncPullEntity;
+        body.movements.forEach(m => seen.add(m.id));
+        if (!body.hasMore) break;
+        query = {
+          since: new Date(body.cursor).toISOString(),
+          afterId: body.afterId!,
+        };
+      }
+
+      expect(rounds).toBeLessThan(10);
+      expect(ids.every(id => seen.has(id))).toBe(true);
+    });
+
     it('requires the cursor on the pull', async () => {
       await request(server())
         .get('/stock-movement/sync')

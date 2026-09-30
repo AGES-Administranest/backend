@@ -110,6 +110,50 @@ export class StockMovementsRepository {
     );
   }
 
+  /**
+   * The page after `afterId`, in the same `(createdAt, id)` order, compared in
+   * the database: a whole push shares one `created_at` (the transaction's), at
+   * microseconds a JS `Date` cannot carry, so only the row itself can anchor
+   * the next page. Null when the anchor is not one of this user's movements.
+   */
+  async findCreatedAfterMovement(
+    userId: string,
+    afterId: string,
+    take: number,
+  ): Promise<MovementWithContext[] | null> {
+    const anchor = await runQuery(() =>
+      this.prisma.stockMovement.findFirst({
+        where: { id: afterId, userId },
+        select: { id: true },
+      }),
+    );
+    if (!anchor) return null;
+
+    const page = await runQuery(
+      () =>
+        this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT m.id
+        FROM "stock_movement" m,
+          (SELECT created_at, id FROM "stock_movement" WHERE id = ${afterId}::uuid) a
+        WHERE m.user_id = ${userId}::uuid
+          AND m.deleted_at IS NULL
+          AND (m.created_at, m.id) > (a.created_at, a.id)
+        ORDER BY m.created_at, m.id
+        LIMIT ${take}
+      `,
+    );
+    if (page.length === 0) return [];
+
+    const rows = await runQuery(() =>
+      this.prisma.stockMovement.findMany({
+        where: { id: { in: page.map(row => row.id) } },
+        include: MOVEMENT_HISTORY_INCLUDE,
+      }),
+    );
+    const byId = new Map(rows.map(row => [row.id, row]));
+    return page.map(row => byId.get(row.id)!);
+  }
+
   /** Current cached balance of the given items, for the app to reconcile against. */
   findItemBalances(
     userId: string,
