@@ -94,11 +94,24 @@ export interface RecordOptions {
   allowNegativeBalance?: boolean;
   /** Clears `needsAdjustment` when the balance is not negative. Only the count sets it. */
   clearsNeedsAdjustment?: boolean;
+  /**
+   * The balance the caller derived this movement from, read before the lock.
+   * Checked under it: if the ledger moved in between, nothing is written and
+   * `BalanceChangedError` is thrown, so the caller can derive it again.
+   */
+  expectedBalance?: Prisma.Decimal;
   /** Extra columns merged into the item's single UPDATE, decided inside the lock. */
   itemPatch?: (
     tx: Prisma.TransactionClient,
     context: { movement: MovementWithContext; lockedItem: Item },
   ) => Promise<Prisma.ItemUncheckedUpdateInput>;
+}
+
+/** The ledger moved between the caller's read and the lock (`expectedBalance`). */
+export class BalanceChangedError extends Error {
+  constructor(readonly itemId: string) {
+    super(`The balance of item ${itemId} changed while it was being read`);
+  }
 }
 
 /** A movement recorded on a device: same shape, but the id is required (ADR-09). */
@@ -120,6 +133,9 @@ const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * overlap re-sends a few seconds; the device applies by id, so a repeat is free.
  */
 const SYNC_CURSOR_OVERLAP_MS = 5_000;
+
+/** A count re-reads the balance this many times before giving up on a busy item. */
+const COUNT_ATTEMPTS = 3;
 
 /** Ceiling on one delta page, so a device that was offline for weeks still gets an answer. */
 const SYNC_PULL_LIMIT = 500;
@@ -205,9 +221,17 @@ export class StockMovementsService {
 
             await this.assertReferencesExist(tx, userId, resolved);
 
+            const carried = balances.get(resolved.itemId);
             const balanceBefore =
-              balances.get(resolved.itemId) ??
+              carried ??
               (await this.repository.balanceOf(userId, resolved.itemId, tx));
+            if (
+              carried === undefined &&
+              options.expectedBalance &&
+              !balanceBefore.equals(options.expectedBalance)
+            ) {
+              throw new BalanceChangedError(resolved.itemId);
+            }
 
             const balance = assertSufficientBalance(balanceBefore, resolved, {
               allowNegativeBalance: options.allowNegativeBalance ?? false,
@@ -422,35 +446,53 @@ export class StockMovementsService {
     dto: CreateStockCountDto,
   ): Promise<StockMovementResultEntity> {
     const item = await this.loadItem(userId, dto.itemId);
-    const balance = await this.repository.balanceOf(userId, dto.itemId);
-    const delta = new Prisma.Decimal(dto.countedQuantity).minus(balance);
-    const movement = movementForDelta(delta);
 
-    if (!movement) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        'STOCK_QUANTITY_INVALID',
-        'The counted quantity already matches the balance — nothing to adjust',
-        { countedQuantity: String(dto.countedQuantity) },
-      );
+    // The delta is only right against the balance it was taken from. A
+    // movement landing between the read and the lock would leave the item
+    // off the count while the flag is cleared, so the write checks the
+    // balance under the lock and the count is taken again if it moved.
+    for (let attempt = 1; ; attempt++) {
+      const balance = await this.repository.balanceOf(userId, dto.itemId);
+      const delta = new Prisma.Decimal(dto.countedQuantity).minus(balance);
+      const movement = movementForDelta(delta);
+
+      if (!movement) {
+        throw new DomainError(
+          'INVALID_INPUT',
+          'STOCK_QUANTITY_INVALID',
+          'The counted quantity already matches the balance — nothing to adjust',
+          { countedQuantity: String(dto.countedQuantity) },
+        );
+      }
+
+      try {
+        const result = await this.record(
+          userId,
+          {
+            itemId: dto.itemId,
+            type: movement.type,
+            source: StockMovementSource.MANUAL_ADJUSTMENT,
+            adjustmentReason: AdjustmentReason.OTHER,
+            quantity: movement.quantity,
+            unitCost: item.defaultUnitCost ?? new Prisma.Decimal(0),
+            occurredAt: new Date(),
+            notes: dto.notes ?? `Physical count: ${dto.countedQuantity}`,
+          },
+          { clearsNeedsAdjustment: true, expectedBalance: balance },
+        );
+        return this.toResultEntity(result);
+      } catch (error) {
+        if (!(error instanceof BalanceChangedError)) throw error;
+        if (attempt === COUNT_ATTEMPTS) {
+          throw new DomainError(
+            'CONFLICT',
+            'STOCK_BALANCE_CHANGED',
+            'The item kept moving while the count was being recorded — try again',
+            { itemId: dto.itemId },
+          );
+        }
+      }
     }
-
-    const result = await this.record(
-      userId,
-      {
-        itemId: dto.itemId,
-        type: movement.type,
-        source: StockMovementSource.MANUAL_ADJUSTMENT,
-        adjustmentReason: AdjustmentReason.OTHER,
-        quantity: movement.quantity,
-        unitCost: item.defaultUnitCost ?? new Prisma.Decimal(0),
-        occurredAt: new Date(),
-        notes: dto.notes ?? `Physical count: ${dto.countedQuantity}`,
-      },
-      { clearsNeedsAdjustment: true },
-    );
-
-    return this.toResultEntity(result);
   }
 
   /**

@@ -647,6 +647,60 @@ describe('StockMovementsService.registerCount (US10 — closes needsAdjustment)'
     ).rejects.toMatchObject({ code: 'STOCK_QUANTITY_INVALID' });
   });
 
+  it('counts against the balance under the lock, not the one read before it', async () => {
+    const { service, repository } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    await service.record(ana, inbound('item-1', 10));
+
+    // A purchase commits between the count's first read and its lock.
+    const read = repository.balanceOf.bind(repository);
+    let raced = false;
+    jest
+      .spyOn(repository, 'balanceOf')
+      .mockImplementation(async (userId: string, itemId: string) => {
+        const balance = await read(userId, itemId);
+        if (!raced) {
+          raced = true;
+          await service.record(ana, inbound('item-1', 3));
+        }
+        return balance;
+      });
+
+    const result = await service.registerCount(ana, {
+      itemId: 'item-1',
+      countedQuantity: 6,
+    });
+
+    // 10 + 3 on the ledger, 6 on the shelf: the count takes 7 out, not 4.
+    expect(result.movement.quantity).toBe('7');
+    expect(result.balance).toBe('6');
+    expect(repository.items.get('item-1')!.currentQuantity.toNumber()).toBe(6);
+  });
+
+  it('gives up with a conflict when the item never holds still', async () => {
+    const { service, repository } = build();
+    repository.seedItem({ id: 'item-1', userId: ana });
+    await service.record(ana, inbound('item-1', 10));
+
+    const read = repository.balanceOf.bind(repository);
+    let inCount = true;
+    jest
+      .spyOn(repository, 'balanceOf')
+      .mockImplementation(async (userId: string, itemId: string) => {
+        const balance = await read(userId, itemId);
+        if (inCount) {
+          inCount = false;
+          await service.record(ana, inbound('item-1', 1));
+          inCount = true;
+        }
+        return balance;
+      });
+
+    await expect(
+      service.registerCount(ana, { itemId: 'item-1', countedQuantity: 2 }),
+    ).rejects.toMatchObject({ code: 'STOCK_BALANCE_CHANGED' });
+  });
+
   it('an ordinary movement never clears the flag on its own', async () => {
     const { repository, service } = await dugIntoTheRed();
 

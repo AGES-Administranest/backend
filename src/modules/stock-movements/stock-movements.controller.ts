@@ -190,6 +190,10 @@ export class StockMovementsController {
   @ApiBadRequestResponse({
     description: 'Invalid payload, or the count already matches the balance',
   })
+  @ApiConflictResponse({
+    description:
+      'STOCK_BALANCE_CHANGED — the item kept moving while the count was recorded',
+  })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   registerCount(
     @CurrentUser() user: AuthenticatedUser,

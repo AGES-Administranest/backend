@@ -61,6 +61,8 @@ export const ERROR_CODES = [
   'INSUFFICIENT_STOCK',
   'STOCK_MOVEMENT_DATE_IN_FUTURE',
   'STOCK_MOVEMENT_BATCH_EMPTY',
+  // A count raced other movements on the item every time it was retried.
+  'STOCK_BALANCE_CHANGED',
   // A device sent a movement whose UUID already belongs to another account
   // (ADR-09). Never silently skipped: that would drop a real consumption.
   'STOCK_MOVEMENT_ID_CONFLICT',
