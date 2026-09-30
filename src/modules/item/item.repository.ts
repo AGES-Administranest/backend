@@ -136,6 +136,16 @@ export class ItemRepository {
     );
   }
 
+  /**
+   * Hard delete of an item created moments ago whose opening balance could not
+   * be recorded. Nothing points at it yet: the ledger's transaction rolled back.
+   */
+  purgeNew(id: string): Promise<void> {
+    return runQuery(async () => {
+      await this.prisma.item.delete({ where: { id } });
+    });
+  }
+
   /** Soft delete, owner-scoped the same way as `update`. */
   delete(id: string, userId: string): Promise<Item | null> {
     return runQuery(() =>

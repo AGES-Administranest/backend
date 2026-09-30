@@ -51,6 +51,7 @@ describe('Item (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.stockMovement.deleteMany({ where: { userId } });
     await prisma.itemLot.deleteMany({ where: { item: { userId } } });
     await prisma.item.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
@@ -63,6 +64,40 @@ describe('Item (e2e)', () => {
   const listBody = (res: request.Response) => res.body as ItemBody[];
 
   describe('POST /item', () => {
+    it('grava o saldo inicial no histórico, e ele sobrevive à próxima movimentação', async () => {
+      const created = await request(server())
+        .post('/item')
+        .set('Authorization', bearer(owner))
+        .send({
+          category: 'MEDICATION',
+          unit: 'AMPOULE',
+          name: 'Saldo inicial e2e',
+          defaultUnitCost: 3,
+          currentQuantity: 10,
+        })
+        .expect(201);
+      const { id } = itemBody(created);
+      expect(itemBody(created).currentQuantity).toBe('10');
+
+      const movements = await prisma.stockMovement.findMany({
+        where: { itemId: id },
+      });
+      expect(movements).toHaveLength(1);
+      expect(movements[0]).toMatchObject({
+        type: 'INBOUND',
+        source: 'MANUAL_ADJUSTMENT',
+      });
+      const lots = await prisma.itemLot.findMany({ where: { itemId: id } });
+      expect(lots.map(lot => lot.currentQuantity.toString())).toEqual(['10']);
+
+      const adjusted = await request(server())
+        .post('/stock-movement/adjustment')
+        .set('Authorization', bearer(owner))
+        .send({ itemId: id, quantity: 2, reason: 'LOSS' })
+        .expect(201);
+      expect((adjusted.body as { balance: string }).balance).toBe('8');
+    });
+
     it('cria um item (201) sem expor userId na resposta', async () => {
       const res = await request(server())
         .post('/item')
@@ -362,19 +397,31 @@ describe('Item (e2e)', () => {
       const res = await request(server())
         .patch(`/item/${itemBody(created).id}`)
         .set('Authorization', bearer(owner))
-        .send({ currentQuantity: 5 })
+        .send({ name: 'Anestésico e2e editado' })
         .expect(200);
 
-      const body = itemBody(res);
-      expect(body.currentQuantity).toBe('5');
-      expect(body.name).toBe('Anestésico e2e');
+      expect(itemBody(res).name).toBe('Anestésico e2e editado');
+    });
+
+    it('400 ao tentar editar o saldo: ele só muda por movimentação', async () => {
+      const created = await request(server())
+        .post('/item')
+        .set('Authorization', bearer(owner))
+        .send({ category: 'ANESTHETIC', unit: 'ML', name: 'Saldo fixo e2e' })
+        .expect(201);
+
+      await request(server())
+        .patch(`/item/${itemBody(created).id}`)
+        .set('Authorization', bearer(owner))
+        .send({ currentQuantity: 5 })
+        .expect(400);
     });
 
     it('404 quando o item não existe', async () => {
       const res = await request(server())
         .patch(`/item/${randomUUID()}`)
         .set('Authorization', bearer(owner))
-        .send({ currentQuantity: 1 })
+        .send({ name: 'Inexistente e2e' })
         .expect(404);
 
       expect(errorBody(res).code).toBe('ITEM_NOT_FOUND');

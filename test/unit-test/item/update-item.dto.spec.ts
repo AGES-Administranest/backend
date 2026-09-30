@@ -6,7 +6,8 @@ import { UpdateItemDto } from '../../../src/modules/item/dto/update-item.dto';
 
 const errorsFor = async (payload: Record<string, unknown>) => {
   const dto = plainToInstance(UpdateItemDto, payload);
-  return validate(dto);
+  // Same options as the global ValidationPipe.
+  return validate(dto, { whitelist: true, forbidNonWhitelisted: true });
 };
 
 describe('UpdateItemDto', () => {
@@ -15,7 +16,7 @@ describe('UpdateItemDto', () => {
   });
 
   it('não tem erros ao enviar só um campo válido', async () => {
-    expect(await errorsFor({ currentQuantity: 5 })).toHaveLength(0);
+    expect(await errorsFor({ minimumStock: 5 })).toHaveLength(0);
   });
 
   it('rejeita name com menos de 2 caracteres quando enviado', async () => {
@@ -38,8 +39,8 @@ describe('UpdateItemDto', () => {
     expect(errors.some(e => e.property === 'unit')).toBe(true);
   });
 
-  it('rejeita currentQuantity negativo quando enviado', async () => {
-    const errors = await errorsFor({ currentQuantity: -1 });
+  it('rejeita currentQuantity: o saldo só muda por movimentação', async () => {
+    const errors = await errorsFor({ currentQuantity: 5 });
     expect(errors.some(e => e.property === 'currentQuantity')).toBe(true);
   });
 

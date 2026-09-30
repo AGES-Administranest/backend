@@ -50,7 +50,10 @@ describe('ItemService', () => {
     create: jest.Mock;
     update: jest.Mock;
     delete: jest.Mock;
+    purgeNew: jest.Mock;
   };
+  let lotRepository: { createLot: jest.Mock };
+  let stockMovements: { record: jest.Mock };
   let service: ItemService;
 
   beforeEach(() => {
@@ -61,8 +64,15 @@ describe('ItemService', () => {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      purgeNew: jest.fn(),
     };
-    service = new ItemService(repository as never);
+    lotRepository = { createLot: jest.fn() };
+    stockMovements = { record: jest.fn() };
+    service = new ItemService(
+      repository as never,
+      lotRepository as never,
+      stockMovements as never,
+    );
   });
 
   describe('findAll', () => {
@@ -191,6 +201,75 @@ describe('ItemService', () => {
       expect(repository.create).not.toHaveBeenCalled();
     });
 
+    it('sem saldo inicial, não registra movimentação', async () => {
+      repository.findByPresentation.mockResolvedValue(null);
+      repository.create.mockResolvedValue(item());
+
+      await service.create('user-1', createDto({ currentQuantity: 0 }));
+
+      expect(stockMovements.record).not.toHaveBeenCalled();
+    });
+
+    it('grava o saldo inicial como movimentação, não direto na coluna', async () => {
+      const createdAt = new Date('2026-09-01T12:00:00Z');
+      repository.findByPresentation.mockResolvedValue(null);
+      repository.create.mockResolvedValue(item({ createdAt }));
+      repository.findById.mockResolvedValue(
+        item({ createdAt, currentQuantity: new Decimal(10) }),
+      );
+      stockMovements.record.mockResolvedValue({});
+
+      const result = await service.create(
+        'user-1',
+        createDto({ currentQuantity: 10 }),
+      );
+
+      const [created] = repository.create.mock.calls[0] as [object];
+      expect(created).not.toHaveProperty('currentQuantity');
+      expect(stockMovements.record).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({
+          itemId: 'item-1',
+          type: 'INBOUND',
+          source: 'MANUAL_ADJUSTMENT',
+          adjustmentReason: 'OTHER',
+          quantity: 10,
+          occurredAt: createdAt,
+        }),
+      );
+      expect(result.currentQuantity.toString()).toBe('10');
+    });
+
+    it('abre um lote sem validade para o saldo inicial', async () => {
+      repository.findByPresentation.mockResolvedValue(null);
+      repository.create.mockResolvedValue(item());
+      repository.findById.mockResolvedValue(item());
+      lotRepository.createLot.mockResolvedValue({ id: 'lot-1' });
+      stockMovements.record.mockImplementation(
+        async (_userId, input: { resolveLot: (tx: unknown) => unknown }) =>
+          expect(await input.resolveLot('tx')).toEqual({ lotId: 'lot-1' }),
+      );
+
+      await service.create('user-1', createDto({ currentQuantity: 4 }));
+
+      expect(lotRepository.createLot).toHaveBeenCalledWith(
+        'item-1',
+        expect.objectContaining({ quantity: 4, expirationDate: null }),
+        'tx',
+      );
+    });
+
+    it('desfaz o item quando o saldo inicial não pode ser registrado', async () => {
+      repository.findByPresentation.mockResolvedValue(null);
+      repository.create.mockResolvedValue(item());
+      stockMovements.record.mockRejectedValue(new Error('boom'));
+
+      await expect(
+        service.create('user-1', createDto({ currentQuantity: 5 })),
+      ).rejects.toThrow('boom');
+      expect(repository.purgeNew).toHaveBeenCalledWith('item-1');
+    });
+
     it('traduz FK inválida (userId/supplierId inexistente) em erro de domínio', async () => {
       repository.findByPresentation.mockResolvedValue(null);
       repository.create.mockRejectedValue(new InvalidReferenceError('userId'));
@@ -280,10 +359,10 @@ describe('ItemService', () => {
     it('não revalida unicidade quando name e unit não mudam', async () => {
       repository.findById.mockResolvedValue(item());
       repository.update.mockResolvedValue(
-        item({ currentQuantity: new Decimal(3) }),
+        item({ minimumStock: new Decimal(3) }),
       );
 
-      await service.update('item-1', 'user-1', { currentQuantity: 3 });
+      await service.update('item-1', 'user-1', { minimumStock: 3 });
 
       expect(repository.findByPresentation).not.toHaveBeenCalled();
     });
@@ -292,7 +371,7 @@ describe('ItemService', () => {
       repository.findById.mockResolvedValue(null);
 
       await expect(
-        service.update('missing', 'user-1', { currentQuantity: 1 }),
+        service.update('missing', 'user-1', { minimumStock: 1 }),
       ).rejects.toMatchObject({
         code: 'ITEM_NOT_FOUND',
       } satisfies Partial<DomainError>);
