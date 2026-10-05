@@ -55,3 +55,32 @@ None of them are secrets: the app client is public by design.
   own addresses added through the `CallbackUrls` / `LogoutUrls` parameters.
 - `PreventUserExistenceErrors` is on: an unknown e-mail and a wrong password return
   the same `NotAuthorizedException`, which the app already shows as one message.
+
+## Document storage — `storage.yaml`
+
+The private bucket the app uploads invoices to through presigned POSTs (ADR-03), and
+the IAM policy the API needs.
+
+```sh
+scripts/deploy-storage.sh
+```
+
+Creates or updates the stack `administranest-prod-storage` and prints `S3_BUCKET`
+(`administranest-prod-documents-<account id>`) and the ARN of the managed policy
+`administranest-prod-api-documents`.
+
+- **Private, TLS only, encrypted.** All public access is blocked, ACLs are off,
+  objects are encrypted with SSE-S3, and the bucket policy refuses plain HTTP. Uploads
+  and downloads only go through URLs the API signs.
+- **What the API may do** — the managed policy, to attach to the API's role once the
+  compute exists:
+  - `s3:PutObject` / `s3:GetObject` under `users/*`: the presigned POST carries the
+    signer's permissions, so the API needs `PutObject` for the app's upload to be
+    accepted; `GetObject` covers `HeadObject` too.
+  - `s3:ListBucket` on the bucket: without it, `HeadObject` on a missing key answers
+    `403` instead of `404`, and the API would read "the upload never arrived" as a
+    failure. No `s3:prefix` condition, since S3 sends none for that check.
+- **CORS** is off: the native app doesn't need it. A hosted web build that uploads
+  from the browser needs its origin added once:
+  `CORS_ALLOWED_ORIGINS=https://... scripts/deploy-storage.sh`.
+- **The bucket survives the stack** (`Retain`), like the user pool.

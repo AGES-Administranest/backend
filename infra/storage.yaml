@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Administranest - production document storage: the private S3 bucket the app
+  uploads to through presigned POSTs (ADR-03), and the IAM policy the API needs
+  to sign those uploads and read the files back.
+  Deploy with scripts/deploy-storage.sh.
+
+Parameters:
+  CorsAllowedOrigins:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >-
+      Browser origins allowed to upload straight to the bucket (a hosted web
+      build). Empty: no CORS rule, which is all the native app needs.
+
+Conditions:
+  HasCors: !Not [!Equals [!Join ['', !Ref CorsAllowedOrigins], '']]
+
+Resources:
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    # Invoices and other user files: a `delete-stack` must not take them along.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      # Bucket names are global; the account id keeps this one ours.
+      BucketName: !Sub administranest-prod-documents-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      CorsConfiguration: !If
+        - HasCors
+        - CorsRules:
+            - AllowedOrigins: !Ref CorsAllowedOrigins
+              AllowedMethods: [GET, POST, HEAD]
+              AllowedHeaders: ['*']
+              ExposedHeaders: [ETag]
+              MaxAge: 3000
+        - !Ref AWS::NoValue
+      Tags:
+        - Key: project
+          Value: administranest
+        - Key: environment
+          Value: prod
+
+  DocumentsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt DocumentsBucket.Arn
+              - !Sub '${DocumentsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # Attached to the API's role once the API has one (App Runner / ECS task
+  # role, its own task). A managed policy rather than an inline one so the
+  # compute stack only has to reference it.
+  ApiDocumentsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: administranest-prod-api-documents
+      Description: What the Administranest API does with the documents bucket.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # A presigned POST carries the signer's permissions: the API needs
+          # PutObject for the app's upload to be accepted.
+          - Sid: SignUploadsAndReadDocuments
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource: !Sub '${DocumentsBucket.Arn}/users/*'
+          # Without ListBucket, HeadObject on a missing key answers 403 instead
+          # of 404, and the API reads "the upload never arrived" as a failure.
+          - Sid: TellMissingFromForbidden
+            Effect: Allow
+            Action: s3:ListBucket
+            # No s3:prefix condition: S3 sends no prefix when it decides
+            # between 404 and 403 for a missing object.
+            Resource: !GetAtt DocumentsBucket.Arn
+
+Outputs:
+  BucketName:
+    Description: S3_BUCKET (backend)
+    Value: !Ref DocumentsBucket
+  ApiPolicyArn:
+    Description: Managed policy to attach to the API's role
+    Value: !Ref ApiDocumentsPolicy
