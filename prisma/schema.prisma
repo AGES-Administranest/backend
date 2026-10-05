@@ -737,7 +737,7 @@ model FinancialCategory {
   user    User?            @relation(fields: [userId], references: [id])
   entries FinancialEntry[]
 
-  @@unique([userId, name])
+  @@unique([userId, nature, name])
   @@map("financial_category")
 }
 
@@ -781,6 +781,7 @@ model FinancialEntry {
 
   @@index([userId, settlementDate])
   @@index([userId, accrualDate])
+  @@index([userId, nature, scope])
   @@index([userId, status, dueDate])
   @@index([userId, scope, accrualDate])
   @@index([userId, categoryId])
