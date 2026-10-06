@@ -3,8 +3,12 @@ import { EntryNature, EntryScope, EntrySource, Prisma } from '@prisma/client';
 
 import { CreateFinancialEntryDto } from './dto/create-financial-entry.dto';
 import { QueryFinancialEntryDto } from './dto/query-financial-entry.dto';
+import { SyncFinancialEntryDto } from './dto/sync-financial-entry.dto';
 import { UpdateFinancialEntryDto } from './dto/update-financial-entry.dto';
-import { FinancialEntryResponse } from './entities/financial-entry.entity';
+import {
+  FinancialEntryResponse,
+  FinancialEntrySyncResult,
+} from './entities/financial-entry.entity';
 import { FinancialCategoryRepository } from './financial-category.repository';
 import {
   FinancialEntryRepository,
@@ -130,6 +134,110 @@ export class FinancialEntryService {
       source: EntrySource.PURCHASE_INVOICE,
       purchaseInvoiceId: input.purchaseInvoiceId,
     });
+  }
+
+  async sync(
+    userId: string,
+    operations: SyncFinancialEntryDto[],
+  ): Promise<FinancialEntrySyncResult[]> {
+    const ordered = [...operations].sort((a, b) =>
+      a.occurredAt.localeCompare(b.occurredAt),
+    );
+    const written = new Set<string>();
+    const results: FinancialEntrySyncResult[] = [];
+    for (const operation of ordered) {
+      results.push(await this.applySync(userId, operation, written));
+    }
+    return results;
+  }
+
+  private async applySync(
+    userId: string,
+    operation: SyncFinancialEntryDto,
+    written: Set<string>,
+  ): Promise<FinancialEntrySyncResult> {
+    const existing = await this.repository.findById(operation.id);
+    const at = new Date(operation.occurredAt);
+
+    if (operation.operation === 'create') {
+      if (existing?.deletedAt) {
+        return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_SYNC_CONFLICT');
+      }
+      if (existing && existing.userId !== userId) {
+        return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_ID_CONFLICT');
+      }
+      if (existing) return { id: operation.id, result: 'ignored' };
+      if (
+        !operation.nature ||
+        !operation.description ||
+        operation.amount == null ||
+        !operation.accrualDate ||
+        !operation.categoryId
+      ) {
+        return this.syncConflict(operation.id, 'VALIDATION_ERROR');
+      }
+      try {
+        await this.create(userId, {
+          id: operation.id,
+          nature: operation.nature,
+          description: operation.description,
+          amount: operation.amount,
+          accrualDate: operation.accrualDate,
+          categoryId: operation.categoryId,
+          scope: operation.scope,
+        });
+        written.add(operation.id);
+        return { id: operation.id, result: 'applied' };
+      } catch (error) {
+        return this.syncFailure(operation.id, error);
+      }
+    }
+
+    if (!existing || existing.userId !== userId || existing.deletedAt) {
+      return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_SYNC_CONFLICT');
+    }
+    if (!written.has(operation.id) && existing.updatedAt > at) {
+      return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_SYNC_CONFLICT');
+    }
+
+    try {
+      if (operation.operation === 'delete') {
+        await this.remove(userId, operation.id);
+      } else {
+        await this.update(userId, operation.id, {
+          nature: operation.nature,
+          description: operation.description,
+          amount: operation.amount,
+          accrualDate: operation.accrualDate,
+          categoryId: operation.categoryId,
+          scope: operation.scope,
+          notes: operation.notes,
+        });
+      }
+      written.add(operation.id);
+      return { id: operation.id, result: 'applied' };
+    } catch (error) {
+      return this.syncFailure(operation.id, error);
+    }
+  }
+
+  private syncConflict(
+    id: string,
+    code: FinancialEntrySyncResult['code'],
+  ): FinancialEntrySyncResult {
+    return { id, result: 'conflict', code };
+  }
+
+  private syncFailure(id: string, error: unknown): FinancialEntrySyncResult {
+    if (!(error instanceof DomainError)) throw error;
+    const rejected =
+      error.code === 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN' ||
+      error.code === 'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN';
+    return {
+      id,
+      result: rejected ? 'rejected' : 'conflict',
+      code: error.code,
+    };
   }
 
   async findOne(

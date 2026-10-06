@@ -2,6 +2,7 @@ import { EntryNature, EntryScope, EntrySource, Prisma } from '@prisma/client';
 
 import { CreateFinancialEntryDto } from './dto/create-financial-entry.dto';
 import { QueryFinancialEntryDto } from './dto/query-financial-entry.dto';
+import { SyncFinancialEntryDto } from './dto/sync-financial-entry.dto';
 import { StatementRow } from './financial-entry.repository';
 import {
   FinancialEntryService,
@@ -212,6 +213,100 @@ describe('FinancialEntryService manual writes', () => {
       code: 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
       kind: 'INVALID_INPUT',
     });
+  });
+
+  it('applies a create once and ignores the same id sent again', async () => {
+    let stored: Record<string, unknown> | null = null;
+    repository.findById.mockImplementation(() => stored);
+    repository.create.mockImplementation(() => {
+      stored = {
+        ...row(),
+        userId: 'user-1',
+        deletedAt: null,
+        categoryId: 'cat-1',
+      };
+      return row();
+    });
+
+    const operation = Object.assign(new SyncFinancialEntryDto(), {
+      id: 'entry-1',
+      operation: 'create',
+      occurredAt: '2026-04-01T00:00:00.000Z',
+      nature: EntryNature.INCOME,
+      description: 'Fee',
+      amount: 10,
+      accrualDate: '2026-04-01T00:00:00.000Z',
+      categoryId: 'cat-1',
+    });
+
+    await expect(
+      service.sync('user-1', [operation, operation]),
+    ).resolves.toEqual([
+      { id: 'entry-1', result: 'applied' },
+      { id: 'entry-1', result: 'ignored' },
+    ]);
+    expect(repository.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('conflicts when the server copy is newer than the operation', async () => {
+    repository.findById.mockResolvedValue({
+      ...row(),
+      userId: 'user-1',
+      deletedAt: null,
+      categoryId: 'cat-1',
+      updatedAt: new Date('2026-04-02T00:00:00.000Z'),
+    });
+
+    const operation = Object.assign(new SyncFinancialEntryDto(), {
+      id: 'entry-1',
+      operation: 'update',
+      occurredAt: '2026-04-01T00:00:00.000Z',
+      description: 'Stale',
+    });
+
+    await expect(service.sync('user-1', [operation])).resolves.toEqual([
+      {
+        id: 'entry-1',
+        result: 'conflict',
+        code: 'FINANCIAL_ENTRY_SYNC_CONFLICT',
+      },
+    ]);
+    expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects an offline change to an amount controlled by the origin', async () => {
+    repository.findById.mockResolvedValue({
+      ...row({
+        source: EntrySource.APPOINTMENT,
+        appointmentId: 'appt-1',
+      }),
+      userId: 'user-1',
+      deletedAt: null,
+      categoryId: 'cat-1',
+      updatedAt: new Date('2026-03-01T00:00:00.000Z'),
+    });
+    repository.findOwned.mockResolvedValue({
+      ...row({
+        source: EntrySource.APPOINTMENT,
+        appointmentId: 'appt-1',
+      }),
+      categoryId: 'cat-1',
+    });
+
+    const operation = Object.assign(new SyncFinancialEntryDto(), {
+      id: 'entry-1',
+      operation: 'update',
+      occurredAt: '2026-04-01T00:00:00.000Z',
+      amount: 3,
+    });
+
+    await expect(service.sync('user-1', [operation])).resolves.toEqual([
+      {
+        id: 'entry-1',
+        result: 'rejected',
+        code: 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+      },
+    ]);
   });
 
   it('posts one expense for a purchase invoice and ignores a second call', async () => {

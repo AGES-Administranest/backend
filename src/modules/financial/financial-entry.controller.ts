@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseArrayPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -23,8 +24,12 @@ import {
 
 import { CreateFinancialEntryDto } from './dto/create-financial-entry.dto';
 import { QueryFinancialEntryDto } from './dto/query-financial-entry.dto';
+import { SyncFinancialEntryDto } from './dto/sync-financial-entry.dto';
 import { UpdateFinancialEntryDto } from './dto/update-financial-entry.dto';
-import { FinancialEntryResponse } from './entities/financial-entry.entity';
+import {
+  FinancialEntryResponse,
+  FinancialEntrySyncResult,
+} from './entities/financial-entry.entity';
 import { FinancialEntryService } from './financial-entry.service';
 import { CurrentUser } from '../../shared/auth';
 import type { AuthenticatedUser } from '../../shared/auth';
@@ -44,6 +49,20 @@ export class FinancialEntryController {
     @Query() query: QueryFinancialEntryDto,
   ) {
     return this.service.findAll(user.id, query);
+  }
+
+  @Post('sync')
+  @ApiOperation({
+    summary: 'Applies a batch of offline entry operations, oldest first',
+  })
+  @ApiOkResponse({ type: FinancialEntrySyncResult, isArray: true })
+  @ApiBadRequestResponse({ description: 'Invalid payload' })
+  sync(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ParseArrayPipe({ items: SyncFinancialEntryDto }))
+    operations: SyncFinancialEntryDto[],
+  ) {
+    return this.service.sync(user.id, operations);
   }
 
   @Post()

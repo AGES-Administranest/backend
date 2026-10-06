@@ -76,6 +76,17 @@ export class FinancialEntryOriginResponse {
   id!: string | null;
 }
 
+export class FinancialEntrySyncResult {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ enum: ['applied', 'ignored', 'conflict', 'rejected'] })
+  result!: 'applied' | 'ignored' | 'conflict' | 'rejected';
+
+  @ApiPropertyOptional()
+  code?: string;
+}
+
 export class FinancialEntryResponse {
   id!: string;
 
