@@ -58,3 +58,46 @@ export class FinancialEntryEntity {
 
   deletedAt!: Date | null;
 }
+
+export class FinancialEntryCategoryResponse {
+  id!: string;
+
+  name!: string;
+
+  @ApiProperty({ enum: EntryScope })
+  defaultScope!: EntryScope;
+}
+
+export class FinancialEntryOriginResponse {
+  @ApiProperty({ enum: EntrySource })
+  type!: EntrySource;
+
+  @ApiProperty({ type: String, nullable: true })
+  id!: string | null;
+}
+
+export class FinancialEntryResponse {
+  id!: string;
+
+  @ApiProperty({ enum: EntryNature })
+  nature!: EntryNature;
+
+  description!: string;
+
+  @ApiProperty({ type: FinancialEntryCategoryResponse })
+  category!: FinancialEntryCategoryResponse;
+
+  @ApiProperty({ enum: EntryScope })
+  scope!: EntryScope;
+
+  @ApiProperty({ type: String, example: '250.00' })
+  amount!: Prisma.Decimal;
+
+  accrualDate!: Date;
+
+  @ApiProperty({ enum: EntrySource })
+  source!: EntrySource;
+
+  @ApiProperty({ type: FinancialEntryOriginResponse })
+  origin!: FinancialEntryOriginResponse;
+}
