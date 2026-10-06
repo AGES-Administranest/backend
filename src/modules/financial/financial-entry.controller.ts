@@ -60,11 +60,26 @@ export class FinancialEntryController {
     return this.service.create(user.id, dto);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Returns one entry, including its origin' })
+  @ApiOkResponse({ type: FinancialEntryResponse })
+  @ApiNotFoundResponse({ description: 'Entry was not found' })
+  findOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.findOne(user.id, id);
+  }
+
   @Patch(':id')
-  @ApiOperation({ summary: 'Updates a manual entry' })
+  @ApiOperation({
+    summary:
+      'Updates a manual entry, or description, category, scope and notes of an automatic one',
+  })
   @ApiOkResponse({ type: FinancialEntryResponse })
   @ApiBadRequestResponse({
-    description: 'The entry is automatic, or the category does not match',
+    description:
+      'Amount or accrual date of an automatic entry, or the category does not match',
   })
   @ApiNotFoundResponse({ description: 'Entry was not found' })
   update(
@@ -79,7 +94,10 @@ export class FinancialEntryController {
   @HttpCode(204)
   @ApiOperation({ summary: 'Soft-deletes a manual entry' })
   @ApiNoContentResponse()
-  @ApiBadRequestResponse({ description: 'The entry is automatic' })
+  @ApiConflictResponse({
+    description:
+      'An automatic entry is removed only by deleting its origin. The body includes the origin type and id',
+  })
   @ApiNotFoundResponse({ description: 'Entry was not found' })
   remove(
     @CurrentUser() user: AuthenticatedUser,

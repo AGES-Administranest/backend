@@ -104,12 +104,36 @@ export class FinancialEntryService {
     return toStatementEntry(created);
   }
 
+  async findOne(
+    userId: string,
+    id: string,
+  ): Promise<FinancialEntryResponse> {
+    return toStatementEntry(await this.owned(userId, id));
+  }
+
   async update(
     userId: string,
     id: string,
     dto: UpdateFinancialEntryDto,
   ): Promise<FinancialEntryResponse> {
-    const entry = await this.manualEntry(userId, id);
+    const entry = await this.owned(userId, id);
+    if (entry.source !== EntrySource.MANUAL) {
+      if (dto.amount !== undefined || dto.accrualDate !== undefined) {
+        throw new DomainError(
+          'INVALID_INPUT',
+          'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+          'Amount and accrual date are controlled by the origin',
+          toStatementEntry(entry).origin,
+        );
+      }
+      if (dto.nature !== undefined) {
+        throw new DomainError(
+          'INVALID_INPUT',
+          'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+          'Only description, category, scope and notes can be changed on an automatic entry',
+        );
+      }
+    }
     const nature = dto.nature ?? entry.nature;
     const categoryId = dto.categoryId ?? entry.categoryId;
     if (dto.nature || dto.categoryId) {
@@ -126,29 +150,31 @@ export class FinancialEntryService {
       ...(dto.accrualDate ? { accrualDate: new Date(dto.accrualDate) } : {}),
       ...(dto.categoryId ? { categoryId: dto.categoryId } : {}),
       ...(dto.scope ? { scope: dto.scope } : {}),
+      ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
     });
     return toStatementEntry(updated);
   }
 
   async remove(userId: string, id: string): Promise<void> {
-    await this.manualEntry(userId, id);
+    const entry = await this.owned(userId, id);
+    if (entry.source !== EntrySource.MANUAL) {
+      throw new DomainError(
+        'CONFLICT',
+        'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
+        'An automatic entry can only be deleted by deleting its origin',
+        toStatementEntry(entry).origin,
+      );
+    }
     await this.repository.update(id, { deletedAt: new Date() });
   }
 
-  private async manualEntry(userId: string, id: string): Promise<OwnedEntry> {
+  private async owned(userId: string, id: string): Promise<OwnedEntry> {
     const entry = await this.repository.findOwned(userId, id);
     if (!entry) {
       throw new DomainError(
         'NOT_FOUND',
         'FINANCIAL_ENTRY_NOT_FOUND',
         'Financial entry was not found',
-      );
-    }
-    if (entry.source !== EntrySource.MANUAL) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        'FINANCIAL_ENTRY_NOT_MANUAL',
-        'Only a manual entry can be changed',
       );
     }
     return entry;

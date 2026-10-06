@@ -45,4 +45,10 @@ export class UpdateFinancialEntryDto {
   @IsOptional()
   @IsEnum(EntryScope)
   scope?: EntryScope;
+
+  @ApiPropertyOptional({ maxLength: 2000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
 }

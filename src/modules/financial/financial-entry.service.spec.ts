@@ -189,17 +189,44 @@ describe('FinancialEntryService manual writes', () => {
     );
   });
 
-  it('refuses to change an automatic entry', async () => {
+  it('updates description of an automatic entry and refuses amount', async () => {
+    const automatic = {
+      ...row({
+        source: EntrySource.APPOINTMENT,
+        appointmentId: 'appt-1',
+      }),
+      categoryId: 'cat-1',
+    };
+    repository.findOwned.mockResolvedValue(automatic);
+    repository.update.mockResolvedValue(automatic);
+
+    await service.update('user-1', 'entry-1', { description: 'Note' });
+    expect(repository.update).toHaveBeenCalledWith(
+      'entry-1',
+      expect.objectContaining({ description: 'Note' }),
+    );
+
+    await expect(
+      service.update('user-1', 'entry-1', { amount: 3 }),
+    ).rejects.toMatchObject({
+      code: 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+      kind: 'INVALID_INPUT',
+    });
+  });
+
+  it('refuses to delete an automatic entry and names its origin', async () => {
     repository.findOwned.mockResolvedValue({
-      ...row({ source: EntrySource.APPOINTMENT }),
+      ...row({
+        source: EntrySource.APPOINTMENT,
+        appointmentId: 'appt-1',
+      }),
       categoryId: 'cat-1',
     });
 
-    await expect(service.update('user-1', 'entry-1', {})).rejects.toMatchObject(
-      { code: 'FINANCIAL_ENTRY_NOT_MANUAL' },
-    );
     await expect(service.remove('user-1', 'entry-1')).rejects.toMatchObject({
-      code: 'FINANCIAL_ENTRY_NOT_MANUAL',
+      code: 'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
+      kind: 'CONFLICT',
+      details: { type: EntrySource.APPOINTMENT, id: 'appt-1' },
     });
   });
 });

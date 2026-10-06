@@ -240,4 +240,50 @@ describe('Financial entries (e2e)', () => {
       .expect(400);
     expect(mismatch.body).toMatchObject({ code: 'FINANCIAL_CATEGORY_INVALID' });
   });
+
+  it('returns an automatic entry and blocks amount changes and deletion', async () => {
+    const appointment = await prisma.appointment.create({
+      data: { userId, startsAt: thisMonth },
+    });
+    const entry = await prisma.financialEntry.create({
+      data: {
+        userId,
+        nature: EntryNature.INCOME,
+        scope: EntryScope.PROFESSIONAL,
+        categoryId,
+        description: 'From appointment',
+        amount: '30.00',
+        accrualDate: thisMonth,
+        source: EntrySource.APPOINTMENT,
+        appointmentId: appointment.id,
+      },
+    });
+
+    const detail = await request(server())
+      .get(`/financial-entries/${entry.id}`)
+      .set('Authorization', bearer(owner))
+      .expect(200);
+    expect(detail.body).toMatchObject({
+      source: EntrySource.APPOINTMENT,
+      origin: { type: EntrySource.APPOINTMENT, id: appointment.id },
+    });
+
+    await request(server())
+      .patch(`/financial-entries/${entry.id}`)
+      .set('Authorization', bearer(owner))
+      .send({ description: 'Renamed', amount: 1 })
+      .expect(400);
+
+    const removed = await request(server())
+      .delete(`/financial-entries/${entry.id}`)
+      .set('Authorization', bearer(owner))
+      .expect(409);
+    expect(removed.body).toMatchObject({
+      code: 'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
+      details: { type: EntrySource.APPOINTMENT, id: appointment.id },
+    });
+
+    await prisma.financialEntry.delete({ where: { id: entry.id } });
+    await prisma.appointment.delete({ where: { id: appointment.id } });
+  });
 });
