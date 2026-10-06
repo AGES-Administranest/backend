@@ -21,3 +21,15 @@ export class FinancialCategoryEntity {
 
   updatedAt!: Date;
 }
+
+export class FinancialCategoryResponse {
+  id!: string;
+
+  name!: string;
+
+  @ApiProperty({ enum: EntryNature })
+  nature!: EntryNature;
+
+  @ApiProperty({ enum: EntryScope })
+  defaultScope!: EntryScope;
+}

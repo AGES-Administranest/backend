@@ -50,6 +50,10 @@ async function bootstrap() {
       )
       .addTag('item', 'Estoque de insumos e medicamentos')
       .addTag('supplier', 'Fornecedores do usuário')
+      .addTag(
+        'financial-categories',
+        'Default and user financial categories',
+      )
       .addTag('client', 'Clínicas e hospitais atendidos pelo usuário')
       .addTag('appointments', 'Agendamentos do usuário')
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
