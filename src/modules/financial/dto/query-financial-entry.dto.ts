@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 export class QueryFinancialEntryDto {
-  @ApiPropertyOptional({ minimum: 1, maximum: 12 })
+  @ApiPropertyOptional({ minimum: 1, maximum: 12, example: 3 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -12,7 +12,7 @@ export class QueryFinancialEntryDto {
   @Max(12)
   month?: number;
 
-  @ApiPropertyOptional({ minimum: 2000, maximum: 2100 })
+  @ApiPropertyOptional({ minimum: 2000, maximum: 2100, example: 2026 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()

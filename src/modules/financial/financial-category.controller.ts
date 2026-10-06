@@ -1,5 +1,11 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 
 import { QueryFinancialCategoryDto } from './dto/query-financial-category.dto';
 import { FinancialCategoryResponse } from './entities/financial-category.entity';
@@ -15,8 +21,16 @@ export class FinancialCategoryController {
   @Get()
   @ApiOperation({
     summary: 'Lists active default categories and the user categories',
+    description:
+      'Defaults have no user. Pass nature=INCOME or nature=EXPENSE to filter. Inactive categories are omitted.',
   })
   @ApiOkResponse({ type: FinancialCategoryResponse, isArray: true })
+  @ApiBadRequestResponse({
+    description: 'nature is not INCOME or EXPENSE (VALIDATION_ERROR)',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+  })
   findAll(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryFinancialCategoryDto,

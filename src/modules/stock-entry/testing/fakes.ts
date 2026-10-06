@@ -69,6 +69,17 @@ export class FakeStockEntryRepository {
   }
 
   /** Same condition as the real repository's `where`. */
+  async confirmDraft(
+    id: string,
+    userId: string,
+    write: (tx: Prisma.TransactionClient) => Promise<void>,
+  ) {
+    if (!(await this.isDraftOf(id, userId))) return false;
+    await write({} as Prisma.TransactionClient);
+    await this.update(id, { status: 'CONFIRMED', reviewedAt: new Date() });
+    return true;
+  }
+
   async updateDraft(
     id: string,
     userId: string,

@@ -257,6 +257,7 @@ describe('StockEntryDraftService', () => {
           purchaseInvoiceId: INVOICE_ID,
           number: '4521',
         }),
+        expect.anything(),
       );
       expect(repository.invoice).toMatchObject({ status: 'CONFIRMED' });
     });

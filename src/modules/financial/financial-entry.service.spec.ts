@@ -203,6 +203,7 @@ describe('FinancialEntryService manual writes', () => {
 
     await service.update('user-1', 'entry-1', { description: 'Note' });
     expect(repository.update).toHaveBeenCalledWith(
+      'user-1',
       'entry-1',
       expect.objectContaining({ description: 'Note' }),
     );
@@ -303,7 +304,7 @@ describe('FinancialEntryService manual writes', () => {
     await expect(service.sync('user-1', [operation])).resolves.toEqual([
       {
         id: 'entry-1',
-        result: 'rejected',
+        result: 'conflict',
         code: 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
       },
     ]);
@@ -338,6 +339,7 @@ describe('FinancialEntryService manual writes', () => {
         description: 'Invoice 4521',
         categoryId: 'supplies',
       }),
+      undefined,
     );
   });
 

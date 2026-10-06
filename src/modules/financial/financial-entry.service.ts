@@ -15,6 +15,7 @@ import {
   OwnedEntry,
   StatementRow,
 } from './financial-entry.repository';
+import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 export function accrualMonth(year?: number, month?: number, now = new Date()) {
@@ -37,7 +38,11 @@ export function toStatementEntry(row: StatementRow): FinancialEntryResponse {
     id: row.id,
     nature: row.nature,
     description: row.description,
-    category: row.category,
+    category: {
+      id: row.category.id,
+      name: row.category.name,
+      scope: row.category.defaultScope,
+    },
     scope: row.scope,
     amount: row.amount,
     accrualDate: row.accrualDate,
@@ -94,46 +99,72 @@ export class FinancialEntryService {
     }
 
     const category = await this.categoryFor(userId, dto.categoryId, dto.nature);
-    const created = await this.repository.create({
-      id: dto.id,
-      userId,
-      nature: dto.nature,
-      description: dto.description,
-      amount: new Prisma.Decimal(dto.amount),
-      accrualDate: new Date(dto.accrualDate),
-      categoryId: dto.categoryId,
-      scope: dto.scope ?? category.defaultScope,
-      source: EntrySource.MANUAL,
-    });
-    return toStatementEntry(created);
+    try {
+      const created = await this.repository.create({
+        id: dto.id,
+        userId,
+        nature: dto.nature,
+        description: dto.description,
+        amount: new Prisma.Decimal(dto.amount),
+        accrualDate: new Date(dto.accrualDate),
+        categoryId: dto.categoryId,
+        scope: dto.scope ?? category.defaultScope,
+        source: EntrySource.MANUAL,
+      });
+      return toStatementEntry(created);
+    } catch (error) {
+      if (!(error instanceof UniqueConstraintError)) throw error;
+      const winner = await this.repository.findById(dto.id);
+      if (
+        winner &&
+        winner.userId === userId &&
+        winner.deletedAt === null &&
+        winner.source === EntrySource.MANUAL
+      ) {
+        return toStatementEntry(winner);
+      }
+      throw new DomainError(
+        'CONFLICT',
+        'FINANCIAL_ENTRY_ID_CONFLICT',
+        'This id is already in use',
+      );
+    }
   }
 
-  async recordPurchaseInvoice(input: {
-    userId: string;
-    purchaseInvoiceId: string;
-    amount: Prisma.Decimal;
-    issueDate: Date;
-    number: string | null;
-  }): Promise<void> {
+  async recordPurchaseInvoice(
+    input: {
+      userId: string;
+      purchaseInvoiceId: string;
+      amount: Prisma.Decimal;
+      issueDate: Date;
+      number: string | null;
+    },
+    db?: Prisma.TransactionClient,
+  ): Promise<void> {
     const existing = await this.repository.findByPurchaseInvoice(
+      input.userId,
       input.purchaseInvoiceId,
+      db,
     );
     if (existing) return;
 
     const category = await this.categories.findDefault('Supplies', EntryNature.EXPENSE);
     if (!category) throw new Error('Supplies category is not seeded');
 
-    await this.repository.create({
-      userId: input.userId,
-      nature: EntryNature.EXPENSE,
-      scope: category.defaultScope,
-      categoryId: category.id,
-      description: input.number ? `Invoice ${input.number}` : 'Purchase invoice',
-      amount: input.amount,
-      accrualDate: input.issueDate,
-      source: EntrySource.PURCHASE_INVOICE,
-      purchaseInvoiceId: input.purchaseInvoiceId,
-    });
+    await this.repository.create(
+      {
+        userId: input.userId,
+        nature: EntryNature.EXPENSE,
+        scope: category.defaultScope,
+        categoryId: category.id,
+        description: input.number ? `Invoice ${input.number}` : 'Purchase invoice',
+        amount: input.amount,
+        accrualDate: input.issueDate,
+        source: EntrySource.PURCHASE_INVOICE,
+        purchaseInvoiceId: input.purchaseInvoiceId,
+      },
+      db,
+    );
   }
 
   async sync(
@@ -230,14 +261,7 @@ export class FinancialEntryService {
 
   private syncFailure(id: string, error: unknown): FinancialEntrySyncResult {
     if (!(error instanceof DomainError)) throw error;
-    const rejected =
-      error.code === 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN' ||
-      error.code === 'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN';
-    return {
-      id,
-      result: rejected ? 'rejected' : 'conflict',
-      code: error.code,
-    };
+    return { id, result: 'conflict', code: error.code };
   }
 
   async findOne(
@@ -275,7 +299,7 @@ export class FinancialEntryService {
     if (dto.nature || dto.categoryId) {
       await this.categoryFor(userId, categoryId, nature);
     }
-    const updated = await this.repository.update(id, {
+    const updated = await this.repository.update(userId, id, {
       ...(dto.nature ? { nature: dto.nature } : {}),
       ...(dto.description !== undefined
         ? { description: dto.description }
@@ -301,7 +325,7 @@ export class FinancialEntryService {
         toStatementEntry(entry).origin,
       );
     }
-    await this.repository.update(id, { deletedAt: new Date() });
+    await this.repository.update(userId, id, { deletedAt: new Date() });
   }
 
   private async owned(userId: string, id: string): Promise<OwnedEntry> {

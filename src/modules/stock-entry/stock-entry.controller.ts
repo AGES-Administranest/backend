@@ -124,10 +124,18 @@ export class StockEntryController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Confirmed' })
   @ApiBadRequestResponse({
-    description: 'The invoice has no total or issue date',
+    description:
+      'The invoice has no total greater than zero or no issue date (INVOICE_NOT_READY)',
   })
-  @ApiNotFoundResponse({ description: 'Missing, or another account (ADR-11)' })
-  @ApiConflictResponse({ description: 'The entry is no longer a draft' })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+  })
+  @ApiNotFoundResponse({
+    description: 'Missing, or another account (INVOICE_NOT_FOUND)',
+  })
+  @ApiConflictResponse({
+    description: 'The entry is no longer a draft (INVOICE_NOT_EDITABLE)',
+  })
   confirm(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,

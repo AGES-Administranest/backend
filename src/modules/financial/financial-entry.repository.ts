@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EntryNature, EntryScope, Prisma } from '@prisma/client';
 
-import { runQuery } from '../../infra/prisma/prisma-errors';
+import { RecordNotFoundError, runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
 const statementSelect = {
@@ -71,10 +71,14 @@ export class FinancialEntryRepository {
     );
   }
 
-  findByPurchaseInvoice(purchaseInvoiceId: string): Promise<{ id: string } | null> {
+  findByPurchaseInvoice(
+    userId: string,
+    purchaseInvoiceId: string,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<{ id: string } | null> {
     return runQuery(() =>
-      this.prisma.financialEntry.findFirst({
-        where: { purchaseInvoiceId, deletedAt: null },
+      db.financialEntry.findFirst({
+        where: { userId, purchaseInvoiceId, deletedAt: null },
         select: { id: true },
       }),
     );
@@ -100,22 +104,28 @@ export class FinancialEntryRepository {
 
   create(
     data: Prisma.FinancialEntryUncheckedCreateInput,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<StatementRow> {
     return runQuery(() =>
-      this.prisma.financialEntry.create({ data, select: statementSelect }),
+      db.financialEntry.create({ data, select: statementSelect }),
     );
   }
 
-  update(
+  async update(
+    userId: string,
     id: string,
     data: Prisma.FinancialEntryUncheckedUpdateInput,
   ): Promise<StatementRow> {
-    return runQuery(() =>
-      this.prisma.financialEntry.update({
-        where: { id },
+    return runQuery(async () => {
+      const { count } = await this.prisma.financialEntry.updateMany({
+        where: { id, userId, deletedAt: null },
         data,
+      });
+      if (count === 0) throw new RecordNotFoundError();
+      return this.prisma.financialEntry.findFirstOrThrow({
+        where: { id, userId },
         select: statementSelect,
-      }),
-    );
+      });
+    });
   }
 }
