@@ -159,4 +159,85 @@ describe('Financial entries (e2e)', () => {
       'Older',
     ]);
   });
+
+  it('creates a manual entry, replays the same id, updates it and deletes it', async () => {
+    const id = randomUUID();
+    const payload = {
+      id,
+      nature: EntryNature.INCOME,
+      description: 'Manual',
+      amount: 15.5,
+      accrualDate: thisMonth.toISOString(),
+      categoryId,
+    };
+
+    const created = await request(server())
+      .post('/financial-entries')
+      .set('Authorization', bearer(owner))
+      .send(payload)
+      .expect(201);
+    expect((created.body as EntryBody).origin).toEqual({
+      type: EntrySource.MANUAL,
+      id: null,
+    });
+    expect((created.body as EntryBody & { scope: string }).scope).toBe(
+      EntryScope.PROFESSIONAL,
+    );
+
+    const replay = await request(server())
+      .post('/financial-entries')
+      .set('Authorization', bearer(owner))
+      .send(payload)
+      .expect(201);
+    expect((replay.body as EntryBody).id).toBe(id);
+
+    const patched = await request(server())
+      .patch(`/financial-entries/${id}`)
+      .set('Authorization', bearer(owner))
+      .send({ description: 'Manual edited' })
+      .expect(200);
+    expect((patched.body as EntryBody).description).toBe('Manual edited');
+
+    await request(server())
+      .delete(`/financial-entries/${id}`)
+      .set('Authorization', bearer(owner))
+      .expect(204);
+
+    const listed = await request(server())
+      .get('/financial-entries')
+      .set('Authorization', bearer(owner))
+      .expect(200);
+    expect((listed.body as EntryBody[]).map(entry => entry.id)).not.toContain(
+      id,
+    );
+  });
+
+  it('rejects a non-positive amount and a category of the wrong nature', async () => {
+    await request(server())
+      .post('/financial-entries')
+      .set('Authorization', bearer(owner))
+      .send({
+        id: randomUUID(),
+        nature: EntryNature.INCOME,
+        description: 'Bad',
+        amount: 0,
+        accrualDate: thisMonth.toISOString(),
+        categoryId,
+      })
+      .expect(400);
+
+    const mismatch = await request(server())
+      .post('/financial-entries')
+      .set('Authorization', bearer(owner))
+      .send({
+        id: randomUUID(),
+        nature: EntryNature.EXPENSE,
+        description: 'Wrong category',
+        amount: 10,
+        accrualDate: thisMonth.toISOString(),
+        categoryId,
+      })
+      .expect(400);
+    expect(mismatch.body).toMatchObject({ code: 'FINANCIAL_CATEGORY_INVALID' });
+  });
 });

@@ -1,11 +1,13 @@
 import { EntryNature, EntryScope, EntrySource, Prisma } from '@prisma/client';
 
+import { CreateFinancialEntryDto } from './dto/create-financial-entry.dto';
 import { QueryFinancialEntryDto } from './dto/query-financial-entry.dto';
 import { StatementRow } from './financial-entry.repository';
 import {
   FinancialEntryService,
   toStatementEntry,
 } from './financial-entry.service';
+import { DomainError } from '../../shared/errors/domain-error';
 
 const row = (overrides: Partial<StatementRow> = {}): StatementRow => ({
   id: 'entry-1',
@@ -33,7 +35,7 @@ describe('FinancialEntryService', () => {
 
   beforeEach(() => {
     repository = { findStatement: jest.fn().mockResolvedValue([]) };
-    service = new FinancialEntryService(repository as never);
+    service = new FinancialEntryService(repository as never, {} as never);
   });
 
   it('uses the current UTC month when month and year are absent', async () => {
@@ -95,5 +97,109 @@ describe('FinancialEntryService', () => {
         }),
       ).origin,
     ).toEqual({ type: EntrySource.APPOINTMENT, id: 'appt-1' });
+  });
+});
+
+describe('FinancialEntryService manual writes', () => {
+  const category = {
+    id: 'cat-1',
+    nature: EntryNature.INCOME,
+    defaultScope: EntryScope.PROFESSIONAL,
+  };
+  let repository: {
+    findById: jest.Mock;
+    findOwned: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+  };
+  let categories: { findForUser: jest.Mock };
+  let service: FinancialEntryService;
+
+  const dto = (): CreateFinancialEntryDto =>
+    Object.assign(new CreateFinancialEntryDto(), {
+      id: 'entry-1',
+      nature: EntryNature.INCOME,
+      description: 'Fee',
+      amount: 10,
+      accrualDate: '2026-03-15T12:00:00.000Z',
+      categoryId: 'cat-1',
+    });
+
+  beforeEach(() => {
+    repository = {
+      findById: jest.fn().mockResolvedValue(null),
+      findOwned: jest.fn(),
+      create: jest.fn().mockResolvedValue(row()),
+      update: jest.fn(),
+    };
+    categories = { findForUser: jest.fn().mockResolvedValue(category) };
+    service = new FinancialEntryService(
+      repository as never,
+      categories as never,
+    );
+  });
+
+  it('inherits the category scope and stores a manual entry', async () => {
+    await service.create('user-1', dto());
+
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        scope: EntryScope.PROFESSIONAL,
+        source: EntrySource.MANUAL,
+      }),
+    );
+  });
+
+  it('returns the existing manual entry when the same id is sent again', async () => {
+    repository.findById.mockResolvedValue({
+      ...row(),
+      userId: 'user-1',
+      deletedAt: null,
+      categoryId: 'cat-1',
+    });
+
+    const result = await service.create('user-1', dto());
+
+    expect(result.id).toBe('entry-1');
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an id that already belongs to someone else', async () => {
+    repository.findById.mockResolvedValue({
+      ...row(),
+      userId: 'user-2',
+      deletedAt: null,
+      categoryId: 'cat-1',
+    });
+
+    await expect(service.create('user-1', dto())).rejects.toMatchObject({
+      code: 'FINANCIAL_ENTRY_ID_CONFLICT',
+    });
+  });
+
+  it('rejects a category whose nature does not match', async () => {
+    categories.findForUser.mockResolvedValue({
+      ...category,
+      nature: EntryNature.EXPENSE,
+    });
+
+    await expect(service.create('user-1', dto())).rejects.toBeInstanceOf(
+      DomainError,
+    );
+  });
+
+  it('refuses to change an automatic entry', async () => {
+    repository.findOwned.mockResolvedValue({
+      ...row({ source: EntrySource.APPOINTMENT }),
+      categoryId: 'cat-1',
+    });
+
+    await expect(service.update('user-1', 'entry-1', {})).rejects.toMatchObject(
+      { code: 'FINANCIAL_ENTRY_NOT_MANUAL' },
+    );
+    await expect(service.remove('user-1', 'entry-1')).rejects.toMatchObject({
+      code: 'FINANCIAL_ENTRY_NOT_MANUAL',
+    });
   });
 });

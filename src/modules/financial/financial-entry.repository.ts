@@ -23,6 +23,17 @@ export type StatementRow = Prisma.FinancialEntryGetPayload<{
   select: typeof statementSelect;
 }>;
 
+const entrySelect = {
+  ...statementSelect,
+  userId: true,
+  categoryId: true,
+  deletedAt: true,
+} satisfies Prisma.FinancialEntrySelect;
+
+export type OwnedEntry = Prisma.FinancialEntryGetPayload<{
+  select: typeof entrySelect;
+}>;
+
 export interface StatementFilter {
   from: Date;
   to: Date;
@@ -56,6 +67,45 @@ export class FinancialEntryRepository {
         orderBy: [{ accrualDate: 'desc' }, { id: 'desc' }],
         skip,
         take,
+      }),
+    );
+  }
+
+  findById(id: string): Promise<OwnedEntry | null> {
+    return runQuery(() =>
+      this.prisma.financialEntry.findUnique({
+        where: { id },
+        select: entrySelect,
+      }),
+    );
+  }
+
+  findOwned(userId: string, id: string): Promise<OwnedEntry | null> {
+    return runQuery(() =>
+      this.prisma.financialEntry.findFirst({
+        where: { id, userId, deletedAt: null },
+        select: entrySelect,
+      }),
+    );
+  }
+
+  create(
+    data: Prisma.FinancialEntryUncheckedCreateInput,
+  ): Promise<StatementRow> {
+    return runQuery(() =>
+      this.prisma.financialEntry.create({ data, select: statementSelect }),
+    );
+  }
+
+  update(
+    id: string,
+    data: Prisma.FinancialEntryUncheckedUpdateInput,
+  ): Promise<StatementRow> {
+    return runQuery(() =>
+      this.prisma.financialEntry.update({
+        where: { id },
+        data,
+        select: statementSelect,
       }),
     );
   }

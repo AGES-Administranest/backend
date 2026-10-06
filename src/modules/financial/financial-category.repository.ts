@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EntryNature } from '@prisma/client';
+import { EntryNature, EntryScope } from '@prisma/client';
 
 import { FinancialCategoryResponse } from './entities/financial-category.entity';
 import { runQuery } from '../../infra/prisma/prisma-errors';
@@ -26,6 +26,22 @@ export class FinancialCategoryRepository {
           nature: true,
           defaultScope: true,
         },
+      }),
+    );
+  }
+
+  findForUser(
+    userId: string,
+    id: string,
+  ): Promise<{
+    id: string;
+    nature: EntryNature;
+    defaultScope: EntryScope;
+  } | null> {
+    return runQuery(() =>
+      this.prisma.financialCategory.findFirst({
+        where: { id, OR: [{ userId: null }, { userId }] },
+        select: { id: true, nature: true, defaultScope: true },
       }),
     );
   }
