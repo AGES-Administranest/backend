@@ -104,6 +104,34 @@ export class FinancialEntryService {
     return toStatementEntry(created);
   }
 
+  async recordPurchaseInvoice(input: {
+    userId: string;
+    purchaseInvoiceId: string;
+    amount: Prisma.Decimal;
+    issueDate: Date;
+    number: string | null;
+  }): Promise<void> {
+    const existing = await this.repository.findByPurchaseInvoice(
+      input.purchaseInvoiceId,
+    );
+    if (existing) return;
+
+    const category = await this.categories.findDefault('Supplies', EntryNature.EXPENSE);
+    if (!category) throw new Error('Supplies category is not seeded');
+
+    await this.repository.create({
+      userId: input.userId,
+      nature: EntryNature.EXPENSE,
+      scope: category.defaultScope,
+      categoryId: category.id,
+      description: input.number ? `Invoice ${input.number}` : 'Purchase invoice',
+      amount: input.amount,
+      accrualDate: input.issueDate,
+      source: EntrySource.PURCHASE_INVOICE,
+      purchaseInvoiceId: input.purchaseInvoiceId,
+    });
+  }
+
   async findOne(
     userId: string,
     id: string,

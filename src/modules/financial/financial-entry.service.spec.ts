@@ -214,6 +214,38 @@ describe('FinancialEntryService manual writes', () => {
     });
   });
 
+  it('posts one expense for a purchase invoice and ignores a second call', async () => {
+    categories.findDefault = jest.fn().mockResolvedValue({
+      id: 'supplies',
+      defaultScope: EntryScope.PROFESSIONAL,
+    });
+    repository.findByPurchaseInvoice = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'entry-9' });
+
+    const input = {
+      userId: 'user-1',
+      purchaseInvoiceId: 'inv-1',
+      amount: new Prisma.Decimal('40.00'),
+      issueDate: new Date('2026-08-12T00:00:00.000Z'),
+      number: '4521',
+    };
+    await service.recordPurchaseInvoice(input);
+    await service.recordPurchaseInvoice(input);
+
+    expect(repository.create).toHaveBeenCalledTimes(1);
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nature: EntryNature.EXPENSE,
+        source: EntrySource.PURCHASE_INVOICE,
+        purchaseInvoiceId: 'inv-1',
+        description: 'Invoice 4521',
+        categoryId: 'supplies',
+      }),
+    );
+  });
+
   it('refuses to delete an automatic entry and names its origin', async () => {
     repository.findOwned.mockResolvedValue({
       ...row({

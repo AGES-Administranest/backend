@@ -1,4 +1,4 @@
-import { PurchaseInvoice } from '@prisma/client';
+import { Prisma, PurchaseInvoice } from '@prisma/client';
 
 import { ExtractionService, StoredExtraction } from './extraction.service';
 import { StockEntryDraftService } from './stock-entry-draft.service';
@@ -58,6 +58,7 @@ const CATALOG = [
 describe('StockEntryDraftService', () => {
   let service: StockEntryDraftService;
   let repository: FakeStockEntryRepository;
+  let recordPurchaseInvoice: jest.Mock;
   /** Runs while the service checks the items: another request's moment. */
   let meanwhile: () => void;
 
@@ -84,10 +85,12 @@ describe('StockEntryDraftService', () => {
       {} as MatchItemService,
       {} as SupplierService,
     );
+    recordPurchaseInvoice = jest.fn();
     service = new StockEntryDraftService(
       repository as unknown as StockEntryRepository,
       extraction,
       items as unknown as ItemService,
+      { recordPurchaseInvoice } as never,
     );
     draft();
   });
@@ -239,6 +242,30 @@ describe('StockEntryDraftService', () => {
         service.updateHeader(USER_ID, INVOICE_ID, { invoiceNumber: '9999' }),
       ).rejects.toMatchObject({ code: 'INVOICE_NOT_EDITABLE' });
       expect(repository.invoice).toMatchObject({ number: '4521' });
+    });
+  });
+
+  describe('confirmation', () => {
+    it('posts an expense for the invoice total and marks the import confirmed', async () => {
+      draft({ totalAmount: new Prisma.Decimal('94.50') });
+
+      await service.confirm(USER_ID, INVOICE_ID);
+
+      expect(recordPurchaseInvoice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: USER_ID,
+          purchaseInvoiceId: INVOICE_ID,
+          number: '4521',
+        }),
+      );
+      expect(repository.invoice).toMatchObject({ status: 'CONFIRMED' });
+    });
+
+    it('refuses an invoice without a total', async () => {
+      await expect(service.confirm(USER_ID, INVOICE_ID)).rejects.toMatchObject({
+        code: 'INVOICE_NOT_READY',
+      });
+      expect(recordPurchaseInvoice).not.toHaveBeenCalled();
     });
   });
 

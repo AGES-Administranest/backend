@@ -30,6 +30,18 @@ export class FinancialCategoryRepository {
     );
   }
 
+  findDefault(
+    name: string,
+    nature: EntryNature,
+  ): Promise<{ id: string; defaultScope: EntryScope } | null> {
+    return runQuery(() =>
+      this.prisma.financialCategory.findFirst({
+        where: { userId: null, name, nature, active: true },
+        select: { id: true, defaultScope: true },
+      }),
+    );
+  }
+
   findForUser(
     userId: string,
     id: string,

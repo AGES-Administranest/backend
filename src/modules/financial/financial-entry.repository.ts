@@ -71,6 +71,15 @@ export class FinancialEntryRepository {
     );
   }
 
+  findByPurchaseInvoice(purchaseInvoiceId: string): Promise<{ id: string } | null> {
+    return runQuery(() =>
+      this.prisma.financialEntry.findFirst({
+        where: { purchaseInvoiceId, deletedAt: null },
+        select: { id: true },
+      }),
+    );
+  }
+
   findById(id: string): Promise<OwnedEntry | null> {
     return runQuery(() =>
       this.prisma.financialEntry.findUnique({

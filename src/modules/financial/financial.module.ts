@@ -9,6 +9,7 @@ import { FinancialEntryService } from './financial-entry.service';
 
 @Module({
   controllers: [FinancialCategoryController, FinancialEntryController],
+  exports: [FinancialEntryService],
   providers: [
     FinancialCategoryService,
     FinancialCategoryRepository,

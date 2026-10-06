@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import {
   linkedItemIds,
@@ -15,10 +16,12 @@ import { ExtractionService } from './extraction.service';
 import {
   invoiceNotEditable,
   invoiceNotFound,
+  invoiceNotReady,
   lineItemNotFound,
 } from './stock-entry.errors';
 import { StockEntryRepository } from './stock-entry.repository';
 import { DomainError } from '../../shared/errors/domain-error';
+import { FinancialEntryService } from '../financial';
 import { ItemService } from '../item';
 
 /** The review of a draft: reading it back, saving it and discarding it. */
@@ -28,6 +31,7 @@ export class StockEntryDraftService {
     private readonly stockEntryRepository: StockEntryRepository,
     private readonly extractionService: ExtractionService,
     private readonly itemService: ItemService,
+    private readonly financialEntries: FinancialEntryService,
   ) {}
 
   async listDrafts(userId: string): Promise<DraftSummaryDto[]> {
@@ -72,6 +76,29 @@ export class StockEntryDraftService {
    * A discarded entry stays on record as CANCELLED (Q12), with its document.
    * Its hash is released so the same file can start a new entry.
    */
+  async confirm(userId: string, id: string): Promise<void> {
+    const invoice = await this.stockEntryRepository.findByIdAndUser(id, userId);
+    if (!invoice) throw invoiceNotFound(id);
+    if (invoice.status !== 'DRAFT') throw invoiceNotEditable(invoice);
+    const amount = invoice.totalAmount;
+    if (!amount || !invoice.issueDate || new Prisma.Decimal(amount).lte(0)) {
+      throw invoiceNotReady(id);
+    }
+
+    await this.financialEntries.recordPurchaseInvoice({
+      userId,
+      purchaseInvoiceId: id,
+      amount: new Prisma.Decimal(amount),
+      issueDate: invoice.issueDate,
+      number: invoice.number,
+    });
+    const saved = await this.stockEntryRepository.updateDraft(id, userId, {
+      status: 'CONFIRMED',
+      reviewedAt: new Date(),
+    });
+    if (!saved) throw await this.refusal(userId, id);
+  }
+
   async discard(userId: string, id: string): Promise<void> {
     const discarded = await this.stockEntryRepository.updateDraft(id, userId, {
       status: 'CANCELLED',
