@@ -15,6 +15,8 @@ RUN npx prisma generate && npm run build
 FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
+# `npx prisma` on start would otherwise log npm's update notice on every boot.
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
 # Prisma's schema engine (`migrate deploy` on start) links against OpenSSL.
 RUN apt-get update \
