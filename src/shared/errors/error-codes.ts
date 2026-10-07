@@ -112,6 +112,8 @@ export const ERROR_CODES = [
   'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
   'FINANCIAL_ENTRY_ID_CONFLICT',
   'FINANCIAL_ENTRY_SYNC_CONFLICT',
+  // occurredAt is ahead of the server clock, past the 10-minute tolerance (ADR-08).
+  'FINANCIAL_ENTRY_DATE_IN_FUTURE',
   'FINANCIAL_CATEGORY_INVALID',
   // A default category the confirmation step needs was not seeded.
   'FINANCIAL_CATEGORY_NOT_SEEDED',

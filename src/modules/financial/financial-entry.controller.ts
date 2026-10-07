@@ -70,7 +70,8 @@ export class FinancialEntryController {
   })
   @ApiOkResponse({ type: FinancialEntrySyncResult, isArray: true })
   @ApiBadRequestResponse({
-    description: 'The array is invalid (VALIDATION_ERROR)',
+    description:
+      'The array is invalid (VALIDATION_ERROR), or an occurredAt is more than 10 minutes ahead of the server (FINANCIAL_ENTRY_DATE_IN_FUTURE)',
   })
   @ApiUnauthorizedResponse({
     description:

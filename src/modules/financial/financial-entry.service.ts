@@ -27,6 +27,8 @@ export function accrualMonth(year?: number, month?: number, now = new Date()) {
   };
 }
 
+const CLOCK_SKEW_TOLERANCE_MS = 10 * 60 * 1000;
+
 function sameManualPayload(
   existing: OwnedEntry,
   dto: CreateFinancialEntryDto,
@@ -209,8 +211,25 @@ export class FinancialEntryService {
     userId: string,
     operations: SyncFinancialEntryDto[],
   ): Promise<FinancialEntrySyncResult[]> {
-    const ordered = [...operations].sort((a, b) =>
-      a.occurredAt.localeCompare(b.occurredAt),
+    const now = Date.now();
+    for (const operation of operations) {
+      const at = new Date(operation.occurredAt);
+      if (at.getTime() > now + CLOCK_SKEW_TOLERANCE_MS) {
+        throw new DomainError(
+          'INVALID_INPUT',
+          'FINANCIAL_ENTRY_DATE_IN_FUTURE',
+          'This operation is dated in the future. Check the clock on the device that recorded it.',
+          {
+            id: operation.id,
+            occurredAt: at.toISOString(),
+            serverTime: new Date(now).toISOString(),
+          },
+        );
+      }
+    }
+    const ordered = [...operations].sort(
+      (a, b) =>
+        new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime(),
     );
     const written = new Set<string>();
     const results: FinancialEntrySyncResult[] = [];

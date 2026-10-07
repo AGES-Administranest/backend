@@ -268,6 +268,56 @@ describe('FinancialEntryService manual writes', () => {
     expect(repository.create).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects an operation dated beyond the ten-minute clock tolerance', async () => {
+    const operation = Object.assign(new SyncFinancialEntryDto(), {
+      id: 'entry-1',
+      operation: 'delete',
+      occurredAt: new Date(Date.now() + 11 * 60 * 1000).toISOString(),
+    });
+
+    await expect(service.sync('user-1', [operation])).rejects.toMatchObject({
+      code: 'FINANCIAL_ENTRY_DATE_IN_FUTURE',
+    });
+    expect(repository.findForUser).not.toHaveBeenCalled();
+  });
+
+  it('applies operations by instant, not by the date string', async () => {
+    repository.findForUser.mockResolvedValue(null);
+    repository.create.mockResolvedValue(row());
+
+    const laterInUtc = Object.assign(new SyncFinancialEntryDto(), {
+      id: 'later',
+      operation: 'create',
+      occurredAt: '2026-04-01T20:00:00.000-03:00',
+      nature: EntryNature.INCOME,
+      description: 'Fee',
+      amount: 10,
+      accrualDate: '2026-04-01T00:00:00.000Z',
+      categoryId: 'cat-1',
+    });
+    const earlierInUtc = Object.assign(new SyncFinancialEntryDto(), {
+      id: 'earlier',
+      operation: 'create',
+      occurredAt: '2026-04-01T22:00:00.000Z',
+      nature: EntryNature.INCOME,
+      description: 'Fee',
+      amount: 10,
+      accrualDate: '2026-04-01T00:00:00.000Z',
+      categoryId: 'cat-1',
+    });
+
+    await service.sync('user-1', [laterInUtc, earlierInUtc]);
+
+    expect(repository.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: 'earlier' }),
+    );
+    expect(repository.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: 'later' }),
+    );
+  });
+
   it('conflicts when the server copy is newer than the operation', async () => {
     repository.findForUser.mockResolvedValue({
       ...row(),
