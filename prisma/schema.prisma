@@ -538,7 +538,7 @@ model Equipment {
   purchaseValue   Decimal   @map("purchase_value") @db.Decimal(14, 2)
   salvageValue    Decimal   @default(0) @map("salvage_value") @db.Decimal(14, 2)
   acquisitionDate DateTime  @map("acquisition_date") @db.Date
-  usefulLifeYears Int       @map("useful_life_years")
+  usefulLifeMonths Int?      @map("useful_life_months")
   /// calibration, warranty
   notes           String?
   active          Boolean   @default(true)
