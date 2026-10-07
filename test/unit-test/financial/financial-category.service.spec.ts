@@ -1,7 +1,7 @@
 import { EntryNature } from '@prisma/client';
 
-import { QueryFinancialCategoryDto } from './dto/query-financial-category.dto';
-import { FinancialCategoryService } from './financial-category.service';
+import { QueryFinancialCategoryDto } from '../../../src/modules/financial/dto/query-financial-category.dto';
+import { FinancialCategoryService } from '../../../src/modules/financial/financial-category.service';
 
 describe('FinancialCategoryService', () => {
   let repository: { findActive: jest.Mock };

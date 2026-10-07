@@ -1,14 +1,14 @@
 import { EntryNature, EntryScope, EntrySource, Prisma } from '@prisma/client';
 
-import { CreateFinancialEntryDto } from './dto/create-financial-entry.dto';
-import { QueryFinancialEntryDto } from './dto/query-financial-entry.dto';
-import { SyncFinancialEntryDto } from './dto/sync-financial-entry.dto';
-import { StatementRow } from './financial-entry.repository';
+import { CreateFinancialEntryDto } from '../../../src/modules/financial/dto/create-financial-entry.dto';
+import { QueryFinancialEntryDto } from '../../../src/modules/financial/dto/query-financial-entry.dto';
+import { SyncFinancialEntryDto } from '../../../src/modules/financial/dto/sync-financial-entry.dto';
+import { StatementRow } from '../../../src/modules/financial/financial-entry.repository';
 import {
   FinancialEntryService,
   toStatementEntry,
-} from './financial-entry.service';
-import { DomainError } from '../../shared/errors/domain-error';
+} from '../../../src/modules/financial/financial-entry.service';
+import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const row = (overrides: Partial<StatementRow> = {}): StatementRow => ({
   id: 'entry-1',

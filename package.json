@@ -33,6 +33,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "test:unit": "jest --config ./test/jest-unit.json",
     "test:appointment": "jest --config ./test/unit-test/appointment/jest.config.json",
+    "test:financial": "jest --config ./test/unit-test/financial/jest.config.json",
     "test:client": "jest --config ./test/unit-test/client/jest.config.json",
     "test:item": "jest --config ./test/unit-test/item/jest.config.json",
     "test:stock": "jest --config ./test/unit-test/stock-movements/jest.config.json --runInBand",
