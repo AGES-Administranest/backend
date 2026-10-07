@@ -15,6 +15,7 @@ import { StockEntryModule } from './modules/stock-entry';
 import { StockMovementsModule } from './modules/stock-movements';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { UsersModule } from './modules/users/users.module';
+import { VehiclesModule } from './modules/vehicles';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
 
 @Module({
@@ -45,6 +46,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     StockMovementsModule,
     AppointmentsModule,
     StockEntryModule,
+    VehiclesModule,
   ],
   controllers: [AppController],
   // The guard is assembled here, and not in SharedAuthModule, because this is
