@@ -96,8 +96,14 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
+    "rootDir": ".",
+    "testMatch": [
+      "<rootDir>/test/unit-test/**/*.spec.ts"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "\\.e2e-spec\\.ts$"
+    ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
@@ -105,12 +111,12 @@
       "node_modules/(?!jose/)"
     ],
     "collectCoverageFrom": [
-      "**/*.ts",
-      "!**/*.spec.ts",
-      "!main.ts",
-      "!**/index.ts"
+      "src/**/*.ts",
+      "!src/**/*.spec.ts",
+      "!src/main.ts",
+      "!src/**/index.ts"
     ],
-    "coverageDirectory": "../coverage",
+    "coverageDirectory": "./coverage",
     "testEnvironment": "node"
   }
 }
