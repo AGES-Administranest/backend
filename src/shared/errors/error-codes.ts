@@ -104,6 +104,19 @@ export const ERROR_CODES = [
   'INVOICE_UPLOAD_NOT_FINISHED',
   // The object is there, but does not match what was declared and signed.
   'INVOICE_UPLOAD_MISMATCH',
+  'INVOICE_NOT_READY',
+
+  // financial entries
+  'FINANCIAL_ENTRY_NOT_FOUND',
+  'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+  'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
+  'FINANCIAL_ENTRY_ID_CONFLICT',
+  'FINANCIAL_ENTRY_SYNC_CONFLICT',
+  // occurredAt is ahead of the server clock, past the 10-minute tolerance (ADR-08).
+  'FINANCIAL_ENTRY_DATE_IN_FUTURE',
+  'FINANCIAL_CATEGORY_INVALID',
+  // A default category the confirmation step needs was not seeded.
+  'FINANCIAL_CATEGORY_NOT_SEEDED',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -79,6 +79,28 @@ export class StockEntryRepository {
    * whether it did. The check is the write's own `where`, so an entry
    * discarded or confirmed after the service looked at it is left alone.
    */
+  confirmDraft(
+    id: string,
+    userId: string,
+    write: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): Promise<boolean> {
+    return runQuery(() =>
+      this.prisma.$transaction(async tx => {
+        const { count } = await tx.purchaseInvoice.updateMany({
+          where: { id, userId, status: 'DRAFT', deletedAt: null },
+          data: {
+            status: 'CONFIRMED',
+            reviewedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+        if (count === 0) return false;
+        await write(tx);
+        return true;
+      }),
+    );
+  }
+
   async updateDraft(
     id: string,
     userId: string,

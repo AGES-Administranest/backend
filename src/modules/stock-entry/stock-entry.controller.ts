@@ -116,6 +116,34 @@ export class StockEntryController {
     return this.draftService.replaceLines(user.id, id, dto);
   }
 
+  @Post(':id/confirm')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Confirms the import and posts an expense for the invoice total',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiNoContentResponse({ description: 'Confirmed' })
+  @ApiBadRequestResponse({
+    description:
+      'The invoice has no total greater than zero or no issue date (INVOICE_NOT_READY)',
+  })
+  @ApiUnauthorizedResponse({
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+  })
+  @ApiNotFoundResponse({
+    description: 'Missing, or another account (INVOICE_NOT_FOUND)',
+  })
+  @ApiConflictResponse({
+    description: 'The entry is no longer a draft (INVOICE_NOT_EDITABLE)',
+  })
+  confirm(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.draftService.confirm(user.id, id);
+  }
+
   @Delete(':id')
   @HttpCode(204)
   @ApiOperation({
