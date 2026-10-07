@@ -113,6 +113,8 @@ export const ERROR_CODES = [
   'FINANCIAL_ENTRY_ID_CONFLICT',
   'FINANCIAL_ENTRY_SYNC_CONFLICT',
   'FINANCIAL_CATEGORY_INVALID',
+  // A default category the confirmation step needs was not seeded.
+  'FINANCIAL_CATEGORY_NOT_SEEDED',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

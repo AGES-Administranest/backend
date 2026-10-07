@@ -13,7 +13,7 @@ import { DomainError } from '../../shared/errors/domain-error';
 const row = (overrides: Partial<StatementRow> = {}): StatementRow => ({
   id: 'entry-1',
   nature: EntryNature.INCOME,
-  description: 'Procedure',
+        description: 'Fee',
   scope: EntryScope.PROFESSIONAL,
   amount: new Prisma.Decimal('10.00'),
   accrualDate: new Date('2026-03-15T12:00:00.000Z'),
@@ -108,7 +108,8 @@ describe('FinancialEntryService manual writes', () => {
     defaultScope: EntryScope.PROFESSIONAL,
   };
   let repository: {
-    findById: jest.Mock;
+    findForUser: jest.Mock;
+    idIsTaken: jest.Mock;
     findOwned: jest.Mock;
     findByPurchaseInvoice: jest.Mock;
     create: jest.Mock;
@@ -129,7 +130,8 @@ describe('FinancialEntryService manual writes', () => {
 
   beforeEach(() => {
     repository = {
-      findById: jest.fn().mockResolvedValue(null),
+      findForUser: jest.fn().mockResolvedValue(null),
+      idIsTaken: jest.fn().mockResolvedValue(false),
       findOwned: jest.fn(),
       findByPurchaseInvoice: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue(row()),
@@ -158,8 +160,9 @@ describe('FinancialEntryService manual writes', () => {
   });
 
   it('returns the existing manual entry when the same id is sent again', async () => {
-    repository.findById.mockResolvedValue({
+    repository.findForUser.mockResolvedValue({
       ...row(),
+      description: 'Fee',
       userId: 'user-1',
       deletedAt: null,
       categoryId: 'cat-1',
@@ -171,13 +174,23 @@ describe('FinancialEntryService manual writes', () => {
     expect(repository.create).not.toHaveBeenCalled();
   });
 
-  it('rejects an id that already belongs to someone else', async () => {
-    repository.findById.mockResolvedValue({
+  it('rejects a replay whose amount differs', async () => {
+    repository.findForUser.mockResolvedValue({
       ...row(),
-      userId: 'user-2',
+      description: 'Fee',
+      userId: 'user-1',
       deletedAt: null,
       categoryId: 'cat-1',
     });
+
+    await expect(
+      service.create('user-1', { ...dto(), amount: 99 }),
+    ).rejects.toMatchObject({ code: 'FINANCIAL_ENTRY_ID_CONFLICT' });
+  });
+
+  it('rejects an id that already belongs to someone else', async () => {
+    repository.findForUser.mockResolvedValue(null);
+    repository.idIsTaken.mockResolvedValue(true);
 
     await expect(service.create('user-1', dto())).rejects.toMatchObject({
       code: 'FINANCIAL_ENTRY_ID_CONFLICT',
@@ -223,13 +236,14 @@ describe('FinancialEntryService manual writes', () => {
 
   it('applies a create once and ignores the same id sent again', async () => {
     let stored: Record<string, unknown> | null = null;
-    repository.findById.mockImplementation(() => stored);
+    repository.findForUser.mockImplementation(() => stored);
     repository.create.mockImplementation(() => {
       stored = {
         ...row(),
         userId: 'user-1',
         deletedAt: null,
         categoryId: 'cat-1',
+        accrualDate: new Date('2026-04-01T00:00:00.000Z'),
       };
       return row();
     });
@@ -255,7 +269,7 @@ describe('FinancialEntryService manual writes', () => {
   });
 
   it('conflicts when the server copy is newer than the operation', async () => {
-    repository.findById.mockResolvedValue({
+    repository.findForUser.mockResolvedValue({
       ...row(),
       userId: 'user-1',
       deletedAt: null,
@@ -281,7 +295,7 @@ describe('FinancialEntryService manual writes', () => {
   });
 
   it('rejects an offline change to an amount controlled by the origin', async () => {
-    repository.findById.mockResolvedValue({
+    repository.findForUser.mockResolvedValue({
       ...row({
         source: EntrySource.APPOINTMENT,
         appointmentId: 'appt-1',

@@ -88,13 +88,23 @@ export class FinancialEntryRepository {
     );
   }
 
-  findById(id: string): Promise<OwnedEntry | null> {
+  findForUser(userId: string, id: string): Promise<OwnedEntry | null> {
     return runQuery(() =>
-      this.prisma.financialEntry.findUnique({
-        where: { id },
+      this.prisma.financialEntry.findFirst({
+        where: { id, userId },
         select: entrySelect,
       }),
     );
+  }
+
+  idIsTaken(id: string): Promise<boolean> {
+    return runQuery(async () => {
+      const row = await this.prisma.financialEntry.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      return row !== null;
+    });
   }
 
   findOwned(userId: string, id: string): Promise<OwnedEntry | null> {

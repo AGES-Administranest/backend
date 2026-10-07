@@ -27,6 +27,21 @@ export function accrualMonth(year?: number, month?: number, now = new Date()) {
   };
 }
 
+function sameManualPayload(
+  existing: OwnedEntry,
+  dto: CreateFinancialEntryDto,
+): boolean {
+  return (
+    existing.source === EntrySource.MANUAL &&
+    existing.nature === dto.nature &&
+    existing.description === dto.description &&
+    existing.categoryId === dto.categoryId &&
+    existing.amount.equals(new Prisma.Decimal(dto.amount)) &&
+    existing.accrualDate.getTime() === new Date(dto.accrualDate).getTime() &&
+    (dto.scope === undefined || existing.scope === dto.scope)
+  );
+}
+
 function originDetails(entry: OwnedEntry): Record<string, unknown> {
   const origin = toStatementEntry(entry).origin;
   return { type: origin.type, id: origin.id };
@@ -87,15 +102,22 @@ export class FinancialEntryService {
     userId: string,
     dto: CreateFinancialEntryDto,
   ): Promise<FinancialEntryResponse> {
-    const existing = await this.repository.findById(dto.id);
+    const existing = await this.repository.findForUser(userId, dto.id);
     if (existing) {
       if (
-        existing.userId === userId &&
         existing.deletedAt === null &&
-        existing.source === EntrySource.MANUAL
+        existing.source === EntrySource.MANUAL &&
+        sameManualPayload(existing, dto)
       ) {
         return toStatementEntry(existing);
       }
+      throw new DomainError(
+        'CONFLICT',
+        'FINANCIAL_ENTRY_ID_CONFLICT',
+        'This id is already in use',
+      );
+    }
+    if (await this.repository.idIsTaken(dto.id)) {
       throw new DomainError(
         'CONFLICT',
         'FINANCIAL_ENTRY_ID_CONFLICT',
@@ -119,12 +141,12 @@ export class FinancialEntryService {
       return toStatementEntry(created);
     } catch (error) {
       if (!(error instanceof UniqueConstraintError)) throw error;
-      const winner = await this.repository.findById(dto.id);
+      const winner = await this.repository.findForUser(userId, dto.id);
       if (
         winner &&
-        winner.userId === userId &&
         winner.deletedAt === null &&
-        winner.source === EntrySource.MANUAL
+        winner.source === EntrySource.MANUAL &&
+        sameManualPayload(winner, dto)
       ) {
         return toStatementEntry(winner);
       }
@@ -157,7 +179,13 @@ export class FinancialEntryService {
       'Supplies',
       EntryNature.EXPENSE,
     );
-    if (!category) throw new Error('Supplies category is not seeded');
+    if (!category) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'FINANCIAL_CATEGORY_NOT_SEEDED',
+        'Supplies category is not seeded',
+      );
+    }
 
     await this.repository.create(
       {
@@ -197,17 +225,32 @@ export class FinancialEntryService {
     operation: SyncFinancialEntryDto,
     written: Set<string>,
   ): Promise<FinancialEntrySyncResult> {
-    const existing = await this.repository.findById(operation.id);
+    const existing = await this.repository.findForUser(userId, operation.id);
     const at = new Date(operation.occurredAt);
 
     if (operation.operation === 'create') {
       if (existing?.deletedAt) {
         return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_SYNC_CONFLICT');
       }
-      if (existing && existing.userId !== userId) {
+      if (!existing && (await this.repository.idIsTaken(operation.id))) {
         return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_ID_CONFLICT');
       }
-      if (existing) return { id: operation.id, result: 'ignored' };
+      if (existing) {
+        const replay: CreateFinancialEntryDto = {
+          id: operation.id,
+          nature: operation.nature ?? existing.nature,
+          description: operation.description ?? existing.description,
+          amount: operation.amount ?? existing.amount.toNumber(),
+          accrualDate:
+            operation.accrualDate ?? existing.accrualDate.toISOString(),
+          categoryId: operation.categoryId ?? existing.categoryId,
+          scope: operation.scope,
+        };
+        if (!sameManualPayload(existing, replay)) {
+          return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_ID_CONFLICT');
+        }
+        return { id: operation.id, result: 'ignored' };
+      }
       if (
         !operation.nature ||
         !operation.description ||
@@ -234,7 +277,7 @@ export class FinancialEntryService {
       }
     }
 
-    if (!existing || existing.userId !== userId || existing.deletedAt) {
+    if (!existing || existing.deletedAt) {
       return this.syncConflict(operation.id, 'FINANCIAL_ENTRY_SYNC_CONFLICT');
     }
     if (!written.has(operation.id) && existing.updatedAt > at) {
