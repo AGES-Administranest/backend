@@ -128,7 +128,8 @@ export class StockEntryController {
       'The invoice has no total greater than zero or no issue date (INVOICE_NOT_READY)',
   })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   @ApiNotFoundResponse({
     description: 'Missing, or another account (INVOICE_NOT_FOUND)',

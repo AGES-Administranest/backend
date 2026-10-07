@@ -103,7 +103,10 @@ export class FinancialEntrySyncResult {
 }
 
 export class FinancialEntryResponse {
-  @ApiProperty({ format: 'uuid', example: '6f1c2a40-9b7e-4d11-8c22-0a1b2c3d4e5f' })
+  @ApiProperty({
+    format: 'uuid',
+    example: '6f1c2a40-9b7e-4d11-8c22-0a1b2c3d4e5f',
+  })
   id!: string;
 
   @ApiProperty({ enum: EntryNature, example: 'INCOME' })

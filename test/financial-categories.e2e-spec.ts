@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+import { ensureDefaultFinancialCategories } from './helpers/default-financial-categories';
 import {
   bearer,
   createTestApp,
@@ -41,6 +42,7 @@ describe('Financial categories (e2e)', () => {
 
   beforeAll(async () => {
     ({ app, prisma } = await createTestApp());
+    await ensureDefaultFinancialCategories(prisma);
     await mintTokens([owner, other]);
 
     const provision = async (user: TestUser) => {

@@ -29,7 +29,8 @@ export class FinancialCategoryController {
     description: 'nature is not INCOME or EXPENSE (VALIDATION_ERROR)',
   })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   findAll(
     @CurrentUser() user: AuthenticatedUser,

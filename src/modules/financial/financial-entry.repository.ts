@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { EntryNature, EntryScope, Prisma } from '@prisma/client';
 
-import { RecordNotFoundError, runQuery } from '../../infra/prisma/prisma-errors';
+import {
+  RecordNotFoundError,
+  runQuery,
+} from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
 const statementSelect = {
@@ -28,6 +31,7 @@ const entrySelect = {
   userId: true,
   categoryId: true,
   deletedAt: true,
+  updatedAt: true,
 } satisfies Prisma.FinancialEntrySelect;
 
 export type OwnedEntry = Prisma.FinancialEntryGetPayload<{

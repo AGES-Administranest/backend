@@ -27,6 +27,11 @@ export function accrualMonth(year?: number, month?: number, now = new Date()) {
   };
 }
 
+function originDetails(entry: OwnedEntry): Record<string, unknown> {
+  const origin = toStatementEntry(entry).origin;
+  return { type: origin.type, id: origin.id };
+}
+
 export function toStatementEntry(row: StatementRow): FinancialEntryResponse {
   const id =
     row.appointmentId ??
@@ -148,7 +153,10 @@ export class FinancialEntryService {
     );
     if (existing) return;
 
-    const category = await this.categories.findDefault('Supplies', EntryNature.EXPENSE);
+    const category = await this.categories.findDefault(
+      'Supplies',
+      EntryNature.EXPENSE,
+    );
     if (!category) throw new Error('Supplies category is not seeded');
 
     await this.repository.create(
@@ -157,7 +165,9 @@ export class FinancialEntryService {
         nature: EntryNature.EXPENSE,
         scope: category.defaultScope,
         categoryId: category.id,
-        description: input.number ? `Invoice ${input.number}` : 'Purchase invoice',
+        description: input.number
+          ? `Invoice ${input.number}`
+          : 'Purchase invoice',
         amount: input.amount,
         accrualDate: input.issueDate,
         source: EntrySource.PURCHASE_INVOICE,
@@ -264,10 +274,7 @@ export class FinancialEntryService {
     return { id, result: 'conflict', code: error.code };
   }
 
-  async findOne(
-    userId: string,
-    id: string,
-  ): Promise<FinancialEntryResponse> {
+  async findOne(userId: string, id: string): Promise<FinancialEntryResponse> {
     return toStatementEntry(await this.owned(userId, id));
   }
 
@@ -283,7 +290,7 @@ export class FinancialEntryService {
           'INVALID_INPUT',
           'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
           'Amount and accrual date are controlled by the origin',
-          toStatementEntry(entry).origin,
+          originDetails(entry),
         );
       }
       if (dto.nature !== undefined) {
@@ -322,7 +329,7 @@ export class FinancialEntryService {
         'CONFLICT',
         'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
         'An automatic entry can only be deleted by deleting its origin',
-        toStatementEntry(entry).origin,
+        originDetails(entry),
       );
     }
     await this.repository.update(userId, id, { deletedAt: new Date() });

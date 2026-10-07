@@ -110,10 +110,11 @@ describe('FinancialEntryService manual writes', () => {
   let repository: {
     findById: jest.Mock;
     findOwned: jest.Mock;
+    findByPurchaseInvoice: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
   };
-  let categories: { findForUser: jest.Mock };
+  let categories: { findForUser: jest.Mock; findDefault: jest.Mock };
   let service: FinancialEntryService;
 
   const dto = (): CreateFinancialEntryDto =>
@@ -130,10 +131,14 @@ describe('FinancialEntryService manual writes', () => {
     repository = {
       findById: jest.fn().mockResolvedValue(null),
       findOwned: jest.fn(),
+      findByPurchaseInvoice: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue(row()),
       update: jest.fn(),
     };
-    categories = { findForUser: jest.fn().mockResolvedValue(category) };
+    categories = {
+      findForUser: jest.fn().mockResolvedValue(category),
+      findDefault: jest.fn(),
+    };
     service = new FinancialEntryService(
       repository as never,
       categories as never,

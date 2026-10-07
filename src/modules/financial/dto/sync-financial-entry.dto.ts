@@ -28,7 +28,8 @@ export class SyncFinancialEntryDto {
   @ApiProperty({
     format: 'date-time',
     example: '2026-03-15T12:00:00.000Z',
-    description: 'When the device recorded the operation. Older than the server copy is a conflict.',
+    description:
+      'When the device recorded the operation. Older than the server copy is a conflict.',
   })
   @IsDateString()
   occurredAt!: string;

@@ -48,9 +48,12 @@ export class FinancialEntryController {
       'Without month and year, the current UTC month is used. A page shorter than limit is the last page.',
   })
   @ApiOkResponse({ type: FinancialEntryResponse, isArray: true })
-  @ApiBadRequestResponse({ description: 'A filter is invalid (VALIDATION_ERROR)' })
+  @ApiBadRequestResponse({
+    description: 'A filter is invalid (VALIDATION_ERROR)',
+  })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   findAll(
     @CurrentUser() user: AuthenticatedUser,
@@ -66,9 +69,12 @@ export class FinancialEntryController {
       'Same shape as appointment sync: a JSON array. Each item returns applied, ignored (same id already stored), or conflict. A conflict on an automatic entry names FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN or FINANCIAL_ENTRY_DELETE_VIA_ORIGIN.',
   })
   @ApiOkResponse({ type: FinancialEntrySyncResult, isArray: true })
-  @ApiBadRequestResponse({ description: 'The array is invalid (VALIDATION_ERROR)' })
+  @ApiBadRequestResponse({
+    description: 'The array is invalid (VALIDATION_ERROR)',
+  })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   sync(
     @CurrentUser() user: AuthenticatedUser,
@@ -88,10 +94,12 @@ export class FinancialEntryController {
       'Invalid amount, date, or payload (VALIDATION_ERROR), or the category is missing or has another nature (FINANCIAL_CATEGORY_INVALID)',
   })
   @ApiConflictResponse({
-    description: 'This id belongs to another entry (FINANCIAL_ENTRY_ID_CONFLICT)',
+    description:
+      'This id belongs to another entry (FINANCIAL_ENTRY_ID_CONFLICT)',
   })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -110,10 +118,12 @@ export class FinancialEntryController {
   @ApiOkResponse({ type: FinancialEntryResponse })
   @ApiBadRequestResponse({ description: 'id is not a UUID (VALIDATION_ERROR)' })
   @ApiNotFoundResponse({
-    description: 'Missing, deleted, or another account (FINANCIAL_ENTRY_NOT_FOUND)',
+    description:
+      'Missing, deleted, or another account (FINANCIAL_ENTRY_NOT_FOUND)',
   })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   findOne(
     @CurrentUser() user: AuthenticatedUser,
@@ -134,10 +144,12 @@ export class FinancialEntryController {
       'Amount or accrual date of an automatic entry (FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN), or the category does not match (FINANCIAL_CATEGORY_INVALID)',
   })
   @ApiNotFoundResponse({
-    description: 'Missing, deleted, or another account (FINANCIAL_ENTRY_NOT_FOUND)',
+    description:
+      'Missing, deleted, or another account (FINANCIAL_ENTRY_NOT_FOUND)',
   })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   update(
     @CurrentUser() user: AuthenticatedUser,
@@ -157,10 +169,12 @@ export class FinancialEntryController {
       'An automatic entry is removed only by deleting its origin (FINANCIAL_ENTRY_DELETE_VIA_ORIGIN). details.type and details.id name that origin.',
   })
   @ApiNotFoundResponse({
-    description: 'Missing, deleted, or another account (FINANCIAL_ENTRY_NOT_FOUND)',
+    description:
+      'Missing, deleted, or another account (FINANCIAL_ENTRY_NOT_FOUND)',
   })
   @ApiUnauthorizedResponse({
-    description: 'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID)',
   })
   remove(
     @CurrentUser() user: AuthenticatedUser,

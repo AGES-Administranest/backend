@@ -30,7 +30,10 @@ export class CreateFinancialEntryDto {
   @MaxLength(500)
   description!: string;
 
-  @ApiProperty({ example: 250, description: 'Positive number with up to 2 decimals' })
+  @ApiProperty({
+    example: 250,
+    description: 'Positive number with up to 2 decimals',
+  })
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   amount!: number;

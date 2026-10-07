@@ -23,7 +23,10 @@ export class FinancialCategoryEntity {
 }
 
 export class FinancialCategoryResponse {
-  @ApiProperty({ format: 'uuid', example: '7c2e1a90-4b3d-4f6a-8c15-0d9e2f4a6b81' })
+  @ApiProperty({
+    format: 'uuid',
+    example: '7c2e1a90-4b3d-4f6a-8c15-0d9e2f4a6b81',
+  })
   id!: string;
 
   @ApiProperty({ example: 'Supplies' })

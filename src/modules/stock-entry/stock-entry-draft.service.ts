@@ -85,20 +85,17 @@ export class StockEntryDraftService {
       throw invoiceNotReady(id);
     }
 
-    const saved = await this.stockEntryRepository.confirmDraft(
-      id,
-      userId,
-      tx =>
-        this.financialEntries.recordPurchaseInvoice(
-          {
-            userId,
-            purchaseInvoiceId: id,
-            amount: new Prisma.Decimal(amount),
-            issueDate: invoice.issueDate!,
-            number: invoice.number,
-          },
-          tx,
-        ),
+    const saved = await this.stockEntryRepository.confirmDraft(id, userId, tx =>
+      this.financialEntries.recordPurchaseInvoice(
+        {
+          userId,
+          purchaseInvoiceId: id,
+          amount: new Prisma.Decimal(amount),
+          issueDate: invoice.issueDate!,
+          number: invoice.number,
+        },
+        tx,
+      ),
     );
     if (!saved) throw await this.refusal(userId, id);
   }
