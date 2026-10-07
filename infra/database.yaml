@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Administranest - production PostgreSQL 16 on RDS. Reachable from the internet
+  (App Runner has no fixed egress address) but TLS only, behind a generated
+  password kept in Secrets Manager.
+  Deploy with scripts/deploy-database.sh.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The account's default VPC (the deploy script looks it up).
+
+  AllowedCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: >-
+      Who may open a connection. App Runner's outbound addresses are not
+      fixed, so production needs 0.0.0.0/0; the password and TLS are the guard.
+
+Resources:
+  MasterSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: administranest-prod/database/master
+      Description: RDS master user of administranest-prod
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "administranest"}'
+        GenerateStringKey: password
+        PasswordLength: 40
+        # The password goes inside a URL: only characters that need no escaping.
+        ExcludePunctuation: true
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: administranest-prod-database
+      GroupDescription: PostgreSQL for the Administranest API
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Ref AllowedCidr
+      Tags:
+        - Key: project
+          Value: administranest
+
+  # Rejects any connection without TLS, whatever the client asks for.
+  ParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Administranest production PostgreSQL 16
+      Family: postgres16
+      Parameters:
+        rds.force_ssl: '1'
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    # A final snapshot on delete or replacement: the data outlives the stack.
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: administranest-prod
+      Engine: postgres
+      EngineVersion: '16'
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: '20'
+      MaxAllocatedStorage: 50
+      StorageType: gp3
+      StorageEncrypted: true
+      DBName: administranest
+      MasterUsername: !Sub '{{resolve:secretsmanager:${MasterSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${MasterSecret}:SecretString:password}}'
+      DBParameterGroupName: !Ref ParameterGroup
+      VPCSecurityGroups:
+        - !GetAtt DatabaseSecurityGroup.GroupId
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+      Tags:
+        - Key: project
+          Value: administranest
+        - Key: environment
+          Value: prod
+
+  # What the API reads as DATABASE_URL. verify-full + the RDS CA in the image:
+  # an encrypted connection to anyone else is not good enough.
+  DatabaseUrlSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: administranest-prod/database/url
+      Description: DATABASE_URL of the Administranest API
+      SecretString: !Sub
+        - 'postgresql://${User}:${Password}@${Database.Endpoint.Address}:${Database.Endpoint.Port}/administranest?sslmode=verify-full'
+        - User: !Sub '{{resolve:secretsmanager:${MasterSecret}:SecretString:username}}'
+          Password: !Sub '{{resolve:secretsmanager:${MasterSecret}:SecretString:password}}'
+
+Outputs:
+  Endpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  DatabaseUrlSecretArn:
+    Description: Secret holding DATABASE_URL, read by the API at deploy time
+    Value: !Ref DatabaseUrlSecret
+  MasterSecretArn:
+    Value: !Ref MasterSecret
