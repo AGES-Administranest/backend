@@ -30,6 +30,12 @@ RUN npx prisma generate
 
 COPY --from=build /app/dist ./dist
 
+# The database is reached over the internet (TLS only), so the API verifies
+# its certificate: Node trusts the RDS certificate authority through this file.
+ADD https://truststore.pki.rds.amazonaws.com/us-east-2/us-east-2-bundle.pem /app/certs/rds-ca.pem
+RUN chmod 644 /app/certs/rds-ca.pem
+ENV NODE_EXTRA_CA_CERTS=/app/certs/rds-ca.pem
+
 USER node
 EXPOSE 3000
 
