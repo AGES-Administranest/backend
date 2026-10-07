@@ -71,12 +71,13 @@ enum AppointmentStatus {
   @@map("appointment_status_enum")
 }
 
-/// The fuel the price refers to, not the engine: a flex car is registered with
-/// the fuel actually put in it. PENDING confirmation with the client; adding a
-/// value later is cheap, removing one is not.
+/// The fuel the car accepts; FLEX takes gasoline or ethanol. The type is not
+/// tied to a price: fuelPrice and avgConsumptionKmL hold the values of the
+/// fuel in use, as informed by the user, and the cost per km comes from them.
 enum FuelType {
   GASOLINE
   ETHANOL
+  FLEX
   DIESEL
 
   @@map("fuel_type_enum")
@@ -381,7 +382,7 @@ model Vehicle {
   fuelType          FuelType  @map("fuel_type")
   /// km per litre
   avgConsumptionKmL Decimal   @map("avg_consumption_km_l") @db.Decimal(6, 2)
-  /// R$ per litre of fuel_type, as last informed by the user
+  /// R$ per litre of the fuel in use, as last informed by the user
   fuelPrice         Decimal   @map("fuel_price") @db.Decimal(10, 3)
   active            Boolean   @default(true)
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

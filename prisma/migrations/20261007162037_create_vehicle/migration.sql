@@ -3,7 +3,7 @@
 -- stored. The link from trip to vehicle comes with US14.
 
 -- CreateEnum
-CREATE TYPE "fuel_type_enum" AS ENUM ('GASOLINE', 'ETHANOL', 'DIESEL');
+CREATE TYPE "fuel_type_enum" AS ENUM ('GASOLINE', 'ETHANOL', 'FLEX', 'DIESEL');
 
 -- CreateTable
 CREATE TABLE "vehicle" (

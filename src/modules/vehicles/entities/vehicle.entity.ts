@@ -11,7 +11,13 @@ export class VehicleEntity {
   @ApiProperty({ example: 'Strada Freedom 1.3' })
   model!: string;
 
-  @ApiProperty({ enum: FuelType, example: FuelType.GASOLINE })
+  @ApiProperty({
+    enum: FuelType,
+    example: FuelType.FLEX,
+    description:
+      'The fuel the car accepts (FLEX takes gasoline or ethanol). Not tied to a price: ' +
+      'fuelPrice and avgConsumptionKmL are the values of the fuel in use',
+  })
   fuelType!: FuelType;
 
   @ApiProperty({

@@ -49,9 +49,10 @@ export class CreateVehicleDto {
 
   @ApiProperty({
     enum: FuelType,
-    example: FuelType.GASOLINE,
+    example: FuelType.FLEX,
     description:
-      'The fuel the price refers to, not the engine: a flex car uses the fuel actually put in it',
+      'The fuel the car accepts (FLEX takes gasoline or ethanol). Not tied to a price: ' +
+      'fuelPrice and avgConsumptionKmL are the values of the fuel in use',
   })
   @IsEnum(FuelType)
   fuelType!: FuelType;

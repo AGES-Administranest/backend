@@ -91,7 +91,7 @@ describe('CreateVehicleDto', () => {
     ['fuelPrice', -5.899],
     ['fuelPrice', 5.8999],
     ['fuelPrice', 100.001],
-    ['fuelType', 'FLEX'],
+    ['fuelType', 'NOT_A_FUEL'],
     ['fuelType', 'gasoline'],
   ])('refuses %s = %j', async (field, value) => {
     expect(
@@ -105,6 +105,7 @@ describe('CreateVehicleDto', () => {
     ['fuelPrice', 0.001],
     ['fuelPrice', 100],
     ['fuelType', 'ETHANOL'],
+    ['fuelType', 'FLEX'],
     ['fuelType', 'DIESEL'],
   ])('accepts %s = %j', async (field, value) => {
     expect(

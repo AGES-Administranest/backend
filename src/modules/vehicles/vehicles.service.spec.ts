@@ -126,6 +126,21 @@ describe('VehiclesService', () => {
     expect(result.costPerKm).toBe('0.6290');
   });
 
+  it('prices a FLEX vehicle from the informed fuel price', async () => {
+    repository.findById.mockResolvedValue(
+      vehicle({
+        fuelType: FuelType.FLEX,
+        fuelPrice: new Prisma.Decimal('4.19'),
+        avgConsumptionKmL: new Prisma.Decimal('8.4'),
+      }),
+    );
+
+    const result = await service.findOne('vehicle-1', 'user-1');
+
+    expect(result.fuelType).toBe(FuelType.FLEX);
+    expect(result.costPerKm).toBe('0.4988');
+  });
+
   it('reactivates through PATCH active: true', async () => {
     repository.update.mockResolvedValue(vehicle({ active: true }));
 
