@@ -1,7 +1,7 @@
+import { ItemCatalogEntry, ItemService } from '../../../src/modules/item';
 import { ItemAliasLookup } from '../../../src/modules/item-match/item-alias-lookup';
 import { MatchItemService } from '../../../src/modules/item-match/match-item.service';
 import { MatchSettings } from '../../../src/modules/item-match/match-settings';
-import { ItemCatalogEntry, ItemService } from '../../../src/modules/item';
 
 const USER = 'user-1';
 const SUPPLIER = 'supplier-1';

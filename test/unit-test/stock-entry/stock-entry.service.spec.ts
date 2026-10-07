@@ -1,15 +1,15 @@
 import { PurchaseInvoice } from '@prisma/client';
 
+import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
+import { ExtractionResult } from '../../../src/modules/extraction';
+import { MatchItemService } from '../../../src/modules/item-match';
 import { buildDocumentKey } from '../../../src/modules/stock-entry/document-key';
 import { CreateUploadUrlDto } from '../../../src/modules/stock-entry/dto/create-upload-url.dto';
 import { ExtractionService } from '../../../src/modules/stock-entry/extraction.service';
 import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
 import { StockEntryService } from '../../../src/modules/stock-entry/stock-entry.service';
-import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
-import { DomainError } from '../../../src/shared/errors/domain-error';
-import { ExtractionResult } from '../../../src/modules/extraction';
-import { MatchItemService } from '../../../src/modules/item-match';
 import { SupplierService } from '../../../src/modules/supplier';
+import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const USER = { id: 'user-1', cognitoSub: 'sub-123' };
 const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';

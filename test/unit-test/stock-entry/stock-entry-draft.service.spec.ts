@@ -1,15 +1,15 @@
 import { Prisma, PurchaseInvoice } from '@prisma/client';
 
+import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
+import { ItemService } from '../../../src/modules/item';
+import { MatchItemService } from '../../../src/modules/item-match';
 import {
   ExtractionService,
   StoredExtraction,
 } from '../../../src/modules/stock-entry/extraction.service';
 import { StockEntryDraftService } from '../../../src/modules/stock-entry/stock-entry-draft.service';
 import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
-import { ItemService } from '../../../src/modules/item';
-import { MatchItemService } from '../../../src/modules/item-match';
 import { SupplierService } from '../../../src/modules/supplier';
-import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
 
 const USER_ID = 'user-1';
 const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';

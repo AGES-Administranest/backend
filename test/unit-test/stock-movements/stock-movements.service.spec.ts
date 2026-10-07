@@ -9,6 +9,7 @@ import {
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
+import { UniqueConstraintError } from '../../../src/infra/prisma/prisma-errors';
 import { CreateStockAdjustmentDto } from '../../../src/modules/stock-movements/dto/create-stock-adjustment.dto';
 import { CreateStockPurchaseDto } from '../../../src/modules/stock-movements/dto/create-stock-purchase.dto';
 import { QueryStockMovementDto } from '../../../src/modules/stock-movements/dto/query-stock-movement.dto';
@@ -26,7 +27,6 @@ import {
   RecordMovementInput,
   StockMovementsService,
 } from '../../../src/modules/stock-movements/stock-movements.service';
-import { UniqueConstraintError } from '../../../src/infra/prisma/prisma-errors';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const decimal = (value: Prisma.Decimal.Value) => new Prisma.Decimal(value);

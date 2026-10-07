@@ -1,11 +1,11 @@
 import { User } from '@prisma/client';
 
-import { UsersRepository } from '../../../src/modules/users/users.repository';
-import { UsersService } from '../../../src/modules/users/users.service';
 import {
   RecordNotFoundError,
   UniqueConstraintError,
 } from '../../../src/infra/prisma/prisma-errors';
+import { UsersRepository } from '../../../src/modules/users/users.repository';
+import { UsersService } from '../../../src/modules/users/users.service';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
 /**

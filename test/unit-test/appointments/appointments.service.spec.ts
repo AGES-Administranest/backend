@@ -7,6 +7,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
+import { UniqueConstraintError } from '../../../src/infra/prisma/prisma-errors';
 import {
   ActiveSupply,
   AppointmentsRepository,
@@ -16,9 +17,8 @@ import {
   RecordedItemUsage,
   SupplyMovement,
 } from '../../../src/modules/appointments/appointments.repository';
-import { reversalOf } from '../../../src/modules/stock-movements';
 import { AppointmentsService } from '../../../src/modules/appointments/appointments.service';
-import { UniqueConstraintError } from '../../../src/infra/prisma/prisma-errors';
+import { reversalOf } from '../../../src/modules/stock-movements';
 import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const USER_ID = 'user-1';

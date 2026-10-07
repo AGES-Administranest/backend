@@ -5,8 +5,8 @@ import {
   Logger,
 } from '@nestjs/common';
 
-import { AllExceptionsFilter } from '../../../../src/shared/filters/all-exceptions.filter';
 import { DomainError } from '../../../../src/shared/errors/domain-error';
+import { AllExceptionsFilter } from '../../../../src/shared/filters/all-exceptions.filter';
 
 describe('AllExceptionsFilter', () => {
   const filter = new AllExceptionsFilter();

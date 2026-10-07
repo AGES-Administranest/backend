@@ -1,6 +1,6 @@
+import { buildPdf, PdfText } from './testing/pdf-builder';
 import { MAX_PAGES } from '../../../src/modules/extraction/pdf/pdf-text-reader';
 import { PdfTextExtractor } from '../../../src/modules/extraction/pdf-text-extractor';
-import { buildPdf, PdfText } from './testing/pdf-builder';
 
 const USER_ID = 'user-1';
 

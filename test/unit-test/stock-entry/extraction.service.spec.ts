@@ -1,16 +1,16 @@
 import { PurchaseInvoice } from '@prisma/client';
 
-import { buildDocumentKey } from '../../../src/modules/stock-entry/document-key';
-import { ExtractionService } from '../../../src/modules/stock-entry/extraction.service';
-import { EXTRACTION_TIMEOUT_MS } from '../../../src/modules/stock-entry/stock-entry.constants';
-import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
+import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
 import {
   ExtractionInput,
   ExtractionResult,
 } from '../../../src/modules/extraction';
 import { LineMatch, MatchItemService } from '../../../src/modules/item-match';
+import { buildDocumentKey } from '../../../src/modules/stock-entry/document-key';
+import { ExtractionService } from '../../../src/modules/stock-entry/extraction.service';
+import { EXTRACTION_TIMEOUT_MS } from '../../../src/modules/stock-entry/stock-entry.constants';
+import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
 import { SupplierService } from '../../../src/modules/supplier';
-import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
 
 const USER_ID = 'user-1';
 const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';
