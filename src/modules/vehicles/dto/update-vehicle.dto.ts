@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/swagger';
+import { ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { IsBoolean, ValidateIf } from 'class-validator';
 
 import { CreateVehicleDto } from './create-vehicle.dto';
@@ -11,7 +11,11 @@ import { CreateVehicleDto } from './create-vehicle.dto';
 export class UpdateVehicleDto extends PartialType(CreateVehicleDto, {
   skipNullProperties: false,
 }) {
-  /** `true` reactivates an inactivated vehicle; `false` is the same as DELETE. */
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'true reactivates an inactivated vehicle; false inactivates it, the same as DELETE',
+  })
   @ValidateIf((_dto, value) => value !== undefined)
   @IsBoolean()
   active?: boolean;
