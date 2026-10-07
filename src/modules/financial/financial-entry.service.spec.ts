@@ -13,7 +13,7 @@ import { DomainError } from '../../shared/errors/domain-error';
 const row = (overrides: Partial<StatementRow> = {}): StatementRow => ({
   id: 'entry-1',
   nature: EntryNature.INCOME,
-        description: 'Fee',
+  description: 'Fee',
   scope: EntryScope.PROFESSIONAL,
   amount: new Prisma.Decimal('10.00'),
   accrualDate: new Date('2026-03-15T12:00:00.000Z'),
