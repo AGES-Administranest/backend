@@ -61,6 +61,10 @@ async function bootstrap() {
       .addTag('stock-entries', 'Purchase invoice drafts and confirmation')
       .addTag('client', 'Clínicas e hospitais atendidos pelo usuário')
       .addTag('appointments', 'Agendamentos do usuário')
+      .addTag(
+        'vehicles',
+        "The user's vehicles and their fuel cost per kilometre",
+      )
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
       // Without this the page is unusable now that the guard is global: every
       // request from /docs would answer 401 with nowhere to put a token.

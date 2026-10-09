@@ -94,6 +94,9 @@ export const ERROR_CODES = [
   // not happen, so nothing was consumed (US06).
   'APPOINTMENT_CANCELED',
 
+  // vehicles
+  'VEHICLE_NOT_FOUND',
+
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
   'INVOICE_NOT_EDITABLE',

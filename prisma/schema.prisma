@@ -71,6 +71,18 @@ enum AppointmentStatus {
   @@map("appointment_status_enum")
 }
 
+/// The fuel the car accepts; FLEX takes gasoline or ethanol. The type is not
+/// tied to a price: fuelPrice and avgConsumptionKmL hold the values of the
+/// fuel in use, as informed by the user, and the cost per km comes from them.
+enum FuelType {
+  GASOLINE
+  ETHANOL
+  FLEX
+  DIESEL
+
+  @@map("fuel_type_enum")
+}
+
 enum EntryNature {
   INCOME
   EXPENSE
@@ -240,6 +252,7 @@ model User {
   clients             Client[]
   appointments        Appointment[]
   trips               Trip[]
+  vehicles            Vehicle[]
   suppliers           Supplier[]
   items               Item[]
   stockMovements      StockMovement[]
@@ -355,6 +368,31 @@ model Trip {
 
   @@index([userId, occurredOn])
   @@map("trip")
+}
+
+/// The cost per kilometre is NOT stored: it is fuel_price / avg_consumption_km_l,
+/// calculated on read, so a new fuel price applies at once. Inactivating keeps
+/// the row readable by id for the trips that used it; deleted_at is reserved
+/// for an actual deletion, which no route does yet.
+model Vehicle {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  brand             String    @db.VarChar(60)
+  model             String    @db.VarChar(120)
+  fuelType          FuelType  @map("fuel_type")
+  /// km per litre
+  avgConsumptionKmL Decimal   @map("avg_consumption_km_l") @db.Decimal(6, 2)
+  /// R$ per litre of the fuel in use, as last informed by the user
+  fuelPrice         Decimal   @map("fuel_price") @db.Decimal(10, 3)
+  active            Boolean   @default(true)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, active])
+  @@map("vehicle")
 }
 
 model Supplier {
