@@ -35,4 +35,13 @@ export class EquipmentEntity {
 
   @ApiProperty({ description: 'Purchase value less accumulated depreciation' })
   currentBookValue!: number;
+
+  @ApiProperty({ description: 'Current value, not lower than salvage value' })
+  currentValue!: number;
+
+  @ApiProperty({ description: 'Percentage of useful life already used' })
+  usefulLifeUsedPct!: number;
+
+  @ApiProperty({ description: 'Whether the useful life has ended' })
+  endOfLife!: boolean;
 }

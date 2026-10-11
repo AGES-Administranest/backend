@@ -34,5 +34,8 @@ describe('EquipmentService depreciation', () => {
     expect(result.monthlyDepreciation).toBe(100);
     expect(result.accumulatedDepreciation).toBe(100);
     expect(result.currentBookValue).toBe(1100);
+    expect(result.currentValue).toBe(1100);
+    expect(result.usefulLifeUsedPct).toBeCloseTo(100 / 12);
+    expect(result.endOfLife).toBe(false);
   });
 });

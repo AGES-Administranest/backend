@@ -65,6 +65,7 @@ describe('EquipmentService', () => {
       expect(result).toHaveLength(1);
       expect(result[0]).not.toHaveProperty('userId');
       expect(result[0]).not.toHaveProperty('deletedAt');
+      expect(result[0].currentValue).toBe(1000);
     });
 
     it('lists inactive equipment only when requested', async () => {
@@ -73,6 +74,54 @@ describe('EquipmentService', () => {
       expect(repository.findMany).toHaveBeenCalledWith({
         userId: 'user-1',
         active: false,
+      });
+    });
+  });
+
+  describe('summary', () => {
+    it('sums monthly depreciation and counts active equipment only', async () => {
+      repository.findMany.mockResolvedValue([
+        equipment({
+          acquisitionDate: new Date('2026-06-01T00:00:00.000Z'),
+          purchaseValue: new Decimal(1200),
+          salvageValue: new Decimal(0),
+          usefulLifeMonths: 12,
+        }),
+        equipment({
+          id: 'equipment-2',
+          acquisitionDate: new Date('2026-06-01T00:00:00.000Z'),
+          purchaseValue: new Decimal(2400),
+          salvageValue: new Decimal(0),
+          usefulLifeMonths: 24,
+        }),
+      ]);
+
+      const result = await service.summary('user-1');
+
+      expect(repository.findMany).toHaveBeenCalledWith({
+        userId: 'user-1',
+        active: true,
+      });
+      expect(result).toEqual({
+        monthlyTotal: 200,
+        yearlyTotal: 2400,
+        count: 2,
+      });
+    });
+
+    it('excludes equipment at the end of its useful life from monthly totals', async () => {
+      repository.findMany.mockResolvedValue([
+        equipment({
+          acquisitionDate: new Date('2000-01-01T00:00:00.000Z'),
+        }),
+      ]);
+
+      const result = await service.summary('user-1');
+
+      expect(result).toEqual({
+        monthlyTotal: 0,
+        yearlyTotal: 0,
+        count: 1,
       });
     });
   });
@@ -145,14 +194,17 @@ describe('EquipmentService', () => {
   });
 
   describe('depreciation', () => {
-    it('returns straight-line values rounded to cents and capped at salvage value', async () => {
+    it('returns straight-line values and stops monthly depreciation at end of life', async () => {
       repository.findById.mockResolvedValue(equipment());
 
       const result = await service.findOne('equipment-1', 'user-1');
 
-      expect(result.monthlyDepreciation).toBe(200);
+      expect(result.monthlyDepreciation).toBe(0);
       expect(result.accumulatedDepreciation).toBe(24000);
       expect(result.currentBookValue).toBe(1000);
+      expect(result.currentValue).toBe(1000);
+      expect(result.usefulLifeUsedPct).toBe(100);
+      expect(result.endOfLife).toBe(true);
     });
 
     it('recalculates depreciation after an equipment update', async () => {
@@ -178,7 +230,7 @@ describe('EquipmentService', () => {
           usefulLifeMonths: 60,
         }),
       );
-      expect(result.monthlyDepreciation).toBe(200);
+      expect(result.monthlyDepreciation).toBe(0);
       expect(result.currentBookValue).toBe(1000);
     });
   });

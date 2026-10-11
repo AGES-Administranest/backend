@@ -22,6 +22,7 @@ import {
 import { CreateEquipmentDto } from './dto/create-equipment.dto';
 import { QueryEquipmentDto } from './dto/query-equipment.dto';
 import { UpdateEquipmentDto } from './dto/update-equipment.dto';
+import { EquipmentSummaryEntity } from './entities/equipment-summary.entity';
 import { EquipmentEntity } from './entities/equipment.entity';
 import { EquipmentService } from './equipment.service';
 import { CurrentUser } from '../../shared/auth';
@@ -51,6 +52,13 @@ export class EquipmentController {
     @Query() query: QueryEquipmentDto,
   ) {
     return this.equipmentService.findAll(user.id, query);
+  }
+
+  @Get('summary')
+  @ApiOperation({ summary: 'Summarize depreciation of active equipment' })
+  @ApiOkResponse({ type: EquipmentSummaryEntity })
+  summary(@CurrentUser() user: AuthenticatedUser) {
+    return this.equipmentService.summary(user.id);
   }
 
   @Get(':id')

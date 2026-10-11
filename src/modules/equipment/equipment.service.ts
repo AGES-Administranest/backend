@@ -1,15 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { Equipment, Prisma } from '@prisma/client';
 
+import {
+  calculateDepreciation,
+  DEFAULT_USEFUL_LIFE_MONTHS,
+} from './domain/depreciation';
 import { CreateEquipmentDto } from './dto/create-equipment.dto';
 import { QueryEquipmentDto } from './dto/query-equipment.dto';
 import { UpdateEquipmentDto } from './dto/update-equipment.dto';
+import { EquipmentSummaryEntity } from './entities/equipment-summary.entity';
 import { EquipmentEntity } from './entities/equipment.entity';
 import { EquipmentRepository } from './equipment.repository';
 import { InvalidReferenceError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
-const DEFAULT_USEFUL_LIFE_MONTHS = 120;
 const CENTS_PER_UNIT = 100;
 
 @Injectable()
@@ -24,7 +28,35 @@ export class EquipmentService {
       userId,
       active: query.active ?? true,
     });
-    return equipment.map(item => this.sanitize(item));
+    const asOf = new Date();
+    return equipment.map(item => this.sanitize(item, asOf));
+  }
+
+  async summary(userId: string): Promise<EquipmentSummaryEntity> {
+    const equipment = await this.equipmentRepository.findMany({
+      userId,
+      active: true,
+    });
+    const asOf = new Date();
+    const monthlyTotal = equipment.reduce((total, item) => {
+      const depreciation = calculateDepreciation({
+        purchaseValue: item.purchaseValue.toNumber(),
+        salvageValue: item.salvageValue.toNumber(),
+        acquisitionDate: item.acquisitionDate,
+        usefulLifeMonths: item.usefulLifeMonths,
+        asOf,
+      });
+      return total + depreciation.monthlyDepreciation;
+    }, 0);
+    const roundedMonthlyTotal =
+      Math.round(monthlyTotal * CENTS_PER_UNIT) / CENTS_PER_UNIT;
+
+    return {
+      monthlyTotal: roundedMonthlyTotal,
+      yearlyTotal:
+        Math.round(roundedMonthlyTotal * 12 * CENTS_PER_UNIT) / CENTS_PER_UNIT,
+      count: equipment.length,
+    };
   }
 
   async findOne(id: string, userId: string): Promise<EquipmentEntity> {
@@ -119,20 +151,18 @@ export class EquipmentService {
     return this.sanitize(equipment);
   }
 
-  private sanitize(equipment: Equipment): EquipmentEntity {
+  private sanitize(equipment: Equipment, asOf = new Date()): EquipmentEntity {
     const purchaseCents = toCents(equipment.purchaseValue);
     const salvageCents = toCents(equipment.salvageValue);
     const usefulLifeMonths =
       equipment.usefulLifeMonths ?? DEFAULT_USEFUL_LIFE_MONTHS;
-    const elapsedMonths = fullMonthsBetween(
-      equipment.acquisitionDate,
-      new Date(),
-    );
-    const depreciableCents = purchaseCents - salvageCents;
-    const accumulatedDepreciationCents = Math.min(
-      depreciableCents,
-      Math.round((depreciableCents * elapsedMonths) / usefulLifeMonths),
-    );
+    const depreciation = calculateDepreciation({
+      purchaseValue: purchaseCents / CENTS_PER_UNIT,
+      salvageValue: salvageCents / CENTS_PER_UNIT,
+      acquisitionDate: equipment.acquisitionDate,
+      usefulLifeMonths,
+      asOf,
+    });
 
     return {
       id: equipment.id,
@@ -146,11 +176,12 @@ export class EquipmentService {
       active: equipment.active,
       createdAt: equipment.createdAt,
       updatedAt: equipment.updatedAt,
-      monthlyDepreciation:
-        Math.round(depreciableCents / usefulLifeMonths) / CENTS_PER_UNIT,
-      accumulatedDepreciation: accumulatedDepreciationCents / CENTS_PER_UNIT,
-      currentBookValue:
-        (purchaseCents - accumulatedDepreciationCents) / CENTS_PER_UNIT,
+      monthlyDepreciation: depreciation.monthlyDepreciation,
+      accumulatedDepreciation: depreciation.accumulatedDepreciation,
+      currentBookValue: depreciation.currentValue,
+      currentValue: depreciation.currentValue,
+      usefulLifeUsedPct: depreciation.usefulLifeUsedPct,
+      endOfLife: depreciation.endOfLife,
     };
   }
 
@@ -241,24 +272,4 @@ export class EquipmentService {
 
 function toCents(value: Prisma.Decimal): number {
   return Math.round(value.toNumber() * CENTS_PER_UNIT);
-}
-
-function fullMonthsBetween(start: Date, end: Date): number {
-  let months =
-    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    end.getUTCMonth() -
-    start.getUTCMonth();
-  if (end.getUTCDate() < start.getUTCDate() && !isLastDayOfMonth(end)) {
-    months -= 1;
-  }
-  return Math.max(0, months);
-}
-
-function isLastDayOfMonth(date: Date): boolean {
-  return (
-    date.getUTCDate() ===
-    new Date(
-      Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
-    ).getUTCDate()
-  );
 }
