@@ -40,14 +40,10 @@ export function calculateDepreciation({
     monthlyDepreciation: endOfLife
       ? 0
       : Math.round(depreciableCents / lifeInMonths) / CENTS_PER_UNIT,
-    accumulatedDepreciation:
-      accumulatedDepreciationCents / CENTS_PER_UNIT,
+    accumulatedDepreciation: accumulatedDepreciationCents / CENTS_PER_UNIT,
     currentValue:
       (purchaseCents - accumulatedDepreciationCents) / CENTS_PER_UNIT,
-    usefulLifeUsedPct: Math.min(
-      100,
-      (elapsedMonths / lifeInMonths) * 100,
-    ),
+    usefulLifeUsedPct: Math.min(100, (elapsedMonths / lifeInMonths) * 100),
     endOfLife,
   };
 }
