@@ -29,12 +29,23 @@ depois que o conflito com este ADR foi levantado. O módulo `sync` que a opção
 prevê não existe, e criá-lo para uma única entidade seria construir o gargalo
 antes de haver o que centralizar.
 
-**O que isso custa:** quando a segunda entidade precisar sincronizar, a escolha
-volta à mesa — ou o projeto acumula endpoints de sync por módulo, que é
-exatamente o que esta decisão queria evitar, ou as rotas de estoque migram para o
-módulo único. A segunda opção é barata enquanto só existe uma entidade: a lógica
-toda vive em `StockMovementsService.syncPush`/`syncPull`, e as rotas são uma
-casca fina por cima.
+**O que isso custa:** cada entidade nova que sincronizar por conta própria
+acumula um endpoint de sync no módulo, que é o que esta decisão queria evitar.
+A alternativa é migrar as rotas existentes para o módulo único. Enquanto esse
+módulo não existe, a lógica de cada uma continua no próprio service.
+
+## Exceção registrada — lançamentos financeiros
+
+O sync de `financial_entry` também ficou no módulo (`POST /financial-entries/sync`),
+pelo mesmo motivo do estoque: a task pediu resultado por operação (`applied`,
+`ignored`, `conflict`), e o módulo `sync` da opção (b) continua não existindo.
+O corpo não é o array de entidade dos procedimentos: cada item traz `operation`
+e `occurredAt`, porque o lote mistura criação, edição e exclusão.
+
+Na próxima entidade a escolha volta à mesa. O relógio do aparelho vale aqui
+também: `occurredAt` no futuro é recusado, com dez minutos de tolerância, e o
+lote inteiro falha com `FINANCIAL_ENTRY_DATE_IN_FUTURE`. A ordenação usa o
+instante, não o texto da data.
 
 **O que foi respeitado deste ADR:** as três armadilhas continuam tratadas.
 Relógio do aparelho — `occurredAt` no futuro é recusado, com dez minutos de
