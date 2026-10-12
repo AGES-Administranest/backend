@@ -97,6 +97,12 @@ export const ERROR_CODES = [
   // vehicles
   'VEHICLE_NOT_FOUND',
 
+  // pricing settings
+  // The income goal, weekly hours and safety margin were never saved. Not a
+  // failure for the app: it is the calculator's initial state (US19), shown
+  // before any hour value can be calculated.
+  'PRICING_SETTINGS_NOT_FOUND',
+
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
   'INVOICE_NOT_EDITABLE',
