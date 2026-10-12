@@ -87,7 +87,8 @@ which is the fiscal document digitized via OCR.
 
 One row per user (`user_id` is the primary key), holding what the billable-hour
 calculator needs and does not calculate on its own: the US19 goals and the US18
-transport cost.
+transport cost. The goals are read and written through `GET` / `PUT
+/pricing-settings` — see [`pricing-settings.md`](pricing-settings.md).
 
 | Column | Story | Rule (CHECK) |
 |---|---|---|
@@ -100,8 +101,9 @@ transport cost.
 
 Only when the three US19 goals are filled in. `pricing_settings_goals_together`
 makes them all filled in or all `NULL`, so there is no half-configured row. A row
-with only `transport_cost_monthly` is **not configured**: the app shows the
-calculator's initial state, asking for the goals before any hour value.
+with only `transport_cost_monthly` is **not configured**: `GET /pricing-settings`
+answers `404 PRICING_SETTINGS_NOT_FOUND`, and the app shows the calculator's
+initial state, asking for the goals before any hour value.
 
 Every column is nullable so that either story can create the row first. A CHECK
 on a `NULL` value passes, so each range rule only applies once the column is
