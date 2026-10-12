@@ -82,3 +82,27 @@ which is the fiscal document digitized via OCR.
 
 `status` (`purchase_order_status_enum`): `DRAFT` → `PLACED` → `RECEIVED`, or
 `CANCELLED` from `DRAFT`/`PLACED`.
+
+## Pricing — `pricing_settings`
+
+One row per user (`user_id` is the primary key), holding what the billable-hour
+calculator needs and does not calculate on its own: the US19 goals and the US18
+transport cost.
+
+| Column | Story | Rule (CHECK) |
+|---|---|---|
+| `monthly_income_goal` | US19 | `> 0`. Owner draw plus desired profit, one amount in R$. |
+| `weekly_hours` | US19 | `> 0` and `<= 168`. Hours available, idle time included, not only billed hours. The hour value divides by it. |
+| `safety_margin_pct` | US19 | Between `0` and `100`, inclusive. |
+| `transport_cost_monthly` | US18 | `>= 0`. Zero is a valid cost: a professional who does not drive. |
+
+### When the settings count as configured
+
+Only when the three US19 goals are filled in. `pricing_settings_goals_together`
+makes them all filled in or all `NULL`, so there is no half-configured row. A row
+with only `transport_cost_monthly` is **not configured**: the app shows the
+calculator's initial state, asking for the goals before any hour value.
+
+Every column is nullable so that either story can create the row first. A CHECK
+on a `NULL` value passes, so each range rule only applies once the column is
+filled in.

@@ -828,13 +828,23 @@ model FinancialEntry {
 
 /// Billable-hour calculator. Fixed costs and depreciation are calculated, not
 /// stored here.
+///
+/// The three US19 goals (monthlyIncomeGoal, weeklyHours, safetyMarginPct) are
+/// filled in together or not at all (CHECK pricing_settings_goals_together):
+/// the settings count as configured only when they are filled in. The
+/// transport cost (US18) lives in the same row and does not count for that.
+/// Range CHECKs live in migration 20261012190000_pricing_settings_constraints.
 model PricingSettings {
   userId               String   @id @map("user_id") @db.Uuid
-  /// monthly income goal — covers the owner's draw + margin concept from the
-  /// requirements gathering
+  /// monthly income goal in R$ — covers the owner's draw + margin concept from
+  /// the requirements gathering. CHECK > 0.
   monthlyIncomeGoal    Decimal? @map("monthly_income_goal") @db.Decimal(14, 2)
+  /// hours available per week, not only the billed ones (idle time included).
+  /// The hour value divides by it: CHECK > 0 and <= 168.
   weeklyHours          Decimal? @map("weekly_hours") @db.Decimal(6, 2)
+  /// percentage, CHECK between 0 and 100
   safetyMarginPct      Decimal? @map("safety_margin_pct") @db.Decimal(6, 2)
+  /// US18. CHECK >= 0
   transportCostMonthly Decimal? @map("transport_cost_monthly") @db.Decimal(14, 2)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
