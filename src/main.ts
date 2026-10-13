@@ -65,6 +65,7 @@ async function bootstrap() {
         'vehicles',
         "The user's vehicles and their fuel cost per kilometre",
       )
+      .addTag('fixed-costs', "The user's monthly fixed-cost summary")
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
       // Without this the page is unusable now that the guard is global: every
       // request from /docs would answer 401 with nowhere to put a token.

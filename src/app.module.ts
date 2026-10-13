@@ -11,6 +11,7 @@ import { AppointmentsModule } from './modules/appointments';
 import { AuthModule } from './modules/auth';
 import { ClientModule } from './modules/client';
 import { FinancialModule } from './modules/financial/financial.module';
+import { FixedCostsModule } from './modules/fixed-costs';
 import { ItemModule } from './modules/item/item.module';
 import { StockEntryModule } from './modules/stock-entry';
 import { StockMovementsModule } from './modules/stock-movements';
@@ -44,6 +45,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     SupplierModule,
     ClientModule,
     FinancialModule,
+    FixedCostsModule,
     AuthModule,
     StockMovementsModule,
     AppointmentsModule,
