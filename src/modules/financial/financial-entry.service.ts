@@ -100,6 +100,26 @@ export class FinancialEntryService {
     return rows.map(toStatementEntry);
   }
 
+  /** The month's expenses per scope, by the same rule as the statement. */
+  async sumExpensesByScope(
+    userId: string,
+    year?: number,
+    month?: number,
+  ): Promise<{ professional: Prisma.Decimal; personal: Prisma.Decimal }> {
+    const { from, to } = accrualMonth(year, month);
+    const rows = await this.repository.sumByScope(userId, {
+      from,
+      to,
+      nature: EntryNature.EXPENSE,
+    });
+    const totalOf = (scope: EntryScope) =>
+      rows.find(row => row.scope === scope)?.total ?? new Prisma.Decimal(0);
+    return {
+      professional: totalOf(EntryScope.PROFESSIONAL),
+      personal: totalOf(EntryScope.PERSONAL),
+    };
+  }
+
   async create(
     userId: string,
     dto: CreateFinancialEntryDto,
