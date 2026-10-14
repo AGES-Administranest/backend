@@ -22,7 +22,7 @@ export class FinancialCategoryController {
   @ApiOperation({
     summary: 'Lists active default categories and the user categories',
     description:
-      'Defaults have no user. Pass nature=INCOME or nature=EXPENSE to filter. Inactive categories are omitted.',
+      'Defaults are shared by every user and come with isDefault true; the user categories come with isDefault false. The owner is never returned. Pass nature=INCOME or nature=EXPENSE to filter. Inactive categories are omitted.',
   })
   @ApiOkResponse({ type: FinancialCategoryResponse, isArray: true })
   @ApiBadRequestResponse({
