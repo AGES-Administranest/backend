@@ -13,7 +13,7 @@ export interface DepreciableEquipment {
   purchaseValue: Prisma.Decimal;
   salvageValue: Prisma.Decimal;
   acquisitionDate: Date;
-  usefulLifeYears: number;
+  usefulLifeMonths: number | null;
 }
 
 /**
@@ -29,7 +29,7 @@ export function monthlyDepreciation(
 ): Prisma.Decimal {
   const monthIndex = year * MONTHS_PER_YEAR + (month - 1);
   const total = equipment.reduce((sum, item) => {
-    const lifeInMonths = item.usefulLifeYears * MONTHS_PER_YEAR;
+    const lifeInMonths = item.usefulLifeMonths ?? 0;
     // acquisition_date is a calendar date (@db.Date), read in UTC
     const startIndex =
       item.acquisitionDate.getUTCFullYear() * MONTHS_PER_YEAR +

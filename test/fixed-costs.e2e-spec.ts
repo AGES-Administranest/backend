@@ -149,14 +149,14 @@ describe('Fixed costs summary (e2e)', () => {
           name: 'Active',
           purchaseValue: '6000.00',
           acquisitionDate: new Date('2026-01-10'),
-          usefulLifeYears: 5,
+          usefulLifeMonths: 60,
         },
         {
           userId,
           name: 'Inactive',
           purchaseValue: '6000.00',
           acquisitionDate: new Date('2026-01-10'),
-          usefulLifeYears: 5,
+          usefulLifeMonths: 60,
           active: false,
         },
         {
@@ -164,7 +164,7 @@ describe('Fixed costs summary (e2e)', () => {
           name: 'Deleted',
           purchaseValue: '6000.00',
           acquisitionDate: new Date('2026-01-10'),
-          usefulLifeYears: 5,
+          usefulLifeMonths: 60,
           deletedAt: new Date(),
         },
         {
@@ -172,14 +172,14 @@ describe('Fixed costs summary (e2e)', () => {
           name: 'Not acquired yet',
           purchaseValue: '6000.00',
           acquisitionDate: new Date('2026-06-10'),
-          usefulLifeYears: 5,
+          usefulLifeMonths: 60,
         },
         {
           userId: otherId,
           name: 'Theirs',
           purchaseValue: '6000.00',
           acquisitionDate: new Date('2026-01-10'),
-          usefulLifeYears: 5,
+          usefulLifeMonths: 60,
         },
       ],
     });

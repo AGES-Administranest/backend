@@ -13,7 +13,7 @@ const equipment = (
   purchaseValue: new Prisma.Decimal('6000.00'),
   salvageValue: new Prisma.Decimal('0.00'),
   acquisitionDate: new Date('2026-03-15'),
-  usefulLifeYears: 5,
+  usefulLifeMonths: 60,
   ...overrides,
 });
 
@@ -47,7 +47,7 @@ describe('monthlyDepreciation', () => {
     // each quota is 100 / 3 = 33.333...; two of them are 66.666... -> 66.67
     const item = equipment({
       purchaseValue: new Prisma.Decimal('100.00'),
-      usefulLifeYears: 1,
+      usefulLifeMonths: 12,
     });
     const third = new Prisma.Decimal('100').dividedBy(12);
     expect(third.toDecimalPlaces(2).mul(2).toFixed(2)).toBe('16.66');

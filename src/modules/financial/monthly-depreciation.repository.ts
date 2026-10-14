@@ -19,7 +19,7 @@ export class MonthlyDepreciationRepository {
           purchaseValue: true,
           salvageValue: true,
           acquisitionDate: true,
-          usefulLifeYears: true,
+          usefulLifeMonths: true,
         },
       }),
     );
