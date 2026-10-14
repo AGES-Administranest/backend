@@ -133,6 +133,9 @@ describe('Financial entries (e2e)', () => {
     await prisma.financialEntry.deleteMany({
       where: { userId: { in: [userId, otherId] } },
     });
+    await prisma.financialCategory.deleteMany({
+      where: { userId: { in: [userId, otherId] } },
+    });
     await prisma.user.deleteMany({ where: { id: { in: [userId, otherId] } } });
     await app.close();
   });
@@ -241,6 +244,32 @@ describe('Financial entries (e2e)', () => {
       })
       .expect(400);
     expect(mismatch.body).toMatchObject({ code: 'FINANCIAL_CATEGORY_INVALID' });
+  });
+
+  it('rejects an inactive category of the user', async () => {
+    const archived = await prisma.financialCategory.create({
+      data: {
+        userId,
+        name: 'Archived',
+        nature: EntryNature.EXPENSE,
+        defaultScope: EntryScope.PERSONAL,
+        active: false,
+      },
+    });
+
+    const res = await request(server())
+      .post('/financial-entries')
+      .set('Authorization', bearer(owner))
+      .send({
+        id: randomUUID(),
+        nature: EntryNature.EXPENSE,
+        description: 'Archived category',
+        amount: 10,
+        accrualDate: thisMonth.toISOString(),
+        categoryId: archived.id,
+      })
+      .expect(400);
+    expect(res.body).toMatchObject({ code: 'FINANCIAL_CATEGORY_INVALID' });
   });
 
   it('returns an automatic entry and blocks amount changes and deletion', async () => {
