@@ -52,6 +52,13 @@ export const ERROR_CODES = [
   'DUPLICATED_CLIENT_NAME',
   'DUPLICATED_CLIENT_TAX_ID',
 
+  // equipment
+  'EQUIPMENT_NOT_FOUND',
+  'EQUIPMENT_PURCHASE_VALUE_INVALID',
+  'EQUIPMENT_SALVAGE_VALUE_INVALID',
+  'EQUIPMENT_USEFUL_LIFE_INVALID',
+  'EQUIPMENT_ACQUISITION_DATE_IN_FUTURE',
+
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
@@ -96,6 +103,12 @@ export const ERROR_CODES = [
 
   // vehicles
   'VEHICLE_NOT_FOUND',
+
+  // pricing settings
+  // The income goal, weekly hours and safety margin were never saved. Not a
+  // failure for the app: it is the calculator's initial state (US19), shown
+  // before any hour value can be calculated.
+  'PRICING_SETTINGS_NOT_FOUND',
 
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
