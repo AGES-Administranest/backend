@@ -18,6 +18,7 @@ interface CategoryBody {
   name: string;
   nature: EntryNature;
   defaultScope: EntryScope;
+  isDefault: boolean;
 }
 
 describe('Financial categories (e2e)', () => {
@@ -112,6 +113,14 @@ describe('Financial categories (e2e)', () => {
     expect(names).not.toContain('Hidden');
     expect(names).not.toContain('Theirs');
     expect(body.every(category => !('userId' in category))).toBe(true);
+    expect(body.find(category => category.name === 'Mine')).toMatchObject({
+      isDefault: false,
+    });
+    expect(
+      body
+        .filter(category => category.name !== 'Mine')
+        .every(category => category.isDefault),
+    ).toBe(true);
     expect(body.filter(category => category.name === 'Other')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
