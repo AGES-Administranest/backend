@@ -10,6 +10,7 @@ import { StorageModule } from './infra/storage';
 import { AppointmentsModule } from './modules/appointments';
 import { AuthModule } from './modules/auth';
 import { ClientModule } from './modules/client';
+import { EquipmentModule } from './modules/equipment';
 import { FinancialModule } from './modules/financial/financial.module';
 import { ItemModule } from './modules/item/item.module';
 import { PricingSettingsModule } from './modules/pricing-settings';
@@ -44,6 +45,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     ItemModule,
     SupplierModule,
     ClientModule,
+    EquipmentModule,
     FinancialModule,
     AuthModule,
     StockMovementsModule,

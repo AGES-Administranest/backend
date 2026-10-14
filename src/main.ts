@@ -60,6 +60,7 @@ async function bootstrap() {
       )
       .addTag('stock-entries', 'Purchase invoice drafts and confirmation')
       .addTag('client', 'Clínicas e hospitais atendidos pelo usuário')
+      .addTag('equipment', 'Equipamento do usuário')
       .addTag('appointments', 'Agendamentos do usuário')
       .addTag(
         'vehicles',
