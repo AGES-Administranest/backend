@@ -24,6 +24,14 @@ function toResponse({
   return { ...category, isDefault: userId === null };
 }
 
+export interface NewFinancialCategory {
+  id: string;
+  userId: string;
+  name: string;
+  nature: EntryNature;
+  defaultScope: EntryScope;
+}
+
 @Injectable()
 export class FinancialCategoryRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -43,6 +51,41 @@ export class FinancialCategoryRepository {
       }),
     );
     return rows.map(toResponse);
+  }
+
+  async create(
+    category: NewFinancialCategory,
+  ): Promise<FinancialCategoryResponse> {
+    const row = await runQuery(() =>
+      this.prisma.financialCategory.create({
+        data: category,
+        select: RESPONSE_COLUMNS,
+      }),
+    );
+    return toResponse(row);
+  }
+
+  async findOwned(
+    userId: string,
+    id: string,
+  ): Promise<FinancialCategoryResponse | null> {
+    const row = await runQuery(() =>
+      this.prisma.financialCategory.findFirst({
+        where: { id, userId },
+        select: RESPONSE_COLUMNS,
+      }),
+    );
+    return row && toResponse(row);
+  }
+
+  idIsTaken(id: string): Promise<boolean> {
+    return runQuery(async () => {
+      const row = await this.prisma.financialCategory.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      return row !== null;
+    });
   }
 
   findDefault(
