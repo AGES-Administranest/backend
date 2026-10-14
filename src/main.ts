@@ -66,6 +66,7 @@ async function bootstrap() {
         'vehicles',
         "The user's vehicles and their fuel cost per kilometre",
       )
+      .addTag('fixed-costs', "The user's monthly fixed-cost summary")
       .addTag(
         'pricing-settings',
         'Income goal, weekly hours and safety margin for the hour value (US19)',

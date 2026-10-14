@@ -50,13 +50,13 @@ export interface StatementFilter {
 export class FinancialEntryRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  findStatement(
+  // The one definition of "what the statement shows", so the statement and
+  // the totals built on it cannot drift apart.
+  private statementWhere(
     userId: string,
     filter: StatementFilter,
-    skip: number,
-    take: number,
-  ): Promise<StatementRow[]> {
-    const where: Prisma.FinancialEntryWhereInput = {
+  ): Prisma.FinancialEntryWhereInput {
+    return {
       userId,
       deletedAt: null,
       accrualDate: { gte: filter.from, lt: filter.to },
@@ -64,6 +64,32 @@ export class FinancialEntryRepository {
       ...(filter.scope ? { scope: filter.scope } : {}),
       ...(filter.categoryId ? { categoryId: filter.categoryId } : {}),
     };
+  }
+
+  sumByScope(
+    userId: string,
+    filter: StatementFilter,
+  ): Promise<{ scope: EntryScope; total: Prisma.Decimal }[]> {
+    return runQuery(async () => {
+      const rows = await this.prisma.financialEntry.groupBy({
+        by: ['scope'],
+        where: this.statementWhere(userId, filter),
+        _sum: { amount: true },
+      });
+      return rows.map(row => ({
+        scope: row.scope,
+        total: row._sum.amount ?? new Prisma.Decimal(0),
+      }));
+    });
+  }
+
+  findStatement(
+    userId: string,
+    filter: StatementFilter,
+    skip: number,
+    take: number,
+  ): Promise<StatementRow[]> {
+    const where = this.statementWhere(userId, filter);
     return runQuery(() =>
       this.prisma.financialEntry.findMany({
         where,
