@@ -86,6 +86,9 @@ the table, told apart by `user_id`:
 `GET /financial-categories` returns the active defaults plus the caller's own
 categories, with `isDefault` and never the owner. Defaults are stored with
 English names (`Supplies`, `Other`…) that work as keys: the app translates them.
+The category embedded in `/financial-entries` responses carries the same
+`isDefault`, so the app can tell a user category named like a default (an
+INCOME "Supplies", say) from the default itself.
 
 ### Same name
 

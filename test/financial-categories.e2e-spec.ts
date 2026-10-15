@@ -223,8 +223,8 @@ describe('Financial categories (e2e)', () => {
       ).toBe(1);
     });
 
-    it('lets an entry use the new category', async () => {
-      await request(server())
+    it('lets an entry use the new category, flagged as not default', async () => {
+      const res = await request(server())
         .post('/financial-entries')
         .set('Authorization', bearer(owner))
         .send({
@@ -236,6 +236,13 @@ describe('Financial categories (e2e)', () => {
           categoryId: streetFood.id,
         })
         .expect(201);
+
+      expect((res.body as { category: unknown }).category).toEqual({
+        id: streetFood.id,
+        name: 'Comida de rua',
+        scope: EntryScope.PERSONAL,
+        isDefault: false,
+      });
     });
 
     it.each(['comida de rua', 'COMIDA DE RÚA', ' Comída  de Rua'])(

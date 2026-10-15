@@ -18,7 +18,7 @@ interface EntryBody {
   description: string;
   source: EntrySource;
   origin: { type: EntrySource; id: string | null };
-  category: { id: string; name: string };
+  category: { id: string; name: string; scope: EntryScope; isDefault: boolean };
 }
 
 describe('Financial entries (e2e)', () => {
@@ -149,7 +149,12 @@ describe('Financial entries (e2e)', () => {
     const body = res.body as EntryBody[];
     expect(body.map(entry => entry.description)).toEqual(['Newer', 'Older']);
     expect(body[0].origin).toEqual({ type: EntrySource.MANUAL, id: null });
-    expect(body[0].category.id).toBe(categoryId);
+    expect(body[0].category).toEqual({
+      id: categoryId,
+      name: 'Professional fees',
+      scope: EntryScope.PROFESSIONAL,
+      isDefault: true,
+    });
     expect(body[0]).not.toHaveProperty('userId');
   });
 

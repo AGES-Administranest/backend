@@ -64,6 +64,8 @@ export function toStatementEntry(row: StatementRow): FinancialEntryResponse {
       id: row.category.id,
       name: row.category.name,
       scope: row.category.defaultScope,
+      // Same rule as GET /financial-categories: no owner means a default.
+      isDefault: row.category.userId === null,
     },
     scope: row.scope,
     amount: row.amount,
