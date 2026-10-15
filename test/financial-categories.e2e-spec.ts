@@ -26,6 +26,7 @@ describe('Financial categories (e2e)', () => {
   let prisma: PrismaService;
   let userId: string;
   let otherId: string;
+  let leavingId: string;
 
   const owner: TestUser = {
     cognitoSub: `e2e-fin-cat-${randomUUID()}`,
@@ -39,12 +40,18 @@ describe('Financial categories (e2e)', () => {
     name: 'Other',
   };
 
+  const leaving: TestUser = {
+    cognitoSub: `e2e-fin-cat-leaving-${randomUUID()}`,
+    email: `e2e-fin-cat-leaving-${randomUUID()}@example.com`,
+    name: 'Leaving',
+  };
+
   const server = () => app.getHttpServer();
 
   beforeAll(async () => {
     ({ app, prisma } = await createTestApp());
     await ensureDefaultFinancialCategories(prisma);
-    await mintTokens([owner, other]);
+    await mintTokens([owner, other, leaving]);
 
     const provision = async (user: TestUser) => {
       const session = await request(server())
@@ -55,17 +62,19 @@ describe('Financial categories (e2e)', () => {
     };
     userId = await provision(owner);
     otherId = await provision(other);
+    leavingId = await provision(leaving);
   });
 
   afterAll(async () => {
+    const ids = [userId, otherId, leavingId];
     // Entries, then categories, then users: each foreign key is RESTRICT.
     await prisma.financialEntry.deleteMany({
-      where: { userId: { in: [userId, otherId] } },
+      where: { userId: { in: ids } },
     });
     await prisma.financialCategory.deleteMany({
-      where: { userId: { in: [userId, otherId] } },
+      where: { userId: { in: ids } },
     });
-    await prisma.user.deleteMany({ where: { id: { in: [userId, otherId] } } });
+    await prisma.user.deleteMany({ where: { id: { in: ids } } });
     await app.close();
   });
 
@@ -329,6 +338,34 @@ describe('Financial categories (e2e)', () => {
         .expect(401);
 
       expect(res.body).toMatchObject({ code: 'UNAUTHENTICATED' });
+    });
+
+    it('refuses to delete a user who owns a category, so it never becomes a default', async () => {
+      const id = randomUUID();
+      await create(
+        { ...streetFood, id, name: 'Kept by its owner' },
+        leaving,
+      ).expect(201);
+
+      // With ON DELETE SET NULL the delete went through and the category
+      // turned into a default (user_id NULL) that every other user saw.
+      await expect(
+        prisma.user.delete({ where: { id: leavingId } }),
+      ).rejects.toMatchObject({
+        code: 'P2003',
+        message: expect.stringContaining(
+          'financial_category_user_id_fkey',
+        ) as string,
+      });
+
+      const stored = await prisma.financialCategory.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(stored.userId).toBe(leavingId);
+
+      // Category first, then the user, which nothing holds back any more.
+      await prisma.financialCategory.delete({ where: { id } });
+      await prisma.user.delete({ where: { id: leavingId } });
     });
   });
 });
