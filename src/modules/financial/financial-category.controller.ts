@@ -49,7 +49,16 @@ export class FinancialCategoryController {
     description:
       'The owner is always the caller. The name is compared with the user categories and the defaults of the same nature, ignoring case, accents and extra spaces. Defaults are compared by their stored English names: "Outros" does not match the default "Other".',
   })
-  @ApiCreatedResponse({ type: FinancialCategoryResponse })
+  @ApiCreatedResponse({
+    type: FinancialCategoryResponse,
+    example: {
+      id: '3b8f5d2e-1c4a-4e7b-9a60-2f1d8c7e5b43',
+      name: 'Comida',
+      nature: 'EXPENSE',
+      defaultScope: 'PERSONAL',
+      isDefault: false,
+    },
+  })
   @ApiBadRequestResponse({
     description:
       'Invalid id, name (empty or over 40 characters), nature or defaultScope, or an unknown field such as userId (VALIDATION_ERROR)',
