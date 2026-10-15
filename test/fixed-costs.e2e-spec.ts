@@ -141,45 +141,45 @@ describe('Fixed costs summary (e2e)', () => {
     await prisma.pricingSettings.create({
       data: { userId, transportCostMonthly: '300.00' },
     });
+
+    const yearsAgo = (years: number) => {
+      const date = new Date();
+      date.setUTCFullYear(date.getUTCFullYear() - years);
+      return date;
+    };
+
     await prisma.equipment.createMany({
       data: [
-        // (6000 - 0) / 60 = 100 a month, depreciating in 2026-03
+        // (6000 - 0) / 120 = 50 a month, still depreciating today
         {
           userId,
           name: 'Active',
           purchaseValue: '6000.00',
-          acquisitionDate: new Date('2026-01-10'),
-          usefulLifeMonths: 60,
+          acquisitionDate: yearsAgo(2),
+          usefulLifeMonths: 120,
         },
         {
           userId,
           name: 'Inactive',
           purchaseValue: '6000.00',
-          acquisitionDate: new Date('2026-01-10'),
-          usefulLifeMonths: 60,
+          acquisitionDate: yearsAgo(2),
+          usefulLifeMonths: 120,
           active: false,
         },
         {
           userId,
           name: 'Deleted',
           purchaseValue: '6000.00',
-          acquisitionDate: new Date('2026-01-10'),
-          usefulLifeMonths: 60,
+          acquisitionDate: yearsAgo(2),
+          usefulLifeMonths: 120,
           deletedAt: new Date(),
-        },
-        {
-          userId,
-          name: 'Not acquired yet',
-          purchaseValue: '6000.00',
-          acquisitionDate: new Date('2026-06-10'),
-          usefulLifeMonths: 60,
         },
         {
           userId: otherId,
           name: 'Theirs',
           purchaseValue: '6000.00',
-          acquisitionDate: new Date('2026-01-10'),
-          usefulLifeMonths: 60,
+          acquisitionDate: yearsAgo(2),
+          usefulLifeMonths: 120,
         },
       ],
     });
@@ -198,9 +198,9 @@ describe('Fixed costs summary (e2e)', () => {
     expect(await summary(owner, { month: 3, year: 2026 })).toEqual({
       professionalExpenses: '150.25',
       personalExpenses: '80.00',
-      depreciation: '100.00',
+      depreciation: '50.00',
       transport: '300.00',
-      total: '630.25',
+      total: '580.25',
     });
   });
 
@@ -223,26 +223,34 @@ describe('Fixed costs summary (e2e)', () => {
     expect(april.personalExpenses).toBe('33.00');
   });
 
-  it('stops depreciating before the acquisition and keeps the transport', async () => {
-    const before = await summary(owner, { month: 12, year: 2025 });
+  it('always shows the current depreciation, whatever month is requested', async () => {
+    const march = await summary(owner, { month: 3, year: 2026 });
+    const december = await summary(owner, { month: 12, year: 2025 });
 
-    expect(before.depreciation).toBe('0.00');
-    expect(before.transport).toBe('300.00');
+    expect(march.depreciation).toBe('50.00');
+    expect(december.depreciation).toBe('50.00');
+    expect(december.transport).toBe('300.00');
   });
 
-  it('starts depreciating a later equipment in its acquisition month', async () => {
-    const june = await summary(owner, { month: 6, year: 2026 });
+  it('matches the depreciation of the equipment summary', async () => {
+    const equipment = await request(server())
+      .get('/equipment/summary')
+      .set('Authorization', bearer(owner))
+      .expect(200);
+    const body = await summary(owner, { month: 3, year: 2026 });
 
-    expect(june.depreciation).toBe('200.00');
+    expect(Number(body.depreciation)).toBe(
+      (equipment.body as { monthlyTotal: number }).monthlyTotal,
+    );
   });
 
   it("never shows another user's data", async () => {
     expect(await summary(other, { month: 3, year: 2026 })).toEqual({
       professionalExpenses: '555.00',
       personalExpenses: '0.00',
-      depreciation: '100.00',
+      depreciation: '50.00',
       transport: '0.00',
-      total: '655.00',
+      total: '605.00',
     });
   });
 

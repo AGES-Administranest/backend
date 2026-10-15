@@ -4,7 +4,8 @@ import { Prisma } from '@prisma/client';
 import { QueryFixedCostsSummaryDto } from './dto/query-fixed-costs-summary.dto';
 import { FixedCostsSummaryResponse } from './entities/fixed-costs-summary.entity';
 import { FixedCostsRepository } from './fixed-costs.repository';
-import { FinancialEntryService, MonthlyDepreciation } from '../financial';
+import { EquipmentService } from '../equipment';
+import { FinancialEntryService } from '../financial';
 
 const money = (value: Prisma.Decimal): string =>
   value.toFixed(2, Prisma.Decimal.ROUND_HALF_UP);
@@ -13,7 +14,7 @@ const money = (value: Prisma.Decimal): string =>
 export class FixedCostsService {
   constructor(
     private readonly entries: FinancialEntryService,
-    private readonly depreciation: MonthlyDepreciation,
+    private readonly equipment: EquipmentService,
     private readonly repository: FixedCostsRepository,
   ) {}
 
@@ -21,17 +22,19 @@ export class FixedCostsService {
     userId: string,
     query: QueryFixedCostsSummaryDto,
   ): Promise<FixedCostsSummaryResponse> {
-    // Resolved once so the three sources always look at the same month. The
-    // current month is read in UTC, like the statement, so the cards match it.
+    // Expenses use the requested month (UTC, like the statement, so the cards
+    // match it). Depreciation comes from EquipmentService.summary (US15) and is
+    // always the current month's, whatever month was requested.
     const now = new Date();
     const year = query.year ?? now.getUTCFullYear();
     const month = query.month ?? now.getUTCMonth() + 1;
 
-    const [expenses, depreciation, transport] = await Promise.all([
+    const [expenses, equipmentSummary, transport] = await Promise.all([
       this.entries.sumExpensesByScope(userId, year, month),
-      this.depreciation.getMonthlyDepreciation(userId, month, year),
+      this.equipment.summary(userId),
       this.repository.findTransportMonthly(userId),
     ]);
+    const depreciation = new Prisma.Decimal(equipmentSummary.monthlyTotal);
     const transportCost = transport ?? new Prisma.Decimal(0);
     const total = expenses.professional
       .plus(expenses.personal)
