@@ -7,7 +7,7 @@ const dec = (value: string) => new Prisma.Decimal(value);
 
 describe('FixedCostsService', () => {
   let entries: { sumExpensesByScope: jest.Mock };
-  let depreciation: { getMonthlyDepreciation: jest.Mock };
+  let equipment: { summary: jest.Mock };
   let repository: { findTransportMonthly: jest.Mock };
   let service: FixedCostsService;
 
@@ -18,15 +18,19 @@ describe('FixedCostsService', () => {
         personal: dec('830.5'),
       }),
     };
-    depreciation = {
-      getMonthlyDepreciation: jest.fn().mockResolvedValue(dec('189.08')),
+    equipment = {
+      summary: jest.fn().mockResolvedValue({
+        monthlyTotal: 189.08,
+        yearlyTotal: 2268.96,
+        count: 5,
+      }),
     };
     repository = {
       findTransportMonthly: jest.fn().mockResolvedValue(dec('300')),
     };
     service = new FixedCostsService(
       entries as never,
-      depreciation as never,
+      equipment as never,
       repository as never,
     );
   });
@@ -46,7 +50,7 @@ describe('FixedCostsService', () => {
     });
   });
 
-  it('asks every source for the same user and month', async () => {
+  it('asks the expenses for the requested month and the depreciation for the user', async () => {
     const query = Object.assign(new QueryFixedCostsSummaryDto(), {
       month: 3,
       year: 2026,
@@ -55,15 +59,12 @@ describe('FixedCostsService', () => {
     await service.getSummary('user-1', query);
 
     expect(entries.sumExpensesByScope).toHaveBeenCalledWith('user-1', 2026, 3);
-    expect(depreciation.getMonthlyDepreciation).toHaveBeenCalledWith(
-      'user-1',
-      3,
-      2026,
-    );
+    // depreciation is always the current month's (EquipmentService.summary, US15)
+    expect(equipment.summary).toHaveBeenCalledWith('user-1');
     expect(repository.findTransportMonthly).toHaveBeenCalledWith('user-1');
   });
 
-  it('uses the current UTC month when month and year are absent', async () => {
+  it('uses the current UTC month for the expenses when month and year are absent', async () => {
     await service.getSummary('user-1', new QueryFixedCostsSummaryDto());
 
     const now = new Date();
@@ -91,7 +92,11 @@ describe('FixedCostsService', () => {
       professional: dec('0'),
       personal: dec('0'),
     });
-    depreciation.getMonthlyDepreciation.mockResolvedValue(dec('0'));
+    equipment.summary.mockResolvedValue({
+      monthlyTotal: 0,
+      yearlyTotal: 0,
+      count: 0,
+    });
     repository.findTransportMonthly.mockResolvedValue(null);
 
     await expect(

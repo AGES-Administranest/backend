@@ -6,19 +6,15 @@ import { FinancialCategoryService } from './financial-category.service';
 import { FinancialEntryController } from './financial-entry.controller';
 import { FinancialEntryRepository } from './financial-entry.repository';
 import { FinancialEntryService } from './financial-entry.service';
-import { MonthlyDepreciation } from './monthly-depreciation';
-import { MonthlyDepreciationRepository } from './monthly-depreciation.repository';
 
 @Module({
   controllers: [FinancialCategoryController, FinancialEntryController],
-  exports: [FinancialEntryService, MonthlyDepreciation],
+  exports: [FinancialEntryService],
   providers: [
     FinancialCategoryService,
     FinancialCategoryRepository,
     FinancialEntryService,
     FinancialEntryRepository,
-    MonthlyDepreciation,
-    MonthlyDepreciationRepository,
   ],
 })
 export class FinancialModule {}
