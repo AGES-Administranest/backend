@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Administranest - the API on App Runner: its ECR repository, the roles and the
+  service. HTTPS comes from App Runner, no load balancer needed.
+  Deploy with scripts/deploy-api.sh.
+
+Parameters:
+  ImageTag:
+    Type: String
+    Default: ''
+    Description: >-
+      Image tag to run. Empty: only the repository is created, since App Runner
+      refuses to create a service before its image exists.
+  CognitoIssuer:
+    Type: String
+  CognitoClientId:
+    Type: String
+  DocumentsBucket:
+    Type: String
+  DocumentsPolicyArn:
+    Type: String
+    Description: administranest-prod-api-documents, from the storage stack
+  DatabaseUrlSecretArn:
+    Type: String
+    Description: DATABASE_URL secret, from the database stack
+  CorsOrigins:
+    Type: String
+    Default: ''
+    Description: Browser origins allowed to call the API. Empty turns CORS off.
+
+Conditions:
+  HasImage: !Not [!Equals [!Ref ImageTag, '']]
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: administranest-prod-api
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      # Every push is tagged with its commit; only recent ones are worth paying
+      # storage for (a rollback is a redeploy of an older tag).
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1, "description": "Keep the last 10 images",
+            "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 10},
+            "action": {"type": "expire"}}]}
+      Tags:
+        - Key: project
+          Value: administranest
+
+  # Lets App Runner pull from the private repository.
+  AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: administranest-prod-api-ecr-access
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: build.apprunner.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+  # What the running API is: the S3 policy plus reading its own database URL.
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: administranest-prod-api
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: tasks.apprunner.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      ManagedPolicyArns:
+        - !Ref DocumentsPolicyArn
+      Policies:
+        - PolicyName: read-database-url
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DatabaseUrlSecretArn
+
+  Service:
+    Type: AWS::AppRunner::Service
+    Condition: HasImage
+    Properties:
+      ServiceName: administranest-prod-api
+      SourceConfiguration:
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt AccessRole.Arn
+        # Deploys happen by changing ImageTag, so every release is a stack
+        # update with a known commit — not a mutable `latest`.
+        AutoDeploymentsEnabled: false
+        ImageRepository:
+          ImageRepositoryType: ECR
+          ImageIdentifier: !Sub '${Repository.RepositoryUri}:${ImageTag}'
+          ImageConfiguration:
+            Port: '3000'
+            RuntimeEnvironmentVariables:
+              - Name: NODE_ENV
+                Value: production
+              - Name: AWS_REGION
+                Value: !Ref AWS::Region
+              - Name: S3_BUCKET
+                Value: !Ref DocumentsBucket
+              - Name: COGNITO_ISSUER
+                Value: !Ref CognitoIssuer
+              - Name: COGNITO_CLIENT_ID
+                Value: !Ref CognitoClientId
+              - Name: CORS_ORIGINS
+                Value: !Ref CorsOrigins
+              # App Runner's proxy appends the caller's address to
+              # X-Forwarded-For; trust that one hop and nothing before it.
+              - Name: TRUST_PROXY_HOPS
+                Value: '1'
+            RuntimeEnvironmentSecrets:
+              - Name: DATABASE_URL
+                Value: !Ref DatabaseUrlSecretArn
+      InstanceConfiguration:
+        Cpu: 0.25 vCPU
+        # pdfjs reads whole invoices in memory: 0.5 GB is too tight.
+        Memory: 1 GB
+        InstanceRoleArn: !GetAtt InstanceRole.Arn
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: /
+        Interval: 20
+        Timeout: 5
+        HealthyThreshold: 1
+        UnhealthyThreshold: 5
+      AutoScalingConfigurationArn: !Ref AutoScaling
+      Tags:
+        - Key: project
+          Value: administranest
+
+  # One instance is plenty for the team and caps the bill.
+  AutoScaling:
+    Type: AWS::AppRunner::AutoScalingConfiguration
+    Condition: HasImage
+    Properties:
+      AutoScalingConfigurationName: administranest-prod-api
+      MinSize: 1
+      MaxSize: 2
+      MaxConcurrency: 100
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+  ServiceUrl:
+    Condition: HasImage
+    Description: EXPO_PUBLIC_API_URL (app)
+    Value: !Sub 'https://${Service.ServiceUrl}'
+  InstanceRoleArn:
+    Value: !GetAtt InstanceRole.Arn
