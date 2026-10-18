@@ -611,6 +611,219 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('trips', () => {
+    const createVehicle = async (user: TestUser): Promise<string> => {
+      const response = await request(http)
+        .post('/vehicles')
+        .set('Authorization', bearer(user))
+        .send({
+          brand: 'Fiat',
+          model: 'Strada',
+          fuelType: 'FLEX',
+          avgConsumptionKmL: 12.5,
+          fuelPrice: 5.899,
+        })
+        .expect(201);
+
+      return body(response).id as string;
+    };
+
+    const createTrip = async (
+      user: TestUser,
+      fields: Record<string, unknown> = {},
+    ): Promise<string> => {
+      const response = await request(http)
+        .post('/trips')
+        .set('Authorization', bearer(user))
+        .send({
+          mode: 'RIDE',
+          occurredOn: '2026-10-18',
+          origin: 'Casa',
+          destination: 'Clinica da Ana',
+          cost: 32.9,
+          ...fields,
+        })
+        .expect(201);
+
+      return body(response).id as string;
+    };
+
+    const readTripAsOwner = async (user: TestUser, tripId: string) => {
+      const response = await request(http)
+        .get(`/trips/${tripId}`)
+        .set('Authorization', bearer(user))
+        .expect(200);
+
+      return body(response);
+    };
+
+    it('does not list another account trips, nor count them in the totals', async () => {
+      const anaVehicle = await createVehicle(ana);
+      await createTrip(ana, {
+        mode: 'OWN_VEHICLE',
+        vehicleId: anaVehicle,
+        cost: undefined,
+        distanceKm: 300,
+      });
+      await createTrip(ana);
+      await createTrip(bruno, { destination: 'Clinica do Bruno', cost: 10 });
+
+      const response = await request(http)
+        .get('/trips')
+        .query({ from: '2026-10-01', to: '2026-10-31' })
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      expect(body(response)).toMatchObject({
+        total: 1,
+        totalKm: '0.00',
+        totalCost: '10.00',
+      });
+      const destinations = (
+        body(response).items as { destination: string }[]
+      ).map(trip => trip.destination);
+      expect(destinations).toEqual(['Clinica do Bruno']);
+    });
+
+    it('answers 404, not 403, when reading another account trip', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .get(`/trips/${anaTrip}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_NOT_FOUND' });
+    });
+
+    it('refuses to update another account trip, and leaves it untouched', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .patch(`/trips/${anaTrip}`)
+        .set('Authorization', bearer(bruno))
+        .send({ cost: 999, destination: 'Renomeado pelo Bruno' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_NOT_FOUND' });
+      expect(await readTripAsOwner(ana, anaTrip)).toMatchObject({
+        destination: 'Clinica da Ana',
+        cost: '32.9',
+      });
+    });
+
+    it('refuses to delete another account trip, and leaves it in place', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .delete(`/trips/${anaTrip}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_NOT_FOUND' });
+      await readTripAsOwner(ana, anaTrip);
+    });
+
+    it('refuses a trip that points at another account vehicle, appointment or client', async () => {
+      const anaVehicle = await createVehicle(ana);
+      const anaAppointment = body(
+        await request(http)
+          .post('/appointments')
+          .set('Authorization', bearer(ana))
+          .send({
+            startsAt: '2026-10-18T13:00:00.000Z',
+            endsAt: '2026-10-18T14:00:00.000Z',
+          })
+          .expect(201),
+      ).id as string;
+      const anaClient = body(
+        await request(http)
+          .post('/client')
+          .set('Authorization', bearer(ana))
+          .send({ type: 'CLINIC', name: 'Clinica da Ana' })
+          .expect(201),
+      ).id as string;
+
+      const ride = {
+        mode: 'RIDE',
+        occurredOn: '2026-10-18',
+        origin: 'Casa',
+        destination: 'Clinica',
+        cost: 10,
+      };
+      const cases: [Record<string, unknown>, string][] = [
+        [
+          {
+            mode: 'OWN_VEHICLE',
+            vehicleId: anaVehicle,
+            occurredOn: '2026-10-18',
+            origin: 'Casa',
+            destination: 'Clinica',
+            distanceKm: 10,
+          },
+          'VEHICLE_NOT_FOUND',
+        ],
+        [{ ...ride, appointmentId: anaAppointment }, 'APPOINTMENT_NOT_FOUND'],
+        [{ ...ride, clientId: anaClient }, 'CLIENT_NOT_FOUND'],
+      ];
+      for (const [trip, code] of cases) {
+        const response = await request(http)
+          .post('/trips')
+          .set('Authorization', bearer(bruno))
+          .send(trip)
+          .expect(422);
+
+        expect(body(response)).toMatchObject({ code });
+      }
+      expect(await prisma.trip.count()).toBe(0);
+    });
+
+    it('refuses another account device id, and leaves that trip untouched', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .post('/trips')
+        .set('Authorization', bearer(bruno))
+        .send({
+          id: anaTrip,
+          mode: 'RIDE',
+          occurredOn: '2026-10-18',
+          origin: 'Casa',
+          destination: 'Clinica da Ana',
+          cost: 32.9,
+        })
+        .expect(409);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_ID_CONFLICT' });
+      const stored = await prisma.trip.findUniqueOrThrow({
+        where: { id: anaTrip },
+      });
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      expect(stored.userId).toBe(anaRow.id);
+      expect(await prisma.trip.count()).toBe(1);
+    });
+
+    it('cannot reassign a trip by sending a userId', async () => {
+      const brunoTrip = await createTrip(bruno);
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+
+      await request(http)
+        .patch(`/trips/${brunoTrip}`)
+        .set('Authorization', bearer(bruno))
+        .send({ userId: anaRow.id })
+        .expect(400);
+
+      const stored = await prisma.trip.findUniqueOrThrow({
+        where: { id: brunoTrip },
+      });
+      expect(stored.userId).not.toBe(anaRow.id);
+    });
+  });
+
   describe('users', () => {
     it('keeps each account terms consent to itself', async () => {
       await request(http)
