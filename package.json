@@ -98,7 +98,7 @@
     ],
     "rootDir": ".",
     "testMatch": [
-      "<rootDir>/test/unit-test/**/*.spec.ts"
+      "<rootDir>/src/**/*.spec.ts"
     ],
     "testPathIgnorePatterns": [
       "/node_modules/",
