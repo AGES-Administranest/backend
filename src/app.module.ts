@@ -18,6 +18,7 @@ import { PricingSettingsModule } from './modules/pricing-settings';
 import { StockEntryModule } from './modules/stock-entry';
 import { StockMovementsModule } from './modules/stock-movements';
 import { SupplierModule } from './modules/supplier/supplier.module';
+import { TripsModule } from './modules/trips';
 import { UsersModule } from './modules/users/users.module';
 import { VehiclesModule } from './modules/vehicles';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
@@ -54,6 +55,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     AppointmentsModule,
     StockEntryModule,
     VehiclesModule,
+    TripsModule,
     PricingSettingsModule,
   ],
   controllers: [AppController],
