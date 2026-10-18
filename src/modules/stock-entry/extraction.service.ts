@@ -7,10 +7,10 @@ import {
 
 import { buildDocumentKey } from './document-key';
 import { ExtractionResponseDto } from './dto/extraction-response.dto';
-import { fromIsoDate, toIsoDate } from './iso-date';
 import { EXTRACTION_TIMEOUT_MS } from './stock-entry.constants';
 import { StockEntryRepository } from './stock-entry.repository';
 import { DocumentStorage } from '../../infra/storage';
+import { fromIsoDate, toIsoDate } from '../../shared/validation/iso-date';
 import {
   ExtractionFailureReason,
   ExtractionResult,
