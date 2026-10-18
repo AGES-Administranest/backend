@@ -4,8 +4,8 @@ import { Prisma } from '@prisma/client';
  * What a kilometre costs in fuel. Pure arithmetic: no Nest, no Prisma Client.
  *
  * Everything stays in `Decimal`: going through `number` would bring binary
- * floating-point error into money. The full-precision value is what US14 must
- * multiply by the distance of a trip; rounding happens once, on the way out.
+ * floating-point error into money. A trip copies the 4-place value the API
+ * returns and multiplies it by its distance (see trips/domain/trip-cost.ts).
  */
 
 export type DecimalInput = Prisma.Decimal | number | string;
