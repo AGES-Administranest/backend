@@ -221,27 +221,38 @@ describe('trip expense (e2e)', () => {
   });
 
   it('keeps no trip when its expense cannot be posted', async () => {
+    const travel = { userId: null, name: 'Travel' };
     await prisma.financialCategory.updateMany({
-      where: { userId: null, name: 'Travel' },
+      where: travel,
       data: { active: false },
     });
 
-    const response = await request(http)
-      .post('/trips')
-      .set('Authorization', bearer(ana))
-      .send({
-        mode: 'RIDE',
-        occurredOn: '2026-10-18',
-        origin: 'Casa',
-        destination: 'Clinica',
-        cost: 32.9,
-      })
-      .expect(400);
+    // The default categories are shared by every suite, and the ones that do
+    // not reset the database expect Travel to be active: restore it even if an
+    // assertion below fails.
+    try {
+      const response = await request(http)
+        .post('/trips')
+        .set('Authorization', bearer(ana))
+        .send({
+          mode: 'RIDE',
+          occurredOn: '2026-10-18',
+          origin: 'Casa',
+          destination: 'Clinica',
+          cost: 32.9,
+        })
+        .expect(400);
 
-    expect(body(response)).toMatchObject({
-      code: 'FINANCIAL_CATEGORY_NOT_SEEDED',
-    });
-    expect(await prisma.trip.count()).toBe(0);
-    expect(await prisma.financialEntry.count()).toBe(0);
+      expect(body(response)).toMatchObject({
+        code: 'FINANCIAL_CATEGORY_NOT_SEEDED',
+      });
+      expect(await prisma.trip.count()).toBe(0);
+      expect(await prisma.financialEntry.count()).toBe(0);
+    } finally {
+      await prisma.financialCategory.updateMany({
+        where: travel,
+        data: { active: true },
+      });
+    }
   });
 });
