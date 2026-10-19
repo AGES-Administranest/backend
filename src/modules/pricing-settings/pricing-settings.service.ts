@@ -2,7 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PricingSettings } from '@prisma/client';
 
 import { SavePricingSettingsDto } from './dto/save-pricing-settings.dto';
+import { SaveTransportCostDto } from './dto/save-transport-cost.dto';
 import { PricingSettingsEntity } from './entities/pricing-settings.entity';
+import { TransportCostEntity } from './entities/transport-cost.entity';
 import { PricingSettingsRepository } from './pricing-settings.repository';
 import { DomainError } from '../../shared/errors/domain-error';
 
@@ -40,6 +42,42 @@ export class PricingSettingsService {
     return settings;
   }
 
+  async findTransportCost(userId: string): Promise<TransportCostEntity> {
+    const row = await this.repository.findByUserId(userId);
+    const transportCost = row ? this.toTransportCostEntity(row) : null;
+    if (!transportCost) throw this.transportCostNotFound();
+    return transportCost;
+  }
+
+  async saveTransportCost(
+    userId: string,
+    dto: SaveTransportCostDto,
+  ): Promise<TransportCostEntity> {
+    const row = await this.repository.saveTransportCost(
+      userId,
+      dto.transportCostMonthly,
+    );
+    const transportCost = this.toTransportCostEntity(row);
+    // Unreachable: the transport cost was just written. Kept so a broken write
+    // fails loudly instead of answering 200 with null.
+    if (!transportCost) {
+      throw new Error('Transport cost was saved without its value');
+    }
+    return transportCost;
+  }
+
+  /** Null while the transport cost is empty, which is not the same as zero. */
+  private toTransportCostEntity(
+    row: PricingSettings,
+  ): TransportCostEntity | null {
+    if (row.transportCostMonthly === null) return null;
+
+    return {
+      transportCostMonthly: row.transportCostMonthly.toNumber(),
+      updatedAt: row.updatedAt,
+    };
+  }
+
   /** Null unless all three goals are filled in (the US19 business rule). */
   private toEntity(row: PricingSettings): PricingSettingsEntity | null {
     const { monthlyIncomeGoal, weeklyHours, safetyMarginPct } = row;
@@ -64,6 +102,14 @@ export class PricingSettingsService {
       'NOT_FOUND',
       'PRICING_SETTINGS_NOT_FOUND',
       'Pricing settings are not configured yet',
+    );
+  }
+
+  private transportCostNotFound(): DomainError {
+    return new DomainError(
+      'NOT_FOUND',
+      'TRANSPORT_COST_NOT_FOUND',
+      'Transport cost is not configured yet',
     );
   }
 }
