@@ -18,7 +18,7 @@ interface EntryBody {
   description: string;
   source: EntrySource;
   origin: { type: EntrySource; id: string | null };
-  category: { id: string; name: string };
+  category: { id: string; name: string; scope: EntryScope; isDefault: boolean };
 }
 
 describe('Financial entries (e2e)', () => {
@@ -133,6 +133,9 @@ describe('Financial entries (e2e)', () => {
     await prisma.financialEntry.deleteMany({
       where: { userId: { in: [userId, otherId] } },
     });
+    await prisma.financialCategory.deleteMany({
+      where: { userId: { in: [userId, otherId] } },
+    });
     await prisma.user.deleteMany({ where: { id: { in: [userId, otherId] } } });
     await app.close();
   });
@@ -146,7 +149,12 @@ describe('Financial entries (e2e)', () => {
     const body = res.body as EntryBody[];
     expect(body.map(entry => entry.description)).toEqual(['Newer', 'Older']);
     expect(body[0].origin).toEqual({ type: EntrySource.MANUAL, id: null });
-    expect(body[0].category.id).toBe(categoryId);
+    expect(body[0].category).toEqual({
+      id: categoryId,
+      name: 'Professional fees',
+      scope: EntryScope.PROFESSIONAL,
+      isDefault: true,
+    });
     expect(body[0]).not.toHaveProperty('userId');
   });
 
@@ -241,6 +249,32 @@ describe('Financial entries (e2e)', () => {
       })
       .expect(400);
     expect(mismatch.body).toMatchObject({ code: 'FINANCIAL_CATEGORY_INVALID' });
+  });
+
+  it('rejects an inactive category of the user', async () => {
+    const archived = await prisma.financialCategory.create({
+      data: {
+        userId,
+        name: 'Archived',
+        nature: EntryNature.EXPENSE,
+        defaultScope: EntryScope.PERSONAL,
+        active: false,
+      },
+    });
+
+    const res = await request(server())
+      .post('/financial-entries')
+      .set('Authorization', bearer(owner))
+      .send({
+        id: randomUUID(),
+        nature: EntryNature.EXPENSE,
+        description: 'Archived category',
+        amount: 10,
+        accrualDate: thisMonth.toISOString(),
+        categoryId: archived.id,
+      })
+      .expect(400);
+    expect(res.body).toMatchObject({ code: 'FINANCIAL_CATEGORY_INVALID' });
   });
 
   it('returns an automatic entry and blocks amount changes and deletion', async () => {
