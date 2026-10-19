@@ -109,6 +109,9 @@ export const ERROR_CODES = [
   // failure for the app: it is the calculator's initial state (US19), shown
   // before any hour value can be calculated.
   'PRICING_SETTINGS_NOT_FOUND',
+  // The monthly transport cost was never saved (US18). The card shows an empty
+  // field, not an error.
+  'TRANSPORT_COST_NOT_FOUND',
 
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',

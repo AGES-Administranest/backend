@@ -23,13 +23,18 @@ const transportOnly = row({
 });
 
 describe('PricingSettingsService', () => {
-  let repository: { findByUserId: jest.Mock; saveGoals: jest.Mock };
+  let repository: {
+    findByUserId: jest.Mock;
+    saveGoals: jest.Mock;
+    saveTransportCost: jest.Mock;
+  };
   let service: PricingSettingsService;
 
   beforeEach(() => {
     repository = {
       findByUserId: jest.fn().mockResolvedValue(row()),
       saveGoals: jest.fn().mockResolvedValue(row()),
+      saveTransportCost: jest.fn().mockResolvedValue(row()),
     };
     service = new PricingSettingsService(repository as never);
   });
@@ -104,6 +109,83 @@ describe('PricingSettingsService', () => {
       await expect(service.save('user-1', dto)).rejects.not.toBeInstanceOf(
         DomainError,
       );
+    });
+  });
+
+  describe('findTransportCost', () => {
+    it('returns the transport cost as a number with the last change', async () => {
+      await expect(service.findTransportCost('user-1')).resolves.toEqual({
+        transportCostMonthly: 450,
+        updatedAt: UPDATED_AT,
+      });
+      expect(repository.findByUserId).toHaveBeenCalledWith('user-1');
+    });
+
+    it('returns a transport cost of zero instead of treating it as empty', async () => {
+      repository.findByUserId.mockResolvedValue(
+        row({ transportCostMonthly: new Prisma.Decimal('0') }),
+      );
+
+      await expect(service.findTransportCost('user-1')).resolves.toMatchObject({
+        transportCostMonthly: 0,
+      });
+    });
+
+    it('works while the goals are not configured', async () => {
+      repository.findByUserId.mockResolvedValue(transportOnly);
+
+      await expect(service.findTransportCost('user-1')).resolves.toMatchObject({
+        transportCostMonthly: 450,
+      });
+    });
+
+    it.each([
+      ['there is no row', null],
+      ['the row only has the goals', row({ transportCostMonthly: null })],
+    ])('answers TRANSPORT_COST_NOT_FOUND when %s', async (_case, found) => {
+      repository.findByUserId.mockResolvedValue(found);
+
+      const error = await service
+        .findTransportCost('user-1')
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(DomainError);
+      expect(error).toMatchObject({
+        kind: 'NOT_FOUND',
+        code: 'TRANSPORT_COST_NOT_FOUND',
+      });
+    });
+  });
+
+  describe('saveTransportCost', () => {
+    const dto = { transportCostMonthly: 450 };
+
+    it('saves the transport cost for the token owner and returns it', async () => {
+      await expect(service.saveTransportCost('user-1', dto)).resolves.toEqual({
+        transportCostMonthly: 450,
+        updatedAt: UPDATED_AT,
+      });
+      expect(repository.saveTransportCost).toHaveBeenCalledWith('user-1', 450);
+    });
+
+    it('returns zero as zero', async () => {
+      repository.saveTransportCost.mockResolvedValue(
+        row({ transportCostMonthly: new Prisma.Decimal('0') }),
+      );
+
+      await expect(
+        service.saveTransportCost('user-1', { transportCostMonthly: 0 }),
+      ).resolves.toMatchObject({ transportCostMonthly: 0 });
+    });
+
+    it('fails loudly if the write came back without the value', async () => {
+      repository.saveTransportCost.mockResolvedValue(
+        row({ transportCostMonthly: null }),
+      );
+
+      await expect(
+        service.saveTransportCost('user-1', dto),
+      ).rejects.not.toBeInstanceOf(DomainError);
     });
   });
 });
