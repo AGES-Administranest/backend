@@ -10,11 +10,16 @@ import { StorageModule } from './infra/storage';
 import { AppointmentsModule } from './modules/appointments';
 import { AuthModule } from './modules/auth';
 import { ClientModule } from './modules/client';
+import { EquipmentModule } from './modules/equipment';
+import { FinancialModule } from './modules/financial/financial.module';
+import { FixedCostsModule } from './modules/fixed-costs';
 import { ItemModule } from './modules/item/item.module';
+import { PricingSettingsModule } from './modules/pricing-settings';
 import { StockEntryModule } from './modules/stock-entry';
 import { StockMovementsModule } from './modules/stock-movements';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { UsersModule } from './modules/users/users.module';
+import { VehiclesModule } from './modules/vehicles';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
 
 @Module({
@@ -41,10 +46,15 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     ItemModule,
     SupplierModule,
     ClientModule,
+    EquipmentModule,
+    FinancialModule,
+    FixedCostsModule,
     AuthModule,
     StockMovementsModule,
     AppointmentsModule,
     StockEntryModule,
+    VehiclesModule,
+    PricingSettingsModule,
   ],
   controllers: [AppController],
   // The guard is assembled here, and not in SharedAuthModule, because this is

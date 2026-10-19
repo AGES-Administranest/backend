@@ -71,6 +71,18 @@ enum AppointmentStatus {
   @@map("appointment_status_enum")
 }
 
+/// The fuel the car accepts; FLEX takes gasoline or ethanol. The type is not
+/// tied to a price: fuelPrice and avgConsumptionKmL hold the values of the
+/// fuel in use, as informed by the user, and the cost per km comes from them.
+enum FuelType {
+  GASOLINE
+  ETHANOL
+  FLEX
+  DIESEL
+
+  @@map("fuel_type_enum")
+}
+
 enum EntryNature {
   INCOME
   EXPENSE
@@ -240,6 +252,7 @@ model User {
   clients             Client[]
   appointments        Appointment[]
   trips               Trip[]
+  vehicles            Vehicle[]
   suppliers           Supplier[]
   items               Item[]
   stockMovements      StockMovement[]
@@ -355,6 +368,31 @@ model Trip {
 
   @@index([userId, occurredOn])
   @@map("trip")
+}
+
+/// The cost per kilometre is NOT stored: it is fuel_price / avg_consumption_km_l,
+/// calculated on read, so a new fuel price applies at once. Inactivating keeps
+/// the row readable by id for the trips that used it; deleted_at is reserved
+/// for an actual deletion, which no route does yet.
+model Vehicle {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  brand             String    @db.VarChar(60)
+  model             String    @db.VarChar(120)
+  fuelType          FuelType  @map("fuel_type")
+  /// km per litre
+  avgConsumptionKmL Decimal   @map("avg_consumption_km_l") @db.Decimal(6, 2)
+  /// R$ per litre of the fuel in use, as last informed by the user
+  fuelPrice         Decimal   @map("fuel_price") @db.Decimal(10, 3)
+  active            Boolean   @default(true)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, active])
+  @@map("vehicle")
 }
 
 model Supplier {
@@ -538,7 +576,7 @@ model Equipment {
   purchaseValue   Decimal   @map("purchase_value") @db.Decimal(14, 2)
   salvageValue    Decimal   @default(0) @map("salvage_value") @db.Decimal(14, 2)
   acquisitionDate DateTime  @map("acquisition_date") @db.Date
-  usefulLifeYears Int       @map("useful_life_years")
+  usefulLifeMonths Int?      @map("useful_life_months")
   /// calibration, warranty
   notes           String?
   active          Boolean   @default(true)
@@ -737,7 +775,7 @@ model FinancialCategory {
   user    User?            @relation(fields: [userId], references: [id])
   entries FinancialEntry[]
 
-  @@unique([userId, name])
+  @@unique([userId, nature, name])
   @@map("financial_category")
 }
 
@@ -781,6 +819,7 @@ model FinancialEntry {
 
   @@index([userId, settlementDate])
   @@index([userId, accrualDate])
+  @@index([userId, nature, scope])
   @@index([userId, status, dueDate])
   @@index([userId, scope, accrualDate])
   @@index([userId, categoryId])
@@ -789,13 +828,23 @@ model FinancialEntry {
 
 /// Billable-hour calculator. Fixed costs and depreciation are calculated, not
 /// stored here.
+///
+/// The three US19 goals (monthlyIncomeGoal, weeklyHours, safetyMarginPct) are
+/// filled in together or not at all (CHECK pricing_settings_goals_together):
+/// the settings count as configured only when they are filled in. The
+/// transport cost (US18) lives in the same row and does not count for that.
+/// Range CHECKs live in migration 20261012190000_pricing_settings_constraints.
 model PricingSettings {
   userId               String   @id @map("user_id") @db.Uuid
-  /// monthly income goal — covers the owner's draw + margin concept from the
-  /// requirements gathering
+  /// monthly income goal in R$ — covers the owner's draw + margin concept from
+  /// the requirements gathering. CHECK > 0.
   monthlyIncomeGoal    Decimal? @map("monthly_income_goal") @db.Decimal(14, 2)
+  /// hours available per week, not only the billed ones (idle time included).
+  /// The hour value divides by it: CHECK > 0 and <= 168.
   weeklyHours          Decimal? @map("weekly_hours") @db.Decimal(6, 2)
+  /// percentage, CHECK between 0 and 100
   safetyMarginPct      Decimal? @map("safety_margin_pct") @db.Decimal(6, 2)
+  /// US18. CHECK >= 0
   transportCostMonthly Decimal? @map("transport_cost_monthly") @db.Decimal(14, 2)
   updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

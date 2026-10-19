@@ -503,6 +503,114 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('vehicles', () => {
+    const createVehicle = async (
+      user: TestUser,
+      model: string,
+    ): Promise<string> => {
+      const response = await request(http)
+        .post('/vehicles')
+        .set('Authorization', bearer(user))
+        .send({
+          brand: 'Fiat',
+          model,
+          fuelType: 'GASOLINE',
+          avgConsumptionKmL: 12.5,
+          fuelPrice: 5.899,
+        })
+        .expect(201);
+
+      return body(response).id as string;
+    };
+
+    const readVehicleAsOwner = async (user: TestUser, vehicleId: string) => {
+      const response = await request(http)
+        .get(`/vehicles/${vehicleId}`)
+        .set('Authorization', bearer(user))
+        .expect(200);
+
+      return body(response);
+    };
+
+    it('does not list another account vehicles, active or inactive', async () => {
+      await createVehicle(ana, 'Strada da Ana');
+      await createVehicle(bruno, 'Toro do Bruno');
+      const anaInactive = await createVehicle(ana, 'Uno da Ana');
+      await request(http)
+        .delete(`/vehicles/${anaInactive}`)
+        .set('Authorization', bearer(ana))
+        .expect(200);
+
+      for (const active of ['true', 'false']) {
+        const response = await request(http)
+          .get('/vehicles')
+          .query({ active })
+          .set('Authorization', bearer(bruno))
+          .expect(200);
+
+        const models = (response.body as { model: string }[]).map(v => v.model);
+        expect(models).toEqual(active === 'true' ? ['Toro do Bruno'] : []);
+      }
+    });
+
+    it('answers 404, not 403, when reading another account vehicle', async () => {
+      const anaVehicle = await createVehicle(ana, 'Strada da Ana');
+
+      const response = await request(http)
+        .get(`/vehicles/${anaVehicle}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'VEHICLE_NOT_FOUND' });
+    });
+
+    it('refuses to update another account vehicle, and leaves it untouched', async () => {
+      const anaVehicle = await createVehicle(ana, 'Strada da Ana');
+
+      const response = await request(http)
+        .patch(`/vehicles/${anaVehicle}`)
+        .set('Authorization', bearer(bruno))
+        .send({ fuelPrice: 9.999, model: 'Renomeado pelo Bruno' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'VEHICLE_NOT_FOUND' });
+      expect(await readVehicleAsOwner(ana, anaVehicle)).toMatchObject({
+        model: 'Strada da Ana',
+        fuelPrice: '5.899',
+      });
+    });
+
+    it('refuses to inactivate another account vehicle, and leaves it active', async () => {
+      const anaVehicle = await createVehicle(ana, 'Strada da Ana');
+
+      const response = await request(http)
+        .delete(`/vehicles/${anaVehicle}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'VEHICLE_NOT_FOUND' });
+      expect((await readVehicleAsOwner(ana, anaVehicle)).active).toBe(true);
+    });
+
+    it('cannot reassign a vehicle by sending a userId', async () => {
+      const brunoVehicle = await createVehicle(bruno, 'Toro do Bruno');
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+
+      await request(http)
+        .patch(`/vehicles/${brunoVehicle}`)
+        .set('Authorization', bearer(bruno))
+        .send({ userId: anaRow.id })
+        .expect(400);
+
+      const stored = await prisma.vehicle.findUniqueOrThrow({
+        where: { id: brunoVehicle },
+      });
+      expect(stored.userId).not.toBe(anaRow.id);
+    });
+  });
+
   describe('users', () => {
     it('keeps each account terms consent to itself', async () => {
       await request(http)

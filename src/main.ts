@@ -27,6 +27,15 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const isProduction = config.get<string>('NODE_ENV') === 'production';
 
+  // Behind App Runner every request arrives from its proxy, so without this
+  // `req.ip` is the proxy's address and the throttler puts every user in one
+  // bucket. A hop count, not `true`: only the entries the proxies appended to
+  // X-Forwarded-For are trusted, never what the client sent.
+  const trustProxyHops = Number(config.get<string>('TRUST_PROXY_HOPS') ?? 0);
+  if (trustProxyHops > 0) {
+    app.set('trust proxy', trustProxyHops);
+  }
+
   const corsOrigins = (config.get<string>('CORS_ORIGINS') ?? '')
     .split(',')
     .map(origin => origin.trim())
@@ -50,8 +59,27 @@ async function bootstrap() {
       )
       .addTag('item', 'Estoque de insumos e medicamentos')
       .addTag('supplier', 'Fornecedores do usuário')
+      .addTag(
+        'financial-categories',
+        'Active default categories and the signed-in user categories',
+      )
+      .addTag(
+        'financial-entries',
+        'Statement, manual entries, and offline sync',
+      )
+      .addTag('stock-entries', 'Purchase invoice drafts and confirmation')
       .addTag('client', 'Clínicas e hospitais atendidos pelo usuário')
+      .addTag('equipment', 'Equipamento do usuário')
       .addTag('appointments', 'Agendamentos do usuário')
+      .addTag(
+        'vehicles',
+        "The user's vehicles and their fuel cost per kilometre",
+      )
+      .addTag('fixed-costs', "The user's monthly fixed-cost summary")
+      .addTag(
+        'pricing-settings',
+        'Income goal, weekly hours and safety margin for the hour value (US19)',
+      )
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
       // Without this the page is unusable now that the guard is global: every
       // request from /docs would answer 401 with nowhere to put a token.

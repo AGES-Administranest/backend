@@ -33,6 +33,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "test:unit": "jest --config ./test/jest-unit.json",
     "test:appointment": "jest --config ./test/unit-test/appointment/jest.config.json",
+    "test:financial": "jest --config ./test/unit-test/financial/jest.config.json",
     "test:client": "jest --config ./test/unit-test/client/jest.config.json",
     "test:item": "jest --config ./test/unit-test/item/jest.config.json",
     "test:stock": "jest --config ./test/unit-test/stock-movements/jest.config.json --runInBand",
@@ -53,6 +54,7 @@
     "@prisma/client": "^7.9.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "dotenv": "^17.4.2",
     "jose": "^6.2.12",
     "pdfjs-dist": "^6.3.289",
     "pg": "^8.23.0",
@@ -71,7 +73,6 @@
     "@types/node": "^24.0.0",
     "@types/pg": "^8.21.0",
     "@types/supertest": "^7.0.0",
-    "dotenv": "^17.4.2",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-import": "^2.32.0",
@@ -95,8 +96,14 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
+    "rootDir": ".",
+    "testMatch": [
+      "<rootDir>/src/**/*.spec.ts"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "\\.e2e-spec\\.ts$"
+    ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
@@ -104,12 +111,12 @@
       "node_modules/(?!jose/)"
     ],
     "collectCoverageFrom": [
-      "**/*.ts",
-      "!**/*.spec.ts",
-      "!main.ts",
-      "!**/index.ts"
+      "src/**/*.ts",
+      "!src/**/*.spec.ts",
+      "!src/main.ts",
+      "!src/**/index.ts"
     ],
-    "coverageDirectory": "../coverage",
+    "coverageDirectory": "./coverage",
     "testEnvironment": "node"
   }
 }

@@ -52,6 +52,13 @@ export const ERROR_CODES = [
   'DUPLICATED_CLIENT_NAME',
   'DUPLICATED_CLIENT_TAX_ID',
 
+  // equipment
+  'EQUIPMENT_NOT_FOUND',
+  'EQUIPMENT_PURCHASE_VALUE_INVALID',
+  'EQUIPMENT_SALVAGE_VALUE_INVALID',
+  'EQUIPMENT_USEFUL_LIFE_INVALID',
+  'EQUIPMENT_ACQUISITION_DATE_IN_FUTURE',
+
   // stock-movements
   'STOCK_QUANTITY_INVALID',
   'STOCK_REASON_ADJUSTMENT_INVALID',
@@ -94,6 +101,18 @@ export const ERROR_CODES = [
   // not happen, so nothing was consumed (US06).
   'APPOINTMENT_CANCELED',
 
+  // vehicles
+  'VEHICLE_NOT_FOUND',
+
+  // pricing settings
+  // The income goal, weekly hours and safety margin were never saved. Not a
+  // failure for the app: it is the calculator's initial state (US19), shown
+  // before any hour value can be calculated.
+  'PRICING_SETTINGS_NOT_FOUND',
+  // The monthly transport cost was never saved (US18). The card shows an empty
+  // field, not an error.
+  'TRANSPORT_COST_NOT_FOUND',
+
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
   'INVOICE_NOT_EDITABLE',
@@ -104,6 +123,19 @@ export const ERROR_CODES = [
   'INVOICE_UPLOAD_NOT_FINISHED',
   // The object is there, but does not match what was declared and signed.
   'INVOICE_UPLOAD_MISMATCH',
+  'INVOICE_NOT_READY',
+
+  // financial entries
+  'FINANCIAL_ENTRY_NOT_FOUND',
+  'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+  'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
+  'FINANCIAL_ENTRY_ID_CONFLICT',
+  'FINANCIAL_ENTRY_SYNC_CONFLICT',
+  // occurredAt is ahead of the server clock, past the 10-minute tolerance (ADR-08).
+  'FINANCIAL_ENTRY_DATE_IN_FUTURE',
+  'FINANCIAL_CATEGORY_INVALID',
+  // A default category the confirmation step needs was not seeded.
+  'FINANCIAL_CATEGORY_NOT_SEEDED',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

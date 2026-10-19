@@ -21,3 +21,20 @@ export class FinancialCategoryEntity {
 
   updatedAt!: Date;
 }
+
+export class FinancialCategoryResponse {
+  @ApiProperty({
+    format: 'uuid',
+    example: '7c2e1a90-4b3d-4f6a-8c15-0d9e2f4a6b81',
+  })
+  id!: string;
+
+  @ApiProperty({ example: 'Supplies' })
+  name!: string;
+
+  @ApiProperty({ enum: EntryNature, example: 'EXPENSE' })
+  nature!: EntryNature;
+
+  @ApiProperty({ enum: EntryScope, example: 'PROFESSIONAL' })
+  defaultScope!: EntryScope;
+}

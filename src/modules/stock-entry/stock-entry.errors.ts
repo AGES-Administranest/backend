@@ -13,6 +13,15 @@ export function invoiceNotFound(id: string): DomainError {
   );
 }
 
+export function invoiceNotReady(id: string): DomainError {
+  return new DomainError(
+    'INVALID_INPUT',
+    'INVOICE_NOT_READY',
+    'The invoice needs a total greater than zero and an issue date',
+    { id },
+  );
+}
+
 export function invoiceNotEditable(invoice: PurchaseInvoice): DomainError {
   return new DomainError(
     'CONFLICT',
