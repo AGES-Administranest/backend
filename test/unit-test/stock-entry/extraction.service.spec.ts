@@ -1,12 +1,12 @@
 import { PurchaseInvoice } from '@prisma/client';
 
 import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
+import { documentKey } from '../../../src/infra/storage';
 import {
   ExtractionInput,
   ExtractionResult,
 } from '../../../src/modules/extraction';
 import { LineMatch, MatchItemService } from '../../../src/modules/item-match';
-import { buildDocumentKey } from '../../../src/modules/stock-entry/document-key';
 import { ExtractionService } from '../../../src/modules/stock-entry/extraction.service';
 import { EXTRACTION_TIMEOUT_MS } from '../../../src/modules/stock-entry/stock-entry.constants';
 import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
@@ -14,7 +14,7 @@ import { SupplierService } from '../../../src/modules/supplier';
 
 const USER_ID = 'user-1';
 const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';
-const KEY = buildDocumentKey(USER_ID, INVOICE_ID);
+const KEY = documentKey(USER_ID, 'purchase-invoices', INVOICE_ID);
 const PDF = new TextEncoder().encode('%PDF-1.7');
 
 const READ: ExtractionResult = {

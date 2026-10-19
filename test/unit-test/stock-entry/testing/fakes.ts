@@ -35,6 +35,10 @@ export class FakeStorage {
   createPresignedPost() {
     return Promise.resolve({ url: 'https://bucket', fields: {}, expiresAt: 0 });
   }
+
+  createPresignedGet({ key }: { key: string }) {
+    return Promise.resolve({ url: `https://bucket/${key}`, expiresAt: 0 });
+  }
 }
 
 /** One invoice, stored as the repository would leave it. */
