@@ -6,9 +6,9 @@ describe('UnavailablePasswordRecoveryGateway', () => {
   const gateway = new UnavailablePasswordRecoveryGateway();
 
   it('does not claim to send a recovery code before integration is configured', async () => {
-    await expect(gateway.sendRecoveryCode('ana@example.com')).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    await expect(
+      gateway.sendRecoveryCode('ana@example.com'),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('does not claim to reset a password before integration is configured', async () => {
