@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { FinancialBalanceController } from './financial-balance.controller';
 import { FinancialCategoryController } from './financial-category.controller';
 import { FinancialCategoryRepository } from './financial-category.repository';
 import { FinancialCategoryService } from './financial-category.service';
@@ -10,7 +11,11 @@ import { MonthlyDepreciation } from './monthly-depreciation';
 import { MonthlyDepreciationRepository } from './monthly-depreciation.repository';
 
 @Module({
-  controllers: [FinancialCategoryController, FinancialEntryController],
+  controllers: [
+    FinancialBalanceController,
+    FinancialCategoryController,
+    FinancialEntryController,
+  ],
   exports: [FinancialEntryService, MonthlyDepreciation],
   providers: [
     FinancialCategoryService,
