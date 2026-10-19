@@ -1,5 +1,7 @@
 # ADR-05 — Extração de dados de arquivo: síncrona vs. assíncrona
 
+> Superseded in part by [ADR-14](ADR-14-document-modules.md): the extraction runs synchronously, with these statuses and no queue table.
+
 **Status:**
 
 - [ ] Aceito
