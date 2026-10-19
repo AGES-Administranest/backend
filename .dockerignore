@@ -1,0 +1,19 @@
+.git
+.github
+.claude
+.vscode
+node_modules
+dist
+coverage
+docker
+docs
+test
+legacy
+infra
+scripts
+
+# Local env and emulator output: never baked into the image.
+.env
+.env.*
+!.env.example
+.aws-local.env

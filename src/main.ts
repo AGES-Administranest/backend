@@ -27,6 +27,15 @@ async function bootstrap() {
   const config = app.get(ConfigService);
   const isProduction = config.get<string>('NODE_ENV') === 'production';
 
+  // Behind App Runner every request arrives from its proxy, so without this
+  // `req.ip` is the proxy's address and the throttler puts every user in one
+  // bucket. A hop count, not `true`: only the entries the proxies appended to
+  // X-Forwarded-For are trusted, never what the client sent.
+  const trustProxyHops = Number(config.get<string>('TRUST_PROXY_HOPS') ?? 0);
+  if (trustProxyHops > 0) {
+    app.set('trust proxy', trustProxyHops);
+  }
+
   const corsOrigins = (config.get<string>('CORS_ORIGINS') ?? '')
     .split(',')
     .map(origin => origin.trim())
