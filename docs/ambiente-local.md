@@ -9,6 +9,8 @@ O projeto depende de dois serviços AWS: **Cognito** para autenticação ([ADR-0
 - [O que o bootstrap cria](#o-que-o-bootstrap-cria)
 - [Os dois arquivos de variáveis](#os-dois-arquivos-de-variáveis)
 - [Pegando um token](#pegando-um-token)
+- [Login social local](#login-social-local)
+- [E-mails de confirmação](#e-mails-de-confirmação)
 - [Conferindo que está tudo de pé](#conferindo-que-está-tudo-de-pé)
 - [Resetar](#resetar)
 - [Apontando o app mobile para cá](#apontando-o-app-mobile-para-cá)
@@ -56,9 +58,10 @@ Se algum passo falhar isoladamente (ex.: as migrations, porque o schema mudou), 
 | Script                  | O que faz                                                               |
 | ----------------------- | ----------------------------------------------------------------------- |
 | `npm run dev:setup`     | `dev:up` + `dev:bootstrap` + `prisma migrate dev`, em sequência         |
-| `npm run dev:up`        | Sobe os containers (Postgres e MiniStack) em background                 |
+| `npm run dev:up`        | Sobe os containers (Postgres, MiniStack e o IdP fake) em background     |
 | `npm run dev:bootstrap` | Cria os recursos AWS. Idempotente — rodar de novo não quebra            |
 | `npm run dev:token`     | Imprime um `IdToken` novo do usuário de teste                           |
+| `npm run dev:social-token` | Imprime um `IdToken` de uma conta de login social (Google fake) |
 | `npm run dev:down`      | Derruba os containers. O estado persiste                                |
 | `npm run dev:reset`     | Derruba **e apaga tudo**: volumes, estado do emulador e o `.env` gerado |
 
@@ -80,15 +83,19 @@ docker compose --profile bootstrap run --rm aws-cli /scripts/bootstrap-aws.sh
 
 ## O que o bootstrap cria
 
-O [`scripts/bootstrap-aws.sh`](../scripts/bootstrap-aws.sh) faz cinco coisas, cada uma consultando antes de criar (por isso é idempotente):
+O [`scripts/bootstrap-aws.sh`](../scripts/bootstrap-aws.sh) faz sete coisas, cada uma consultando antes de criar (por isso é idempotente):
 
 | #   | Recurso                                                | Detalhe que importa                                                                                                        |
 | --- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
 | 1   | User pool `administranest-local`                       | Login por e-mail (`--username-attributes email`)                                                                           |
-| 2   | App client `administranest-mobile`                     | **Sem client secret** — o app mobile é cliente público: o binário está no celular do usuário, segredo ali não protege nada |
-| 3   | Bucket com o nome do `S3_BUCKET` do seu `.env`         | Com CORS liberal, porque o app dá `PUT` direto no bucket (ADR-03) e sem CORS o preflight derruba o upload                  |
-| 4   | Usuário `dev@administranest.local` / senha `Dev@12345` | Criado pela via admin: o MiniStack só manda e-mail de confirmação com `SMTP_HOST`, então o sign-up normal ficaria travado  |
-| 5   | Arquivo `.aws-local.env`                               | Só os IDs que o Cognito gerou — o resto já estava no seu `.env`                                                            |
+| 2   | Domínio `administranest-local`                         | Na AWS é quem serve `/oauth2/*`; no MiniStack esses caminhos já respondem na 4566, o domínio é só registro                 |
+| 3   | Provedor `Google`                                      | Do tipo OIDC, apontando para o `oidc-mock` — o emulador não tem o tipo nativo ([ADR-13](ADRs/ADR-13-login-social.md))      |
+| 4   | App client `administranest-mobile`                     | **Sem client secret** — o app mobile é cliente público: o binário está no celular do usuário, segredo ali não protege nada. Com OAuth `code` e as callback URLs do app |
+| 5   | Bucket com o nome do `S3_BUCKET` do seu `.env`         | Com CORS liberal, porque o app dá `PUT` direto no bucket (ADR-03) e sem CORS o preflight derruba o upload                  |
+| 6   | Usuário `dev@administranest.local` / senha `Dev@12345` | Criado pela via admin: o MiniStack só manda e-mail de confirmação com `SMTP_HOST`, então o sign-up normal ficaria travado  |
+| 7   | Arquivo `.aws-local.env`                               | Só os IDs e endereços que o Cognito gerou — o resto já estava no seu `.env`                                                |
+
+Quem já tinha rodado o bootstrap antes do login social só precisa rodar de novo: os passos 2 a 4 aplicam a configuração nova no pool existente, sem apagar usuários.
 
 No fim, ele imprime um `IdToken` pronto para colar em `Authorization: Bearer`.
 
@@ -119,7 +126,10 @@ COGNITO_USER_POOL_ID=us-east-1_xxxxxxxxx
 COGNITO_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
 COGNITO_JWKS_URI=http://localhost:4566/us-east-1_xxxxxxxxx/.well-known/jwks.json
 COGNITO_ISSUER=https://cognito-idp.us-east-1.amazonaws.com/us-east-1_xxxxxxxxx
+COGNITO_OAUTH_URL=http://localhost:4566
 ```
+
+`COGNITO_OAUTH_URL` não é lido pela API: é o valor que o app mobile usa para abrir o login social.
 
 **Não "conserte" o `COGNITO_ISSUER` para `localhost`.** Parece errado, mas não é: o emulador emite tokens com o issuer da AWS real, e validar contra `localhost` rejeita todo login. O lado bom é que esse valor é idêntico em local e em produção. Detalhes no [ADR-12](ADRs/ADR-12-emulacao-local-cognito.md).
 
@@ -142,6 +152,35 @@ O token vale **1 hora**. Para inspecionar o conteúdo, cole em [jwt.io](https://
 ```sh
 npm run --silent dev:token | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
 ```
+
+## Login social local
+
+"Continuar com Google" funciona sem conta no Google. O `oidc-mock` (porta `8090`) faz o papel dele: quando o app abre o login do Google, o que aparece é a tela dele. **Digite um e-mail no campo de usuário** — ele vira a identidade da conta; o campo de claims é opcional (ex.: `{"name": "Ana"}`).
+
+Para testar a API sem o app:
+
+```sh
+npm run --silent dev:social-token                                      # ana.google@example.com
+npm run --silent dev:social-token -- Google bia@gmail.com "Bia Google"
+
+curl -X POST -H "Authorization: Bearer $(npm run --silent dev:social-token)" localhost:3000/auth/session
+```
+
+O script faz por HTTP o mesmo caminho que o navegador do app faria. O desenho, as diferenças para a AWS real e o que falta decidir (a mesma pessoa com conta de senha e conta Google) estão no [ADR-13](ADRs/ADR-13-login-social.md).
+
+**Use um e-mail novo a cada login com Google.** O emulador troca o `sub` da conta federada a partir do segundo login com o mesmo usuário, e a API passa a responder `409` como se fosse outra pessoa com o mesmo e-mail (divergência 6 do ADR-13). Vale para o app e para o `dev:social-token`. Na AWS isso não acontece.
+
+## E-mails de confirmação
+
+**Localmente nenhum e-mail sai da sua máquina** — nem para um endereço real. O MiniStack só registra a mensagem internamente, e o código de confirmação é sempre `123456`; na verdade qualquer código é aceito (divergências no [ADR-12](ADRs/ADR-12-emulacao-local-cognito.md)). Na AWS o Cognito envia o código para o e-mail informado; para uso real, o pool deve mandar pelo SES com domínio verificado, porque o remetente padrão do Cognito tem limite baixo de envios por dia.
+
+**Expo Go num celular físico:** o endereço de retorno do app inclui o IP da sua rede, e o Cognito só aceita endereços cadastrados. Acrescente o seu no `.env` e rode o bootstrap de novo:
+
+```
+COGNITO_CALLBACK_URLS=administranest://auth/callback,exp://127.0.0.1:8081/--/auth/callback,http://localhost:8081/auth/callback,exp://192.168.0.10:8081/--/auth/callback
+```
+
+O navegador do celular também precisa alcançar o `oidc-mock` e o MiniStack; como os redirects apontam para `localhost`, o login social local funciona no simulador iOS e no Expo web, e num aparelho físico só com túnel. É uma limitação do ambiente local, não do fluxo.
 
 ## Conferindo que está tudo de pé
 
@@ -178,8 +217,6 @@ Um `rm -rf docker/ministack-data` direto seria mais simples — e falha. O MiniS
 
 ## Apontando o app mobile para cá
 
-> Isto está **documentado, não implementado** — o `client-mobile` ainda não tem código de autenticação.
-
 O app autentica **direto no Cognito** e manda o token para a API (ADR-02). Como React Native roda JavaScript, ele usa o mesmo `@aws-sdk/client-cognito-identity-provider` do backend — só muda o endereço, porque `localhost` dentro de um emulador é o próprio emulador, não a sua máquina:
 
 | Onde o app roda  | Endpoint do MiniStack         | Endpoint da API               |
@@ -189,6 +226,27 @@ O app autentica **direto no Cognito** e manda o token para a API (ADR-02). Como 
 | Celular físico   | `http://<IP-da-sua-LAN>:4566` | `http://<IP-da-sua-LAN>:3000` |
 
 O `10.0.2.2` é um endereço especial do emulador do Android que aponta para o host. Para celular físico, descubra seu IP com `ip addr | grep 'inet 192'` e garanta que celular e computador estão no mesmo Wi-Fi.
+
+Esses três endereços vão no `.env` do **client-mobile** (`EXPO_PUBLIC_COGNITO_ENDPOINT`, `EXPO_PUBLIC_COGNITO_OAUTH_URL` e `EXPO_PUBLIC_API_URL`). Se você mudou o `MINISTACK_PORT`, use a porta nova nos dois primeiros.
+
+### Celular físico: o `AWS_ENDPOINT_URL` daqui também muda
+
+O upload da nota (US10) não passa pela API: ela só assina a policy, e **o celular POSTa direto no bucket**. A URL desse POST não sai do `.env` do app — sai daqui, porque é o endereço com que este backend montou o cliente S3 (`s3-document-storage.ts`) que volta no campo `url` da resposta. Com `localhost`, o celular tenta subir o arquivo contra si mesmo.
+
+Então, para testar em aparelho físico, no `.env` **deste** repositório:
+
+```
+AWS_ENDPOINT_URL=http://<IP-da-sua-LAN>:4566
+```
+
+Funciona porque o backend roda fora do Docker (`npm run start:dev`) e alcança o próprio IP da LAN; a mesma variável serve para o `HeadObject` dele e para a URL que o celular recebe. A porta já sai publicada em `0.0.0.0`, então do lado do Docker não falta nada — o que costuma faltar é liberar o firewall do host.
+
+**Trocar o host não invalida a assinatura.** No presigned POST o que é assinado é o policy document (bucket, key, Content-Type, content-length-range), não o Host — ao contrário do presigned GET/PUT, em que o endereço entra na query string.
+
+Dois avisos para o mesmo cenário:
+
+- **Login social em aparelho físico só funciona com túnel**, porque os redirects do `oidc-mock` apontam para `localhost` (mesma limitação registrada em "E-mails de confirmação"). Login por e-mail e senha funciona normal.
+- **`COGNITO_ISSUER` não é afetado** pela troca de endereço: o emulador emite o issuer da AWS real, e é isso que o bootstrap grava. Ver ADR-12.
 
 ## Explorando na mão
 

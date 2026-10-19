@@ -116,7 +116,7 @@ export class UsersService {
   private notFound(id: string) {
     return new DomainError(
       'NOT_FOUND',
-      'USUARIO_NAO_ENCONTRADO',
+      'USER_NOT_FOUND',
       `User ${id} not found`,
       { id },
     );
@@ -125,7 +125,7 @@ export class UsersService {
   private notProvisioned() {
     return new DomainError(
       'NOT_FOUND',
-      'USUARIO_NAO_PROVISIONADO',
+      'USER_NOT_PROVISIONED',
       'The authenticated user has no local mirror yet. Call POST /auth/session first.',
     );
   }
@@ -133,7 +133,7 @@ export class UsersService {
   private emailTaken() {
     return new DomainError(
       'CONFLICT',
-      'USUARIO_EMAIL_JA_CADASTRADO',
+      'USER_EMAIL_ALREADY_REGISTERED',
       'E-mail already registered',
     );
   }

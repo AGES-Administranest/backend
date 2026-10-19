@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Administranest - production Cognito: user pool, domain, Google sign in and
+  the mobile app client. The production counterpart of what
+  scripts/bootstrap-aws.sh creates in MiniStack (ADR-12, ADR-13).
+  Deploy with scripts/deploy-cognito.sh.
+
+Parameters:
+  DomainPrefix:
+    Type: String
+    Default: administranest-prod
+    Description: >-
+      User pool domain prefix (https://<prefix>.auth.us-east-2.amazoncognito.com).
+      Unique across all of AWS, not just this account.
+
+  GoogleClientId:
+    Type: String
+    Default: ''
+    Description: >-
+      Client ID of the "Web application" OAuth client in Google Cloud. Empty:
+      the pool comes up without Google and the app client only takes e-mail
+      and password.
+
+  GoogleClientSecret:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Client secret of the same Google OAuth client.
+
+  CallbackUrls:
+    Type: CommaDelimitedList
+    Default: administranest://auth/callback
+    Description: >-
+      Where Cognito sends the app back after a social sign in. Must match the
+      redirect_uri the app sends exactly (ADR-13).
+
+  LogoutUrls:
+    Type: CommaDelimitedList
+    Default: administranest://auth/signed-out
+
+Conditions:
+  HasGoogle: !And
+    - !Not [!Equals [!Ref GoogleClientId, '']]
+    - !Not [!Equals [!Ref GoogleClientSecret, '']]
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    # Deleting the pool deletes every account, and their `sub` is the key of
+    # the user mirror in the database (ADR-02). Neither a `delete-stack` nor a
+    # property change that replaces the resource may take the pool with it.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: administranest-prod
+      DeletionProtection: ACTIVE
+      UsernameAttributes:
+        - email
+      UsernameConfiguration:
+        # Ana@Gmail.com and ana@gmail.com are the same person.
+        CaseSensitive: false
+      AutoVerifiedAttributes:
+        - email
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      # Until SES is set up (its own task), Cognito sends from its own address
+      # with a low daily cap. Switch to DEVELOPER + SES before real users.
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailSubject: Seu código de confirmação do Administranest
+        EmailMessage: 'Seu código de confirmação do Administranest é {####}.'
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      UserPoolTags:
+        project: administranest
+        environment: prod
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Ref DomainPrefix
+      # Classic managed login: the app only goes through the domain on its way
+      # to Google and never shows Cognito's own sign-in page.
+      ManagedLoginVersion: 1
+
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: HasGoogle
+    Properties:
+      UserPoolId: !Ref UserPool
+      # The name the app sends as `identity_provider`, same as locally.
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: openid email profile
+      AttributeMapping:
+        email: email
+        email_verified: email_verified
+        name: name
+
+  MobileClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: administranest-mobile
+      # Public client: an installed app has nowhere to keep a secret.
+      GenerateSecret: false
+      # No ALLOW_ADMIN_USER_PASSWORD_AUTH: locally it only exists for
+      # dev-token.sh, and in production nobody should mint tokens outside the app.
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      # `!Ref` on the provider returns "Google" and makes the client wait for
+      # it to exist; without Google, password sign in only.
+      SupportedIdentityProviders: !If
+        - HasGoogle
+        - [COGNITO, !Ref GoogleIdentityProvider]
+        - [COGNITO]
+      AllowedOAuthFlowsUserPoolClient: true
+      # Authorization code + PKCE. `implicit` would put the token in the URL.
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      CallbackURLs: !Ref CallbackUrls
+      LogoutURLs: !Ref LogoutUrls
+      # "No such e-mail" and "wrong password" become the same error, so nobody
+      # can find out who has an account. The app already shows one message for both.
+      PreventUserExistenceErrors: ENABLED
+      # The app's sign out calls RevokeToken.
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+  ClientId:
+    Description: COGNITO_CLIENT_ID (backend) and EXPO_PUBLIC_COGNITO_CLIENT_ID (app)
+    Value: !Ref MobileClient
+  Issuer:
+    Description: COGNITO_ISSUER (backend)
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+  OAuthUrl:
+    Description: EXPO_PUBLIC_COGNITO_OAUTH_URL (app)
+    Value: !Sub https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com
+  GoogleRedirectUri:
+    Description: Authorized redirect URI to register on the Google Cloud OAuth client
+    Value: !Sub https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com/oauth2/idpresponse
+  GoogleEnabled:
+    Value: !If [HasGoogle, 'true', 'false']

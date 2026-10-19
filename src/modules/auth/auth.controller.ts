@@ -9,9 +9,9 @@ import {
 } from '@nestjs/swagger';
 
 import { AcceptTermsDto } from './dto/accept-terms.dto';
-import { CurrentUser } from '../../shared/auth';
+import { AllowsUnprovisioned, CurrentClaims } from '../../shared/auth';
 // `import type` is required by `emitDecoratorMetadata` on a decorated signature.
-import type { AuthenticatedUser } from '../../shared/auth';
+import type { CognitoIdentity } from '../../shared/auth';
 import { UserEntity, UsersService } from '../users';
 
 /**
@@ -24,6 +24,8 @@ import { UserEntity, UsersService } from '../users';
 export class AuthController {
   constructor(private readonly usersService: UsersService) {}
 
+  // The endpoint that creates the mirror, so it cannot require one to exist.
+  @AllowsUnprovisioned()
   @Post('session')
   @HttpCode(200)
   @ApiOperation({
@@ -35,10 +37,14 @@ export class AuthController {
   @ApiConflictResponse({
     description: 'E-mail already belongs to another account',
   })
-  session(@CurrentUser() user: AuthenticatedUser) {
-    return this.usersService.provisionFromCognito(user);
+  session(@CurrentClaims() claims: CognitoIdentity) {
+    return this.usersService.provisionFromCognito(claims);
   }
 
+  // Also exempt, so that calling it before the mirror exists keeps answering
+  // 404 USER_NOT_PROVISIONED from the service. Letting the guard reject it
+  // first would turn the same mistake into a 401 and say less about the cause.
+  @AllowsUnprovisioned()
   @Post('terms')
   @HttpCode(200)
   @ApiOperation({
@@ -49,9 +55,9 @@ export class AuthController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({ description: 'Local mirror not provisioned yet' })
   acceptTerms(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClaims() claims: CognitoIdentity,
     @Body() dto: AcceptTermsDto,
   ) {
-    return this.usersService.acceptTerms(user.cognitoSub, dto.termsVersion);
+    return this.usersService.acceptTerms(claims.cognitoSub, dto.termsVersion);
   }
 }

@@ -28,15 +28,42 @@ const STATUS_BY_KIND: Record<ErrorKind, number> = {
   INVALID_REFERENCE: HttpStatus.UNPROCESSABLE_ENTITY,
   UNAUTHORIZED: HttpStatus.UNAUTHORIZED,
   FORBIDDEN: HttpStatus.FORBIDDEN,
+  PAYLOAD_TOO_LARGE: HttpStatus.PAYLOAD_TOO_LARGE,
 };
 
 /** Errors NestJS itself throws (unknown route, guard, ParseUUIDPipe…). */
 const CODE_BY_STATUS: Record<number, ErrorCode> = {
-  [HttpStatus.BAD_REQUEST]: 'REQUISICAO_INVALIDA',
-  [HttpStatus.UNAUTHORIZED]: 'NAO_AUTENTICADO',
-  [HttpStatus.FORBIDDEN]: 'SEM_PERMISSAO',
-  [HttpStatus.NOT_FOUND]: 'ROTA_NAO_ENCONTRADA',
+  [HttpStatus.BAD_REQUEST]: 'INVALID_REQUEST',
+  [HttpStatus.UNAUTHORIZED]: 'UNAUTHENTICATED',
+  [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
+  [HttpStatus.NOT_FOUND]: 'ROUTE_NOT_FOUND',
+  [HttpStatus.PAYLOAD_TOO_LARGE]: 'REQUEST_TOO_LARGE',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
 };
+
+/**
+ * What Express's body parser throws before Nest routes the request: a body over
+ * `JSON_BODY_LIMIT` (413), JSON that does not parse (400). They come from
+ * `http-errors`, so they are not `HttpException`s — but a 4xx it marks `expose`
+ * is the caller's to fix, and its message is safe to show.
+ */
+function isBodyParserError(
+  exception: unknown,
+): exception is Error & { status: number } {
+  if (!(exception instanceof Error)) return false;
+  const { status, expose, type } = exception as {
+    status?: unknown;
+    expose?: unknown;
+    type?: unknown;
+  };
+  return (
+    typeof type === 'string' &&
+    expose === true &&
+    typeof status === 'number' &&
+    status >= 400 &&
+    status < 500
+  );
+}
 
 interface TranslatedError {
   statusCode: number;
@@ -82,6 +109,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException)
       return this.translateHttp(exception);
 
+    if (isBodyParserError(exception)) {
+      return this.translateHttp(
+        new HttpException(exception.message, exception.status),
+      );
+    }
+
     return this.internalError();
   }
 
@@ -101,16 +134,26 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (Array.isArray(messages)) {
       return {
         statusCode,
-        code: 'VALIDACAO_INVALIDA',
+        code: 'VALIDATION_ERROR',
         message: 'Invalid request',
         details: { fields: messages.map((field: unknown) => String(field)) },
       };
     }
 
+    const code = CODE_BY_STATUS[statusCode] ?? 'HTTP_ERROR';
+
     return {
       statusCode,
-      code: CODE_BY_STATUS[statusCode] ?? 'ERRO_HTTP',
-      message: typeof messages === 'string' ? messages : exception.message,
+      code,
+      // The throttler's own message is the class name ("ThrottlerException:
+      // Too Many Requests"), which says more about our stack than about what
+      // the caller should do.
+      message:
+        code === 'TOO_MANY_REQUESTS'
+          ? 'Too many requests. Try again shortly.'
+          : typeof messages === 'string'
+            ? messages
+            : exception.message,
     };
   }
 
@@ -118,7 +161,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private internalError(): TranslatedError {
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      code: 'ERRO_INTERNO',
+      code: 'INTERNAL_SERVER_ERROR',
       message: 'Internal server error',
     };
   }
