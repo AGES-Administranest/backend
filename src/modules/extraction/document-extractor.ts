@@ -1,14 +1,18 @@
 import type { DocumentBytes, ReadingFailureReason } from './core/pdf-document';
+import type { NfseResult } from './nfse/nfse-result';
 import type { PurchaseOrderResult } from './purchase-order/purchase-order-result';
 
-export type DocumentKind = 'purchase-order';
+export type DocumentKind = 'purchase-order' | 'nfse';
 
 export type ExtractionInputs = {
   'purchase-order': DocumentBytes;
+  /** The provider is the user: their own CNPJ/CPF is never the taker's. */
+  nfse: DocumentBytes & { providerTaxId?: string };
 };
 
 export type ExtractionResults = {
   'purchase-order': PurchaseOrderResult;
+  nfse: NfseResult;
 };
 
 export type ExtractionSettings = {

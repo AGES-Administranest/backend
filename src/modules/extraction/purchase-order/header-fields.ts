@@ -5,7 +5,9 @@ import {
   parseBrazilianDate,
 } from '../core/brazilian-formats';
 import { findCnpjs } from '../core/cnpj';
+import { defined } from '../core/defined';
 import { findLabeledValues, fold } from '../core/labeled-value';
+import { SectionTitle, sectionsOf } from '../core/sections';
 import { lineText, TextCell, TextLine } from '../core/text-lines';
 
 export type HeaderFields = {
@@ -23,7 +25,7 @@ const BUYER_CONTEXT =
 const NAME_LABEL = /\b(razao social|fornecedor|emitente|nome empresarial)\b/;
 
 // The letterhead above the first title is the supplier's.
-const SECTION_TITLES: { title: RegExp; section: Section }[] = [
+const SECTION_TITLES: SectionTitle<Section>[] = [
   {
     title:
       /^(?:dados\s+do\s+|prezad[oa](?:\(a\))?\s+)?(?:cliente|destinatario|comprador|sacado|tomador|faturar\s+para|entregar\s+em)\b|^cod\.?\s*\/\s*cliente\b/,
@@ -114,7 +116,7 @@ export function extractHeader(
   lines: TextLine[],
   tableStart?: TableStart,
 ): HeaderFields {
-  const sections = sectionsOf(lines);
+  const sections = sectionsOf(lines, SECTION_TITLES, 'supplier');
   const supplier = extractSupplier(lines, sections);
   return {
     ...(supplier ? { supplier } : {}),
@@ -122,23 +124,6 @@ export function extractHeader(
     ...defined('orderDate', extractOrderDate(lines)),
     ...defined('totalAmount', extractTotal(lines)),
   };
-}
-
-function sectionsOf(lines: TextLine[]): Map<TextLine, Section> {
-  const sections = new Map<TextLine, Section>();
-  let section: Section = 'supplier';
-  let page = lines[0]?.page;
-  for (const line of lines) {
-    if (line.page !== page) {
-      page = line.page;
-      section = 'supplier';
-    }
-    const first = fold(line.cells[0]?.text ?? '').replace(/^[^\p{L}]+/u, '');
-    section =
-      SECTION_TITLES.find(({ title }) => title.test(first))?.section ?? section;
-    sections.set(line, section);
-  }
-  return sections;
 }
 
 function extractSupplier(
@@ -450,11 +435,4 @@ function extractTotal(lines: TextLine[]): number | undefined {
 // Cents required: otherwise "Total: 12 itens" reads as twelve reais.
 function asAmount(text: string): number | undefined {
   return findMoneyValues(text).at(-1);
-}
-
-function defined<K extends string, V>(
-  key: K,
-  value: V | undefined,
-): { [P in K]?: V } {
-  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
 }
