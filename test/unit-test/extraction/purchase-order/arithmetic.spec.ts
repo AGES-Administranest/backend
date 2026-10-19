@@ -1,4 +1,4 @@
-import { checkLine } from '../../../../src/modules/extraction/domain/arithmetic';
+import { checkLine } from '../../../../src/modules/extraction/purchase-order/arithmetic';
 
 describe('checkLine', () => {
   it.each([

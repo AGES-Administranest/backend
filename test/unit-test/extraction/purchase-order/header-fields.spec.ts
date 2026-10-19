@@ -1,4 +1,4 @@
-import { extractHeader } from '../../../../src/modules/extraction/domain/header-fields';
+import { extractHeader } from '../../../../src/modules/extraction/purchase-order/header-fields';
 import { layout } from '../testing/layout';
 
 describe('extractHeader', () => {

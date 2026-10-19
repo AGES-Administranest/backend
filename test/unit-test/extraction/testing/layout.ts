@@ -2,7 +2,7 @@ import {
   groupLines,
   TextFragment,
   TextLine,
-} from '../../../../src/modules/extraction/domain/text-lines';
+} from '../../../../src/modules/extraction/core/text-lines';
 
 // Helvetica at 10 pt averages about 5 pt per glyph.
 const CHAR_WIDTH = 5;

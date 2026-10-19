@@ -1,12 +1,13 @@
 import { Prisma, PurchaseInvoice } from '@prisma/client';
 
 import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
+import { ExtractionService } from '../../../src/modules/extraction';
 import { ItemService } from '../../../src/modules/item';
 import { MatchItemService } from '../../../src/modules/item-match';
 import {
-  ExtractionService,
+  PurchaseReadingService,
   StoredExtraction,
-} from '../../../src/modules/stock-entry/extraction.service';
+} from '../../../src/modules/stock-entry/purchase-reading.service';
 import { StockEntryDraftService } from '../../../src/modules/stock-entry/stock-entry-draft.service';
 import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
 import { SupplierService } from '../../../src/modules/supplier';
@@ -81,17 +82,17 @@ describe('StockEntryDraftService', () => {
         );
       },
     };
-    const extraction = new ExtractionService(
+    const reading = new PurchaseReadingService(
       repository as unknown as StockEntryRepository,
       new FakeStorage(),
-      { extract: jest.fn() },
+      {} as ExtractionService,
       {} as MatchItemService,
       {} as SupplierService,
     );
     recordPurchaseInvoice = jest.fn();
     service = new StockEntryDraftService(
       repository as unknown as StockEntryRepository,
-      extraction,
+      reading,
       items as unknown as ItemService,
       { recordPurchaseInvoice } as never,
     );

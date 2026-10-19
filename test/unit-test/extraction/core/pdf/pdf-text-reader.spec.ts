@@ -2,8 +2,8 @@ import {
   MAX_PAGES,
   PdfUnreadableError,
   readPdfText,
-} from '../../../../src/modules/extraction/pdf/pdf-text-reader';
-import { buildPdf } from '../testing/pdf-builder';
+} from '../../../../../src/modules/extraction/core/pdf/pdf-text-reader';
+import { buildPdf } from '../../testing/pdf-builder';
 
 describe('readPdfText', () => {
   it('reads each run with its position, measured from the top', async () => {

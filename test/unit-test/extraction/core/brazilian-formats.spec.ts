@@ -4,7 +4,7 @@ import {
   parseBrazilianDate,
   parseBrazilianNumber,
   parseLeadingNumber,
-} from '../../../../src/modules/extraction/domain/brazilian-formats';
+} from '../../../../src/modules/extraction/core/brazilian-formats';
 
 describe('parseBrazilianNumber', () => {
   it.each([

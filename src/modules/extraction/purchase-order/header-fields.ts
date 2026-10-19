@@ -1,12 +1,12 @@
+import type { ExtractedSupplier } from './purchase-order-result';
 import {
   findDates,
   findMoneyValues,
   parseBrazilianDate,
-} from './brazilian-formats';
-import { findCnpjs } from './cnpj';
-import { findLabeledValues, fold } from './labeled-value';
-import { lineText, TextCell, TextLine } from './text-lines';
-import type { ExtractedSupplier } from '../extraction-result';
+} from '../core/brazilian-formats';
+import { findCnpjs } from '../core/cnpj';
+import { findLabeledValues, fold } from '../core/labeled-value';
+import { lineText, TextCell, TextLine } from '../core/text-lines';
 
 export type HeaderFields = {
   supplier?: ExtractedSupplier;
