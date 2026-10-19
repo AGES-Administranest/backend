@@ -3,8 +3,8 @@ import { OmitType, PartialType } from '@nestjs/swagger';
 import { CreateTripDto } from './create-trip.dto';
 
 /**
- * An absent field keeps its value; `null` clears an optional one. The id is
- * fixed once the trip exists.
+ * An absent field keeps its value; `null` clears an optional one, unless the
+ * trip's mode requires it. The id is fixed once the trip exists.
  *
  * `skipNullProperties: false`: by default PartialType skips validation for
  * null as well as for a missing field, and `{ "origin": null }` would reach the

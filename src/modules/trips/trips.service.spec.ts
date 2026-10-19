@@ -80,6 +80,7 @@ describe('TripsService', () => {
     update: jest.Mock;
     softDelete: jest.Mock;
   };
+  let financialEntries: { recordTrip: jest.Mock; removeTripEntry: jest.Mock };
   let service: TripsService;
 
   /** The columns the service handed to `create` or `update`. */
@@ -107,7 +108,11 @@ describe('TripsService', () => {
       ),
       softDelete: jest.fn().mockResolvedValue(trip({ deletedAt: new Date() })),
     };
-    service = new TripsService(repository as never);
+    financialEntries = {
+      recordTrip: jest.fn().mockResolvedValue(undefined),
+      removeTripEntry: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new TripsService(repository as never, financialEntries as never);
   });
 
   describe('every response', () => {
@@ -678,6 +683,107 @@ describe('TripsService', () => {
         'user-1',
         tx,
       );
+    });
+  });
+
+  describe('the expense', () => {
+    const posted = () =>
+      financialEntries.recordTrip.mock.calls[0] as [
+        {
+          userId: string;
+          tripId: string;
+          amount: Prisma.Decimal;
+          occurredOn: Date;
+          description: string;
+        },
+        unknown,
+      ];
+
+    it('is posted with the new trip, in its transaction', async () => {
+      await service.createWithResult('user-1', ownDto());
+
+      const [input, client] = posted();
+      expect(client).toBe(tx);
+      expect(input).toMatchObject({
+        userId: 'user-1',
+        tripId: 'trip-1',
+        occurredOn: new Date('2026-10-18T00:00:00.000Z'),
+        description: 'Home → Clinic',
+      });
+      expect(input.amount.toString()).toBe('141.57');
+    });
+
+    it('follows an edited trip, in its transaction', async () => {
+      await service.update('trip-1', 'user-1', {
+        distanceKm: 100,
+        destination: 'Office',
+      });
+
+      const [input, client] = posted();
+      expect(client).toBe(tx);
+      expect(input.amount.toString()).toBe('47.19');
+      expect(input.description).toBe('Home → Office');
+    });
+
+    it('is handed a zero cost as it is, for the financial module to drop', async () => {
+      await service.update('trip-1', 'user-1', { distanceKm: 0.01 });
+
+      expect(posted()[0].amount.toString()).toBe('0');
+    });
+
+    it('is left alone when a trip is resent with its device id', async () => {
+      repository.findAnyById.mockResolvedValue(rideTrip({ id: 'device-id' }));
+
+      await service.createWithResult('user-1', rideDto({ id: 'device-id' }));
+
+      expect(financialEntries.recordTrip).not.toHaveBeenCalled();
+    });
+
+    it('is left alone when the trip is refused', async () => {
+      await expect(
+        service.createWithResult('user-1', ownDto({ cost: 10 })),
+      ).rejects.toBeInstanceOf(DomainError);
+      repository.findById.mockResolvedValue(null);
+      await expect(
+        service.update('trip-1', 'user-2', { distanceKm: 10 }),
+      ).rejects.toBeInstanceOf(DomainError);
+
+      expect(financialEntries.recordTrip).not.toHaveBeenCalled();
+    });
+
+    it('fails the request when it cannot be posted, so the trip is not kept', async () => {
+      financialEntries.recordTrip.mockRejectedValue(
+        new DomainError(
+          'INVALID_INPUT',
+          'FINANCIAL_CATEGORY_NOT_SEEDED',
+          'Travel category is not seeded',
+        ),
+      );
+
+      await expect(
+        service.createWithResult('user-1', ownDto()),
+      ).rejects.toMatchObject(
+        error('INVALID_INPUT', 'FINANCIAL_CATEGORY_NOT_SEEDED'),
+      );
+    });
+
+    it('is removed with the deleted trip, in its transaction', async () => {
+      await service.remove('trip-1', 'user-1');
+
+      expect(financialEntries.removeTripEntry).toHaveBeenCalledWith(
+        'user-1',
+        'trip-1',
+        tx,
+      );
+    });
+
+    it('is left alone when the trip to delete is not found', async () => {
+      repository.softDelete.mockResolvedValue(null);
+
+      await expect(service.remove('trip-1', 'user-2')).rejects.toBeInstanceOf(
+        DomainError,
+      );
+      expect(financialEntries.removeTripEntry).not.toHaveBeenCalled();
     });
   });
 });

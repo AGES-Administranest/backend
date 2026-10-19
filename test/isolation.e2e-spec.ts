@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+import { ensureDefaultFinancialCategories } from './helpers/default-financial-categories';
 import {
   bearer,
   body,
@@ -612,6 +613,16 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
   });
 
   describe('trips', () => {
+    // Each trip posts its expense under the default Travel category, which
+    // resetDatabase's TRUNCATE ... CASCADE wipes with everything else.
+    beforeEach(async () => {
+      await ensureDefaultFinancialCategories(prisma);
+    });
+
+    /** The trip's expense as stored, to prove an attempted write left it alone. */
+    const expenseOf = (tripId: string) =>
+      prisma.financialEntry.findUniqueOrThrow({ where: { tripId } });
+
     const createVehicle = async (user: TestUser): Promise<string> => {
       const response = await request(http)
         .post('/vehicles')
@@ -710,6 +721,9 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
         destination: 'Clinica da Ana',
         cost: '32.9',
       });
+      const expense = await expenseOf(anaTrip);
+      expect(expense.amount.toString()).toBe('32.9');
+      expect(expense.description).toBe('Casa → Clinica da Ana');
     });
 
     it('refuses to delete another account trip, and leaves it in place', async () => {
@@ -722,6 +736,7 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
 
       expect(body(response)).toMatchObject({ code: 'TRIP_NOT_FOUND' });
       await readTripAsOwner(ana, anaTrip);
+      expect((await expenseOf(anaTrip)).deletedAt).toBeNull();
     });
 
     it('refuses a trip that points at another account vehicle, appointment or client', async () => {
@@ -775,6 +790,7 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
 
         expect(body(response)).toMatchObject({ code });
       }
+      expect(await prisma.financialEntry.count()).toBe(0);
       expect(await prisma.trip.count()).toBe(0);
     });
 
@@ -803,6 +819,8 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       });
       expect(stored.userId).toBe(anaRow.id);
       expect(await prisma.trip.count()).toBe(1);
+      expect(await prisma.financialEntry.count()).toBe(1);
+      expect((await expenseOf(anaTrip)).userId).toBe(anaRow.id);
     });
 
     it('cannot reassign a trip by sending a userId', async () => {

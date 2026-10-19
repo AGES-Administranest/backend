@@ -11,6 +11,7 @@ import { TripsRepository } from './trips.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 import { fromIsoDate, toIsoDate } from '../../shared/validation/iso-date';
+import { FinancialEntryService } from '../financial';
 
 type Tx = Prisma.TransactionClient;
 
@@ -37,7 +38,10 @@ const money = (value: Prisma.Decimal): string =>
 
 @Injectable()
 export class TripsService {
-  constructor(private readonly tripsRepository: TripsRepository) {}
+  constructor(
+    private readonly tripsRepository: TripsRepository,
+    private readonly financialEntries: FinancialEntryService,
+  ) {}
 
   async findAll(userId: string, query: QueryTripDto): Promise<TripListEntity> {
     const from = query.from ? fromIsoDate(query.from) : undefined;
@@ -112,6 +116,7 @@ export class TripsService {
           { ...data, id: dto.id, userId },
           tx,
         );
+        await this.postExpense(trip, tx);
         return { trip: this.toEntity(trip), created: true };
       });
     } catch (error) {
@@ -140,15 +145,24 @@ export class TripsService {
       this.assertModeFields(draft);
 
       const data = await this.resolve(userId, draft, stored, tx);
-      return this.toEntity(await this.tripsRepository.update(id, data, tx));
+      const trip = await this.tripsRepository.update(id, data, tx);
+      await this.postExpense(trip, tx);
+      return this.toEntity(trip);
     });
   }
 
-  /** Soft delete. A second DELETE answers 404, as for appointments. */
+  /**
+   * Soft delete, with its expense. A second DELETE answers 404, as for
+   * appointments.
+   */
   async remove(id: string, userId: string): Promise<TripEntity> {
-    const trip = await this.tripsRepository.transaction(tx =>
-      this.tripsRepository.softDelete(id, userId, tx),
-    );
+    const trip = await this.tripsRepository.transaction(async tx => {
+      const deleted = await this.tripsRepository.softDelete(id, userId, tx);
+      if (deleted) {
+        await this.financialEntries.removeTripEntry(userId, id, tx);
+      }
+      return deleted;
+    });
     if (!trip) throw this.notFound(id);
     return this.toEntity(trip);
   }
@@ -328,6 +342,23 @@ export class TripsService {
       destination: draft.destination,
       distanceKm: draft.distanceKm,
     };
+  }
+
+  /**
+   * The trip's expense follows it in the same transaction, so a trip is never
+   * saved without it, nor the other way round.
+   */
+  private postExpense(trip: Trip, tx: Tx): Promise<void> {
+    return this.financialEntries.recordTrip(
+      {
+        userId: trip.userId,
+        tripId: trip.id,
+        amount: trip.cost,
+        occurredOn: trip.occurredOn,
+        description: `${trip.origin} → ${trip.destination}`,
+      },
+      tx,
+    );
   }
 
   /** The stored trip, when the resent one is the same and is this user's. */

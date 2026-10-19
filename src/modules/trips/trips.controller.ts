@@ -53,6 +53,15 @@ const INVALID_REFERENCE =
 
 const NOT_FOUND = 'Missing, deleted or another account trip (TRIP_NOT_FOUND)';
 
+const EXPENSE =
+  'The trip cost is posted as a professional expense under Travel in the ' +
+  'financial statement and follows every change; a trip that costs 0 posts ' +
+  'none.';
+
+const NO_TRAVEL_CATEGORY =
+  'or the Travel category is missing, so the expense cannot be posted and ' +
+  'the trip is not saved (FINANCIAL_CATEGORY_NOT_SEEDED)';
+
 const VEHICLE_ID = '6f1c1e44-5a1d-4f0e-9b7b-2f5d6f3a9c11';
 
 // One example per mode: no single body is valid for both.
@@ -104,8 +113,9 @@ export class TripsController {
   @ApiOperation({
     summary: 'Record a trip',
     description:
-      `${MODES} Several trips may share a date. With an id generated on the ` +
-      'device, resending the same trip answers 200 with the stored one.',
+      `${MODES} ${EXPENSE} Several trips may share a date. With an id ` +
+      'generated on the device, resending the same trip answers 200 with the ' +
+      'stored one.',
   })
   @ApiBody({ type: CreateTripDto, examples: CREATE_EXAMPLES })
   @ApiCreatedResponse({ type: TripEntity })
@@ -113,7 +123,9 @@ export class TripsController {
     type: TripEntity,
     description: 'The same trip was already recorded with this id',
   })
-  @ApiBadRequestResponse({ description: INVALID_PAYLOAD })
+  @ApiBadRequestResponse({
+    description: `${INVALID_PAYLOAD}; ${NO_TRAVEL_CATEGORY}`,
+  })
   @ApiConflictResponse({
     description:
       'The id is taken by a trip with different content, a deleted trip or ' +
@@ -167,18 +179,19 @@ export class TripsController {
   @ApiOperation({
     summary: 'Update a trip, including its mode, and recalculate its cost',
     description:
-      'A field left out keeps its value; null clears an optional one. The ' +
-      `mode rules apply to the trip as it ends up. ${MODES} A new distance is ` +
+      'A field left out keeps its value; null clears appointmentId, clientId ' +
+      "or a RIDE's distance. The mode rules apply to the trip as it ends up. " +
+      `${MODES} A new distance is ` +
       'priced with the cost per km copied when the trip was recorded, so a ' +
       'later fuel price change does not reach it; choosing another vehicle ' +
       "copies that vehicle's current cost per km. A trip whose vehicle was " +
-      'inactivated since can still be edited.',
+      `inactivated since can still be edited. ${EXPENSE}`,
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: UpdateTripDto, examples: UPDATE_EXAMPLES })
   @ApiOkResponse({ type: TripEntity })
   @ApiBadRequestResponse({
-    description: `The id is not a UUID, or a null required field. ${INVALID_PAYLOAD}`,
+    description: `The id is not a UUID, or a null required field. ${INVALID_PAYLOAD}; ${NO_TRAVEL_CATEGORY}`,
   })
   @ApiNotFoundResponse({ description: NOT_FOUND })
   @ApiUnprocessableEntityResponse({ description: INVALID_REFERENCE })
@@ -192,11 +205,12 @@ export class TripsController {
 
   @Delete(':id')
   @ApiOperation({
-    summary: 'Delete a trip (soft delete)',
+    summary: 'Delete a trip and its expense (soft delete)',
     description:
       'Sets deleted_at and keeps the row: the trip leaves the listing and its ' +
-      'totals, and GET /trips/:id answers 404 from then on. Deleting it again ' +
-      'answers 404.',
+      'totals, and GET /trips/:id answers 404 from then on. Its expense ' +
+      'leaves the financial statement too: the entry is soft-deleted, and no ' +
+      'reversing entry is posted. Deleting it again answers 404.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({
