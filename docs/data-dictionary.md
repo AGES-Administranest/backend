@@ -158,7 +158,8 @@ which is the fiscal document digitized via OCR.
 One row per user (`user_id` is the primary key), holding what the billable-hour
 calculator needs and does not calculate on its own: the US19 goals and the US18
 transport cost. The goals are read and written through `GET` / `PUT
-/pricing-settings` — see [`pricing-settings.md`](pricing-settings.md).
+/pricing-settings`, the transport cost through `GET` / `PATCH
+/pricing-settings/transport` — see [`pricing-settings.md`](pricing-settings.md).
 
 | Column | Story | Rule (CHECK) |
 |---|---|---|

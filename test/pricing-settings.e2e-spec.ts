@@ -47,6 +47,16 @@ describe('Pricing settings (e2e)', () => {
       .set('Authorization', bearer(user))
       .send(payload);
 
+  const getTransport = (user: TestUser) =>
+    request(server())
+      .get('/pricing-settings/transport')
+      .set('Authorization', bearer(user));
+  const patchTransport = (user: TestUser, payload: object) =>
+    request(server())
+      .patch('/pricing-settings/transport')
+      .set('Authorization', bearer(user))
+      .send(payload);
+
   beforeAll(async () => {
     ({ app, prisma } = await createTestApp());
     await mintTokens([owner, other]);
@@ -152,5 +162,128 @@ describe('Pricing settings (e2e)', () => {
   it('refuses a request without a token', async () => {
     await request(server()).get('/pricing-settings').expect(401);
     await request(server()).put('/pricing-settings').send(GOALS).expect(401);
+  });
+
+  describe('transport cost (US18)', () => {
+    const readRow = (userId: string) =>
+      prisma.pricingSettings.findUnique({ where: { userId } });
+
+    it('answers 404 TRANSPORT_COST_NOT_FOUND before anything is saved', async () => {
+      const response = await getTransport(owner).expect(404);
+
+      expect(body(response).code).toBe('TRANSPORT_COST_NOT_FOUND');
+    });
+
+    it('answers 404 TRANSPORT_COST_NOT_FOUND when only the goals are saved', async () => {
+      await put(owner, GOALS).expect(200);
+
+      const response = await getTransport(owner).expect(404);
+
+      expect(body(response).code).toBe('TRANSPORT_COST_NOT_FOUND');
+    });
+
+    it('saves the cost and reads it back as a number', async () => {
+      const saved = await patchTransport(owner, {
+        transportCostMonthly: 450.5,
+      }).expect(200);
+      expect(body(saved)).toMatchObject({ transportCostMonthly: 450.5 });
+      expect(body(saved)).not.toHaveProperty('userId');
+
+      const read = await getTransport(owner).expect(200);
+      expect(body(read)).toMatchObject({ transportCostMonthly: 450.5 });
+    });
+
+    it('saves zero as a cost, not as empty', async () => {
+      await patchTransport(owner, { transportCostMonthly: 0 }).expect(200);
+
+      const read = await getTransport(owner).expect(200);
+      expect(body(read).transportCostMonthly).toBe(0);
+      expect((await readRow(ownerId))?.transportCostMonthly?.toNumber()).toBe(
+        0,
+      );
+    });
+
+    it('creates the row when there is none and leaves the goals empty', async () => {
+      await patchTransport(owner, { transportCostMonthly: 450 }).expect(200);
+
+      const row = await readRow(ownerId);
+      expect(row?.transportCostMonthly?.toNumber()).toBe(450);
+      expect(row?.monthlyIncomeGoal).toBeNull();
+      expect(row?.weeklyHours).toBeNull();
+      expect(row?.safetyMarginPct).toBeNull();
+      // Goals still not configured: the US19 read keeps answering 404.
+      await get(owner).expect(404);
+    });
+
+    it('overwrites the cost on a second save', async () => {
+      await patchTransport(owner, { transportCostMonthly: 450 }).expect(200);
+
+      await patchTransport(owner, { transportCostMonthly: 300 }).expect(200);
+
+      expect(body(await getTransport(owner).expect(200))).toMatchObject({
+        transportCostMonthly: 300,
+      });
+    });
+
+    it('keeps the goals saved by US19', async () => {
+      await put(owner, GOALS).expect(200);
+
+      await patchTransport(owner, { transportCostMonthly: 450 }).expect(200);
+
+      expect(body(await get(owner).expect(200))).toMatchObject(GOALS);
+    });
+
+    it('keeps the cost when the goals are saved afterwards', async () => {
+      await patchTransport(owner, { transportCostMonthly: 450 }).expect(200);
+
+      await put(owner, GOALS).expect(200);
+
+      expect(body(await getTransport(owner).expect(200))).toMatchObject({
+        transportCostMonthly: 450,
+      });
+    });
+
+    it.each([
+      ['an empty body', {}],
+      ['null', { transportCostMonthly: null }],
+      ['a numeric string', { transportCostMonthly: '450' }],
+      ['an empty string', { transportCostMonthly: '' }],
+      ['a negative value', { transportCostMonthly: -1 }],
+      ['more than 2 decimal places', { transportCostMonthly: 10.555 }],
+      ['a value past the column', { transportCostMonthly: 1e15 }],
+      ['a goal field', { transportCostMonthly: 100, weeklyHours: 40 }],
+      ['the owner id', { transportCostMonthly: 100, userId: 'someone-else' }],
+    ])('refuses %s with 400 and saves nothing', async (_case, payload) => {
+      const response = await patchTransport(owner, payload).expect(400);
+
+      expect(body(response).code).toBe('VALIDATION_ERROR');
+      expect(await readRow(ownerId)).toBeNull();
+    });
+
+    it("does not show one user's cost to another", async () => {
+      await patchTransport(owner, { transportCostMonthly: 450 }).expect(200);
+
+      await getTransport(other).expect(404);
+    });
+
+    it("does not change another user's cost", async () => {
+      await patchTransport(owner, { transportCostMonthly: 450 }).expect(200);
+      await patchTransport(other, { transportCostMonthly: 90 }).expect(200);
+
+      expect(body(await getTransport(owner).expect(200))).toMatchObject({
+        transportCostMonthly: 450,
+      });
+      expect(body(await getTransport(other).expect(200))).toMatchObject({
+        transportCostMonthly: 90,
+      });
+    });
+
+    it('refuses a request without a token', async () => {
+      await request(server()).get('/pricing-settings/transport').expect(401);
+      await request(server())
+        .patch('/pricing-settings/transport')
+        .send({ transportCostMonthly: 450 })
+        .expect(401);
+    });
   });
 });
