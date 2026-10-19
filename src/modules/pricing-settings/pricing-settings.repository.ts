@@ -41,4 +41,22 @@ export class PricingSettingsRepository {
       }),
     );
   }
+
+  /**
+   * Creates the row on the first save and overwrites the transport cost after
+   * that. Only the transport cost is written: the three goals (US19) share the
+   * row and keep whatever they had, or stay empty on a new row.
+   */
+  saveTransportCost(
+    userId: string,
+    transportCostMonthly: number,
+  ): Promise<PricingSettings> {
+    return runQuery(() =>
+      this.prisma.pricingSettings.upsert({
+        where: { userId },
+        create: { userId, transportCostMonthly },
+        update: { transportCostMonthly },
+      }),
+    );
+  }
 }
