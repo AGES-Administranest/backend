@@ -223,13 +223,11 @@ describe('Fixed costs summary (e2e)', () => {
     expect(april.personalExpenses).toBe('33.00');
   });
 
-  it('always shows the current depreciation, whatever month is requested', async () => {
-    const march = await summary(owner, { month: 3, year: 2026 });
-    const december = await summary(owner, { month: 12, year: 2025 });
+  it('shows no depreciation for a month before the equipment was bought', async () => {
+    const before = await summary(owner, { month: 1, year: 2000 });
 
-    expect(march.depreciation).toBe('50.00');
-    expect(december.depreciation).toBe('50.00');
-    expect(december.transport).toBe('300.00');
+    expect(before.depreciation).toBe('0.00');
+    expect(before.transport).toBe('300.00');
   });
 
   it('matches the depreciation of the equipment summary', async () => {
@@ -237,7 +235,7 @@ describe('Fixed costs summary (e2e)', () => {
       .get('/equipment/summary')
       .set('Authorization', bearer(owner))
       .expect(200);
-    const body = await summary(owner, { month: 3, year: 2026 });
+    const body = await summary(owner);
 
     expect(Number(body.depreciation)).toBe(
       (equipment.body as { monthlyTotal: number }).monthlyTotal,

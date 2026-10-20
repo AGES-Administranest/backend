@@ -59,8 +59,11 @@ describe('FixedCostsService', () => {
     await service.getSummary('user-1', query);
 
     expect(entries.sumExpensesByScope).toHaveBeenCalledWith('user-1', 2026, 3);
-    // depreciation is always the current month's (EquipmentService.summary, US15)
-    expect(equipment.summary).toHaveBeenCalledWith('user-1');
+    // depreciation is as of the last day of the requested month (US15)
+    expect(equipment.summary).toHaveBeenCalledWith(
+      'user-1',
+      new Date(Date.UTC(2026, 3, 0, 23, 59, 59, 999)),
+    );
     expect(repository.findTransportMonthly).toHaveBeenCalledWith('user-1');
   });
 
@@ -73,6 +76,8 @@ describe('FixedCostsService', () => {
       now.getUTCFullYear(),
       now.getUTCMonth() + 1,
     );
+
+    expect(equipment.summary).toHaveBeenCalledWith('user-1', expect.any(Date));
   });
 
   it('treats a missing pricing_settings as no transport cost', async () => {

@@ -22,16 +22,22 @@ export class FixedCostsService {
     userId: string,
     query: QueryFixedCostsSummaryDto,
   ): Promise<FixedCostsSummaryResponse> {
-    // Expenses use the requested month (UTC, like the statement, so the cards
-    // match it). Depreciation comes from EquipmentService.summary (US15) and is
-    // always the current month's, whatever month was requested.
+    // Expenses and depreciation both follow the requested month (UTC, like
+    // the statement, so the cards match it). For the current month the
+    // depreciation is as of now; for any other month, as of its last day.
     const now = new Date();
     const year = query.year ?? now.getUTCFullYear();
     const month = query.month ?? now.getUTCMonth() + 1;
+    const isCurrentMonth =
+      year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
+    // day 0 of the next month = last day of the requested month
+    const asOf = isCurrentMonth
+      ? now
+      : new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
 
     const [expenses, equipmentSummary, transport] = await Promise.all([
       this.entries.sumExpensesByScope(userId, year, month),
-      this.equipment.summary(userId),
+      this.equipment.summary(userId, asOf),
       this.repository.findTransportMonthly(userId),
     ]);
     const depreciation = new Prisma.Decimal(equipmentSummary.monthlyTotal);
