@@ -7,10 +7,10 @@ Authenticated (see ADR-02). Every value is scoped to the caller (ADR-11).
 
 ## Request
 
-| Query   | Type    | Notes                                         |
-| ------- | ------- | --------------------------------------------- |
-| `month` | integer | 1–12. Defaults to the current UTC month.      |
-| `year`  | integer | 2000–2100. Defaults to the current UTC year.  |
+| Query   | Type    | Notes                                        |
+| ------- | ------- | -------------------------------------------- |
+| `month` | integer | 1–12. Defaults to the current UTC month.     |
+| `year`  | integer | 2000–2100. Defaults to the current UTC year. |
 
 An invalid value answers `400 VALIDATION_ERROR`; a missing or bad token answers
 `401`.
@@ -41,28 +41,22 @@ Every value is a decimal string with 2 places, never a float.
   cards. Depreciation is not an entry and is not included here.
 - **`transport`** — `pricing_settings.transport_cost_monthly` of the user.
   `0.00` when there is no row or the column is null.
-- **`depreciation`** — `MonthlyDepreciation.getMonthlyDepreciation(userId,
-  month, year)` in the financial module. The endpoint only calls it.
+- **`depreciation`** — monthly depreciation of the user's equipment, from
+  `EquipmentService.summary` (US15). It follows the requested month: for the
+  current month it counts up to now, for any other month up to its last day.
+  Equipment bought after that date is not counted.
 
 ## Month boundaries
 
-The month is read in **UTC**, exactly like the statement
-(`accrualMonth`). The original task asked for `America/Sao_Paulo`; that was not
-applied on purpose, because the two would then disagree for entries between 21:00
-and 24:00 (São Paulo) on the last day of a month. If the statement moves to
-São Paulo time, this endpoint follows it for free.
+The month is read in **UTC**, exactly like the statement (`accrualMonth`). The
+original task asked for `America/Sao_Paulo`; that was not applied on purpose,
+because the two would then disagree for entries between 21:00 and 24:00 (São
+Paulo) on the last day of a month. If the statement moves to São Paulo time,
+this endpoint follows it for free.
 
-## Depreciation is provisional (TODO(US15))
+## Depreciation
 
-`src/modules/financial/monthly-depreciation.ts` is a temporary straight-line
-version, kept in one file so US15 can replace it without touching the endpoint:
-
-- only equipment with `active = true` and no `deleted_at`;
-- monthly quota = `(purchase_value - salvage_value) / (useful_life_years * 12)`;
-- it depreciates from the month of `acquisition_date` for exactly
-  `useful_life_years * 12` months, and contributes 0 outside that window;
-- quotas stay unrounded; only the final sum is rounded to 2 places (half up),
-  with `Decimal`.
-
-When US15 lands, replace the body of `getMonthlyDepreciation` (its migration
-renames `useful_life_years` to `useful_life_months`).
+Depreciation is calculated by `EquipmentService.summary` in the equipment
+module (US15), using the shared `calculateDepreciation` domain function. The
+fixed costs endpoint reuses it instead of implementing a separate calculation,
+which keeps depreciation consistent with the equipment summary and
