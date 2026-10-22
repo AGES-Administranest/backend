@@ -19,7 +19,10 @@ interface BalanceBody {
   professionalExpenses: string;
   personalExpenses: string;
   netBalance: string;
-  expensesByCategory: { category: string; subtotal: string }[];
+  expensesByCategory: {
+    items: { category: string; subtotal: string }[];
+    total: string;
+  };
 }
 
 describe('Financial balance (e2e)', () => {
@@ -226,13 +229,16 @@ describe('Financial balance (e2e)', () => {
       professionalExpenses: '174.10',
       personalExpenses: '25.15',
       netBalance: '800.75',
-      expensesByCategory: [
-        { category: 'SUPPLIES', subtotal: '100.10' },
-        { category: 'TRAVEL', subtotal: '40.00' },
-        { category: 'FIXED_COSTS', subtotal: '30.00' },
-        { category: 'TAXES_AND_FEES', subtotal: '20.00' },
-        { category: 'OTHER', subtotal: '9.15' },
-      ],
+      expensesByCategory: {
+        items: [
+          { category: 'SUPPLIES', subtotal: '100.10' },
+          { category: 'TRAVEL', subtotal: '40.00' },
+          { category: 'FIXED_COSTS', subtotal: '30.00' },
+          { category: 'TAXES_AND_FEES', subtotal: '20.00' },
+          { category: 'OTHER', subtotal: '9.15' },
+        ],
+        total: '199.25',
+      },
     });
   });
 
@@ -250,13 +256,16 @@ describe('Financial balance (e2e)', () => {
       professionalExpenses: '0.00',
       personalExpenses: '0.00',
       netBalance: '0.00',
-      expensesByCategory: [
-        { category: 'SUPPLIES', subtotal: '0.00' },
-        { category: 'TRAVEL', subtotal: '0.00' },
-        { category: 'FIXED_COSTS', subtotal: '0.00' },
-        { category: 'TAXES_AND_FEES', subtotal: '0.00' },
-        { category: 'OTHER', subtotal: '0.00' },
-      ],
+      expensesByCategory: {
+        items: [
+          { category: 'SUPPLIES', subtotal: '0.00' },
+          { category: 'TRAVEL', subtotal: '0.00' },
+          { category: 'FIXED_COSTS', subtotal: '0.00' },
+          { category: 'TAXES_AND_FEES', subtotal: '0.00' },
+          { category: 'OTHER', subtotal: '0.00' },
+        ],
+        total: '0.00',
+      },
     });
   });
 

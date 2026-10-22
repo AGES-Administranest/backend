@@ -30,10 +30,16 @@ export class FinancialCategoryRepository {
     );
   }
 
-  findNames(ids: string[]): Promise<{ id: string; name: string }[]> {
+  findNames(
+    userId: string,
+    ids: string[],
+  ): Promise<{ id: string; name: string }[]> {
     return runQuery(() =>
       this.prisma.financialCategory.findMany({
-        where: { id: { in: ids } },
+        where: {
+          id: { in: ids },
+          OR: [{ userId: null }, { userId }],
+        },
         select: { id: true, name: true },
       }),
     );

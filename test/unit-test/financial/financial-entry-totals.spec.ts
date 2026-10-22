@@ -131,13 +131,16 @@ describe('FinancialEntryService.sumExpensesByScope', () => {
 
 describe('FinancialEntryService.getBalance', () => {
   const dec = (value: string) => new Prisma.Decimal(value);
-  const emptyGroups = [
-    { category: 'SUPPLIES', subtotal: '0.00' },
-    { category: 'TRAVEL', subtotal: '0.00' },
-    { category: 'FIXED_COSTS', subtotal: '0.00' },
-    { category: 'TAXES_AND_FEES', subtotal: '0.00' },
-    { category: 'OTHER', subtotal: '0.00' },
-  ];
+  const emptyGroups = {
+    items: [
+      { category: 'SUPPLIES', subtotal: '0.00' },
+      { category: 'TRAVEL', subtotal: '0.00' },
+      { category: 'FIXED_COSTS', subtotal: '0.00' },
+      { category: 'TAXES_AND_FEES', subtotal: '0.00' },
+      { category: 'OTHER', subtotal: '0.00' },
+    ],
+    total: '0.00',
+  };
 
   const build = (
     rows: {
@@ -259,19 +262,22 @@ describe('FinancialEntryService.getBalance', () => {
       professionalExpenses: '174.10',
       personalExpenses: '25.15',
       netBalance: '851.00',
-      expensesByCategory: [
-        { category: 'SUPPLIES', subtotal: '100.10' },
-        { category: 'TRAVEL', subtotal: '40.00' },
-        { category: 'FIXED_COSTS', subtotal: '30.00' },
-        { category: 'TAXES_AND_FEES', subtotal: '20.00' },
-        { category: 'OTHER', subtotal: '9.15' },
-      ],
+      expensesByCategory: {
+        items: [
+          { category: 'SUPPLIES', subtotal: '100.10' },
+          { category: 'TRAVEL', subtotal: '40.00' },
+          { category: 'FIXED_COSTS', subtotal: '30.00' },
+          { category: 'TAXES_AND_FEES', subtotal: '20.00' },
+          { category: 'OTHER', subtotal: '9.15' },
+        ],
+        total: '199.25',
+      },
     });
     expect(repository.sumByNatureScopeCategory).toHaveBeenCalledWith('user-1', {
       from: new Date('2026-03-01T00:00:00Z'),
       to: new Date('2026-04-01T00:00:00Z'),
     });
-    expect(categories.findNames).toHaveBeenCalledWith([
+    expect(categories.findNames).toHaveBeenCalledWith('user-1', [
       'supplies',
       'travel',
       'taxes',
@@ -307,10 +313,11 @@ describe('FinancialEntryService.getBalance', () => {
       month: 3,
       year: 2026,
     });
-    expect(result.expensesByCategory[0]).toEqual({
+    expect(result.expensesByCategory.items[0]).toEqual({
       category: 'SUPPLIES',
       subtotal: '10.03',
     });
+    expect(result.expensesByCategory.total).toBe('10.03');
   });
 
   it('returns a negative net balance when expenses exceed income', async () => {

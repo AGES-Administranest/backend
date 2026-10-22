@@ -123,7 +123,7 @@ export class FinancialEntryService {
       ),
     ];
     const names = expenseCategoryIds.length
-      ? await this.categories.findNames(expenseCategoryIds)
+      ? await this.categories.findNames(userId, expenseCategoryIds)
       : [];
     const nameById = new Map(
       names.map(category => [category.id, category.name]),
@@ -158,10 +158,13 @@ export class FinancialEntryService {
       professionalExpenses: money(professionalExpenses),
       personalExpenses: money(personalExpenses),
       netBalance: money(totalIncome.minus(totalExpenses)),
-      expensesByCategory: EXPENSE_GROUPS.map(category => ({
-        category,
-        subtotal: money(byGroup.get(category) ?? zero),
-      })),
+      expensesByCategory: {
+        items: EXPENSE_GROUPS.map(category => ({
+          category,
+          subtotal: money(byGroup.get(category) ?? zero),
+        })),
+        total: money(totalExpenses),
+      },
     };
   }
 

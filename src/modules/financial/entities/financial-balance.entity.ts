@@ -2,12 +2,20 @@ import { ApiProperty } from '@nestjs/swagger';
 
 import { EXPENSE_GROUPS, type ExpenseGroup } from '../expense-groups';
 
-export class ExpenseByCategoryResponse {
+export class ExpenseByCategoryItem {
   @ApiProperty({ enum: EXPENSE_GROUPS, example: 'SUPPLIES' })
   category!: ExpenseGroup;
 
   @ApiProperty({ type: String, example: '120.50' })
   subtotal!: string;
+}
+
+export class ExpensesByCategoryResponse {
+  @ApiProperty({ type: ExpenseByCategoryItem, isArray: true })
+  items!: ExpenseByCategoryItem[];
+
+  @ApiProperty({ type: String, example: '800.00' })
+  total!: string;
 }
 
 export class FinancialBalanceResponse {
@@ -26,6 +34,6 @@ export class FinancialBalanceResponse {
   @ApiProperty({ type: String, example: '1700.00' })
   netBalance!: string;
 
-  @ApiProperty({ type: ExpenseByCategoryResponse, isArray: true })
-  expensesByCategory!: ExpenseByCategoryResponse[];
+  @ApiProperty({ type: ExpensesByCategoryResponse })
+  expensesByCategory!: ExpensesByCategoryResponse;
 }
