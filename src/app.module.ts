@@ -15,6 +15,7 @@ import { FinancialModule } from './modules/financial/financial.module';
 import { FixedCostsModule } from './modules/fixed-costs';
 import { ItemModule } from './modules/item/item.module';
 import { PricingSettingsModule } from './modules/pricing-settings';
+import { ServiceInvoicesModule } from './modules/service-invoices';
 import { StockEntryModule } from './modules/stock-entry';
 import { StockMovementsModule } from './modules/stock-movements';
 import { SupplierModule } from './modules/supplier/supplier.module';
@@ -53,6 +54,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     StockMovementsModule,
     AppointmentsModule,
     StockEntryModule,
+    ServiceInvoicesModule,
     VehiclesModule,
     PricingSettingsModule,
   ],

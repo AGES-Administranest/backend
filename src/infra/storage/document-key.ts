@@ -1,4 +1,4 @@
-export type DocumentCollection = 'purchase-invoices';
+export type DocumentCollection = 'purchase-invoices' | 'service-invoices';
 
 /**
  * Deterministic and extension-less: every presigned POST for the same

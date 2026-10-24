@@ -386,6 +386,131 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('service-invoices', () => {
+    const issueUploadUrl = (user: TestUser, id: string, fileHash: string) =>
+      request(http)
+        .post(`/service-invoices/${id}/upload-url`)
+        .set('Authorization', bearer(user))
+        .send({
+          filename: 'nfse.pdf',
+          fileMimeType: 'application/pdf',
+          fileHash,
+          fileBytesSize: 1024,
+        });
+
+    /** A draft, with the number the app would have read. */
+    const noteOf = async (user: TestUser): Promise<string> => {
+      const id = randomUUID();
+      await issueUploadUrl(user, id, randomBytes(32).toString('hex')).expect(
+        200,
+      );
+      await prisma.serviceInvoice.update({
+        where: { id },
+        data: { number: '1287', uploadedAt: new Date() },
+      });
+      return id;
+    };
+
+    const readNote = (id: string) =>
+      prisma.serviceInvoice.findUniqueOrThrow({ where: { id } });
+
+    it('answers 404, not 403, when issuing an upload url for another account note, and leaves it untouched', async () => {
+      const id = randomUUID();
+      await issueUploadUrl(ana, id, 'a'.repeat(64)).expect(200);
+
+      const response = await issueUploadUrl(bruno, id, 'b'.repeat(64)).expect(
+        404,
+      );
+
+      expect(body(response)).toMatchObject({
+        code: 'SERVICE_INVOICE_NOT_FOUND',
+      });
+      const stored = await readNote(id);
+      expect(stored.fileHash).toBe('a'.repeat(64));
+      expect(stored.fileUrl).toBe(
+        `users/${stored.userId}/service-invoices/${id}/original`,
+      );
+    });
+
+    it('lets another account upload the same file to a note of its own', async () => {
+      await issueUploadUrl(ana, randomUUID(), 'c'.repeat(64)).expect(200);
+
+      await issueUploadUrl(bruno, randomUUID(), 'c'.repeat(64)).expect(200);
+    });
+
+    it('does not list another account notes', async () => {
+      await noteOf(ana);
+      const brunoNote = await noteOf(bruno);
+
+      const response = await request(http)
+        .get('/service-invoices')
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      const ids = (response.body as { id: string }[]).map(note => note.id);
+      expect(ids).toEqual([brunoNote]);
+    });
+
+    it('answers 404, not 403, when reading or downloading another account note', async () => {
+      const id = await noteOf(ana);
+
+      for (const path of [
+        `/service-invoices/${id}`,
+        `/service-invoices/${id}/file`,
+      ]) {
+        const response = await request(http)
+          .get(path)
+          .set('Authorization', bearer(bruno))
+          .expect(404);
+        expect(body(response)).toMatchObject({
+          code: 'SERVICE_INVOICE_NOT_FOUND',
+        });
+      }
+    });
+
+    it('refuses to save the review of another account note, and leaves it untouched', async () => {
+      const id = await noteOf(ana);
+
+      await request(http)
+        .patch(`/service-invoices/${id}`)
+        .set('Authorization', bearer(bruno))
+        .send({ number: '9999' })
+        .expect(404);
+
+      expect((await readNote(id)).number).toBe('1287');
+    });
+
+    it('refuses to discard another account note, and leaves it a draft', async () => {
+      const id = await noteOf(ana);
+
+      await request(http)
+        .delete(`/service-invoices/${id}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect((await readNote(id)).status).toBe('DRAFT');
+    });
+
+    it('does not let a note be linked to another account client', async () => {
+      const id = await noteOf(ana);
+      const brunoRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: bruno.cognitoSub },
+      });
+      const brunoClient = await prisma.client.create({
+        data: { userId: brunoRow.id, type: 'CLINIC', name: 'Clínica do Bruno' },
+      });
+
+      const response = await request(http)
+        .patch(`/service-invoices/${id}`)
+        .set('Authorization', bearer(ana))
+        .send({ clientId: brunoClient.id })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'CLIENT_NOT_FOUND' });
+      expect((await readNote(id)).clientId).toBeNull();
+    });
+  });
+
   describe('appointments', () => {
     const createAppointment = async (
       user: TestUser,
