@@ -60,3 +60,10 @@ Depreciation is calculated by `EquipmentService.summary` in the equipment
 module (US15), using the shared `calculateDepreciation` domain function. The
 fixed costs endpoint reuses it instead of implementing a separate calculation,
 which keeps depreciation consistent with the equipment summary and
+
+## For other modules
+
+`FixedCostsService.getMonthlyCosts(userId, year, month)`, exported by the
+`fixed-costs` module, returns the four sources above as unformatted `Decimal`s.
+The hourly rate (US20, [`hourly-rate.md`](hourly-rate.md)) reads them there, so
+both screens agree on what a month cost.

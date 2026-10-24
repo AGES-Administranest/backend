@@ -10,5 +10,6 @@ import { FinancialModule } from '../financial';
   imports: [FinancialModule, EquipmentModule],
   controllers: [FixedCostsController],
   providers: [FixedCostsService, FixedCostsRepository],
+  exports: [FixedCostsService],
 })
 export class FixedCostsModule {}
