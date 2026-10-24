@@ -79,6 +79,10 @@ async function bootstrap() {
         'vehicles',
         "The user's vehicles and their fuel cost per kilometre",
       )
+      .addTag(
+        'trips',
+        "The user's trips to clients, by own vehicle or by ride, and their cost",
+      )
       .addTag('fixed-costs', "The user's monthly fixed-cost summary")
       .addTag(
         'pricing-settings',

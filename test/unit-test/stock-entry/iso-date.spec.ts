@@ -6,7 +6,7 @@ import { UpdateDraftHeaderDto } from '../../../src/modules/stock-entry/dto/updat
 import {
   fromIsoDate,
   toIsoDate,
-} from '../../../src/modules/stock-entry/iso-date';
+} from '../../../src/shared/validation/iso-date';
 
 const orderDateErrors = async (orderDate: unknown) => {
   const errors = await validate(

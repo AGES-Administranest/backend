@@ -6,12 +6,12 @@ import { ExtractionResponseDto } from './dto/extraction-response.dto';
 import { DraftLineInputDto } from './dto/replace-draft-lines.dto';
 import { UpdateDraftHeaderDto } from './dto/update-draft-header.dto';
 import { storedExtractionOf } from './extraction.service';
-import { fromIsoDate, toIsoDate } from './iso-date';
 import {
   DraftLineRow,
   InvoiceWithLines,
   InvoiceWithSupplier,
 } from './stock-entry.repository';
+import { fromIsoDate, toIsoDate } from '../../shared/validation/iso-date';
 import { LineMatch } from '../item-match';
 
 type SavedLine = InvoiceWithLines['lines'][number];

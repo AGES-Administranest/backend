@@ -83,6 +83,15 @@ enum FuelType {
   @@map("fuel_type_enum")
 }
 
+/// OWN_VEHICLE is priced from a vehicle's cost per km; RIDE (app or taxi) is
+/// the fare the user paid.
+enum TripMode {
+  OWN_VEHICLE
+  RIDE
+
+  @@map("trip_mode_enum")
+}
+
 enum EntryNature {
   INCOME
   EXPENSE
@@ -297,6 +306,7 @@ model Client {
   user            User             @relation(fields: [userId], references: [id])
   appointments    Appointment[]
   serviceInvoices ServiceInvoice[]
+  trips           Trip[]
 
   @@index([userId, active])
   @@map("client")
@@ -349,24 +359,43 @@ model Appointment {
   @@map("appointment")
 }
 
-/// No vehicle record and no cost split across multiple appointments: the cost
-/// is recorded directly per trip.
+/// A trip to a client. OWN_VEHICLE prices it from the vehicle's cost per km,
+/// copied into cost_per_km when recorded, so later fuel price changes and
+/// inactivating the vehicle leave it unchanged; RIDE stores the fare paid.
+/// Mode rules are enforced by the CHECK in migration
+/// 20261018205653_trip_vehicle_mode. Several trips may share a date.
 model Trip {
   id            String    @id @default(uuid()) @db.Uuid
   userId        String    @map("user_id") @db.Uuid
+  mode          TripMode
+  /// required for OWN_VEHICLE, NULL for RIDE
+  vehicleId     String?   @map("vehicle_id") @db.Uuid
   appointmentId String?   @map("appointment_id") @db.Uuid
+  clientId      String?   @map("client_id") @db.Uuid
   occurredOn    DateTime  @map("occurred_on") @db.Date
+  origin        String    @db.VarChar(200)
+  destination   String    @db.VarChar(200)
+  /// required for OWN_VEHICLE, optional for RIDE. CHECK > 0.
   distanceKm    Decimal?  @map("distance_km") @db.Decimal(10, 2)
-  cost          Decimal?  @db.Decimal(14, 2)
+  /// R$ per km copied from the vehicle when the trip was priced; NULL for
+  /// RIDE. CHECK >= 0.
+  costPerKm     Decimal?  @map("cost_per_km") @db.Decimal(10, 4)
+  /// R$. OWN_VEHICLE: distance_km × cost_per_km rounded to cents, so it can
+  /// be 0.00 for a very short trip; RIDE: the fare paid. CHECK >= 0.
+  cost          Decimal   @db.Decimal(14, 2)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   user           User            @relation(fields: [userId], references: [id])
+  vehicle        Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   appointment    Appointment?    @relation(fields: [appointmentId], references: [id])
+  client         Client?         @relation(fields: [clientId], references: [id])
   financialEntry FinancialEntry?
 
   @@index([userId, occurredOn])
+  @@index([userId, clientId])
+  @@index([vehicleId])
   @@map("trip")
 }
 
@@ -389,7 +418,8 @@ model Vehicle {
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  user User @relation(fields: [userId], references: [id])
+  user  User   @relation(fields: [userId], references: [id])
+  trips Trip[]
 
   @@index([userId, active])
   @@map("vehicle")

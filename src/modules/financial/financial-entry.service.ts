@@ -295,6 +295,106 @@ export class FinancialEntryService {
     );
   }
 
+  /**
+   * Keeps a trip's expense (US14) in step with the trip, inside the trip's
+   * transaction. Like the purchase invoice's, it is an automatic entry: the
+   * generic routes refuse changes to its amount, date and nature, and its
+   * removal, so those follow the trip alone. The description is rewritten on
+   * every change; a category, scope or notes edited by the user are kept. The
+   * status stays at the column default, as for purchase invoices.
+   *
+   * A trip that costs 0.00 (a very short one by car) has no expense, since an
+   * entry's amount must be positive: an existing one is soft-deleted instead
+   * of being set to zero, and comes back if the cost rises again.
+   */
+  async recordTrip(
+    input: {
+      userId: string;
+      tripId: string;
+      amount: Prisma.Decimal;
+      occurredOn: Date;
+      description: string;
+    },
+    db: Prisma.TransactionClient,
+  ): Promise<void> {
+    const existing = await this.repository.findByTrip(
+      input.userId,
+      input.tripId,
+      db,
+    );
+
+    if (input.amount.isZero()) {
+      if (existing?.deletedAt === null) {
+        await this.repository.updateById(
+          existing.id,
+          { deletedAt: new Date() },
+          db,
+        );
+      }
+      return;
+    }
+
+    if (existing) {
+      await this.repository.updateById(
+        existing.id,
+        {
+          amount: input.amount,
+          accrualDate: input.occurredOn,
+          description: input.description,
+          deletedAt: null,
+        },
+        db,
+      );
+      return;
+    }
+
+    const category = await this.categories.findDefault(
+      'Travel',
+      EntryNature.EXPENSE,
+    );
+    if (!category) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'FINANCIAL_CATEGORY_NOT_SEEDED',
+        'Travel category is not seeded',
+      );
+    }
+
+    await this.repository.create(
+      {
+        userId: input.userId,
+        nature: EntryNature.EXPENSE,
+        scope: EntryScope.PROFESSIONAL,
+        categoryId: category.id,
+        description: input.description,
+        amount: input.amount,
+        accrualDate: input.occurredOn,
+        source: EntrySource.TRIP,
+        tripId: input.tripId,
+      },
+      db,
+    );
+  }
+
+  /**
+   * Soft-deletes the expense of a deleted trip, inside the trip's transaction.
+   * No reversing entry is posted: the expense leaves the statement.
+   */
+  async removeTripEntry(
+    userId: string,
+    tripId: string,
+    db: Prisma.TransactionClient,
+  ): Promise<void> {
+    const existing = await this.repository.findByTrip(userId, tripId, db);
+    if (!existing || existing.deletedAt !== null) return;
+
+    await this.repository.updateById(
+      existing.id,
+      { deletedAt: new Date() },
+      db,
+    );
+  }
+
   async sync(
     userId: string,
     operations: SyncFinancialEntryDto[],
