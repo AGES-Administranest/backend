@@ -5,7 +5,7 @@ import type {
 } from 'pdfjs-dist/types/src/display/api';
 
 import { loadPdfjs } from './pdfjs-loader';
-import { PageText, TextFragment } from '../domain/text-lines';
+import { PageText, TextFragment } from '../text-lines';
 
 /** Bounds the CPU a hostile upload can take; beyond it the reading is partial. */
 export const MAX_PAGES = 50;

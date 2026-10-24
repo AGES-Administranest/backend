@@ -1,8 +1,11 @@
 import { checkLine } from './arithmetic';
-import { parseBrazilianNumber, parseLeadingNumber } from './brazilian-formats';
-import { fold } from './labeled-value';
-import { TextCell, TextLine } from './text-lines';
-import type { ExtractedItem } from '../extraction-result';
+import type { ExtractedItem } from './purchase-order-result';
+import {
+  parseBrazilianNumber,
+  parseLeadingNumber,
+} from '../core/brazilian-formats';
+import { fold } from '../core/labeled-value';
+import { TextCell, TextLine } from '../core/text-lines';
 
 export type ItemTable = {
   items: ExtractedItem[];

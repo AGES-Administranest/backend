@@ -1,7 +1,7 @@
 import {
   findCnpjs,
   isValidCnpj,
-} from '../../../../src/modules/extraction/domain/cnpj';
+} from '../../../../src/modules/extraction/core/cnpj';
 
 describe('isValidCnpj', () => {
   it.each([

@@ -1,8 +1,8 @@
-import { parseBrazilianDate } from '../../../../src/modules/extraction/domain/brazilian-formats';
+import { parseBrazilianDate } from '../../../../src/modules/extraction/core/brazilian-formats';
 import {
   findLabeledValues,
   fold,
-} from '../../../../src/modules/extraction/domain/labeled-value';
+} from '../../../../src/modules/extraction/core/labeled-value';
 import { layout } from '../testing/layout';
 
 const DATE_LABEL = /\bdata de emissao\b/;

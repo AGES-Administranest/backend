@@ -1,6 +1,11 @@
-export type ExtractionResult = {
+import type {
+  PartialReading,
+  ReadingFailureReason,
+} from '../core/pdf-document';
+
+export type PurchaseOrderResult = {
   status: 'success' | 'failed';
-  failureReason?: ExtractionFailureReason;
+  failureReason?: PurchaseOrderFailureReason;
   supplier?: ExtractedSupplier;
   invoiceNumber?: string;
   /** `YYYY-MM-DD` */
@@ -11,17 +16,8 @@ export type ExtractionResult = {
   partial?: PartialReading;
 };
 
-export type PartialReading = {
-  pagesRead: number;
-  totalPages: number;
-};
-
-export type ExtractionFailureReason =
-  | 'unreadable'
-  | 'no_table_found'
-  | 'timeout'
-  | 'unsupported_format'
-  | 'no_text_layer';
+export type PurchaseOrderFailureReason =
+  ReadingFailureReason | 'no_table_found';
 
 export type ExtractedSupplier = {
   /** Unmasked, check digits verified. */

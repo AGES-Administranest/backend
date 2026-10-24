@@ -1,8 +1,8 @@
-import { extractItems } from '../../../../src/modules/extraction/domain/item-table';
 import {
   groupLines,
   lineText,
-} from '../../../../src/modules/extraction/domain/text-lines';
+} from '../../../../src/modules/extraction/core/text-lines';
+import { extractItems } from '../../../../src/modules/extraction/purchase-order/item-table';
 import { fragment, layout, pages } from '../testing/layout';
 
 const HEADER: [number, ...[number, string][]] = [
