@@ -113,9 +113,11 @@ export class TripsController {
   @ApiOperation({
     summary: 'Record a trip',
     description:
-      `${MODES} ${EXPENSE} Several trips may share a date. With an id ` +
-      'generated on the device, resending the same trip answers 200 with the ' +
-      'stored one.',
+      `${MODES} ${EXPENSE} The appointment and the client are optional: a ` +
+      'trip can be recorded with neither, with a client alone, or with an ' +
+      'appointment, whose client it takes when clientId is not sent. Several ' +
+      'trips may share a date. With an id generated on the device, resending ' +
+      'the same trip answers 200 with the stored one.',
   })
   @ApiBody({ type: CreateTripDto, examples: CREATE_EXAMPLES })
   @ApiCreatedResponse({ type: TripEntity })

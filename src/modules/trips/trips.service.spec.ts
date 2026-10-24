@@ -235,6 +235,32 @@ describe('TripsService', () => {
       ).rejects.toMatchObject(error('INVALID_REFERENCE', 'VEHICLE_NOT_FOUND'));
     });
 
+    it('records a trip with neither an appointment nor a client', async () => {
+      await service.createWithResult('user-1', rideDto());
+
+      expect(repository.findAppointment).not.toHaveBeenCalled();
+      expect(repository.clientExists).not.toHaveBeenCalled();
+      expect(created()).toMatchObject({ appointmentId: null, clientId: null });
+    });
+
+    it('records a trip with a client and no appointment', async () => {
+      await service.createWithResult(
+        'user-1',
+        rideDto({ clientId: 'client-2' }),
+      );
+
+      expect(repository.findAppointment).not.toHaveBeenCalled();
+      expect(repository.clientExists).toHaveBeenCalledWith(
+        'client-2',
+        'user-1',
+        tx,
+      );
+      expect(created()).toMatchObject({
+        appointmentId: null,
+        clientId: 'client-2',
+      });
+    });
+
     it('fills the client in from the appointment', async () => {
       await service.createWithResult(
         'user-1',
