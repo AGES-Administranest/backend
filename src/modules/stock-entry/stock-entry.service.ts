@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, PurchaseInvoice } from '@prisma/client';
 
-import { buildDocumentKey } from './document-key';
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
 import { UploadConfirmationResponseDto } from './dto/upload-confirmation-response.dto';
 import { UploadUrlResponseDto } from './dto/upload-url-response.dto';
-import { ExtractionService } from './extraction.service';
-import { MAX_FILE_BYTES_SIZE, PRESIGNED_TTL_MS } from './stock-entry.constants';
+import { PurchaseReadingService } from './purchase-reading.service';
+import { PURCHASE_INVOICE_UPLOAD } from './stock-entry.constants';
 import {
   fileDuplicated,
   fileTooLarge,
@@ -17,14 +16,19 @@ import {
 } from './stock-entry.errors';
 import { StockEntryRepository } from './stock-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
-import { DocumentStorage } from '../../infra/storage';
+import {
+  documentKey,
+  DocumentUploads,
+  StoredDocument,
+  UploadCheck,
+} from '../../infra/storage';
 
 @Injectable()
 export class StockEntryService {
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
-    private readonly documentStorage: DocumentStorage,
-    private readonly extractionService: ExtractionService,
+    private readonly documentUploads: DocumentUploads,
+    private readonly purchaseReadingService: PurchaseReadingService,
   ) {}
 
   /** `userId` is the local id the guard resolved from the token, never the body. */
@@ -36,14 +40,18 @@ export class StockEntryService {
     // Before signing anything: the presigned POST pins `content-length-range`
     // to this exact size, so past the limit S3 would reject the upload itself —
     // late, and with an error the app cannot read.
-    if (dto.fileBytesSize > MAX_FILE_BYTES_SIZE) {
+    if (dto.fileBytesSize > PURCHASE_INVOICE_UPLOAD.maxBytesSize) {
       throw fileTooLarge(dto.fileBytesSize);
     }
 
-    const key = buildDocumentKey(userId, purchaseInvoiceId);
+    const key = documentKey(userId, 'purchase-invoices', purchaseInvoiceId);
     await this.saveDocumentMetadata(userId, purchaseInvoiceId, key, dto);
 
-    return this.createPresignedPost(key, dto);
+    return this.documentUploads.signUpload(
+      key,
+      { mimeType: dto.fileMimeType, bytesSize: dto.fileBytesSize },
+      PURCHASE_INVOICE_UPLOAD,
+    );
   }
 
   /**
@@ -64,40 +72,22 @@ export class StockEntryService {
     if (!invoice) throw invoiceNotFound(purchaseInvoiceId);
     if (invoice.status !== 'DRAFT') throw invoiceNotEditable(invoice);
 
-    const key = buildDocumentKey(userId, purchaseInvoiceId);
-    const stored = await this.documentStorage.headDocument(key);
-    if (!stored) throw uploadNotFinished(purchaseInvoiceId);
-
-    // The policy pinned type and size to what the app declared, so a
-    // divergence here means the object in the bucket is not the one this
-    // invoice was signed for — the app reissues the presigned POST and resends.
-    if (invoice.fileMimeType && stored.contentType !== invoice.fileMimeType) {
-      throw uploadMismatch(
-        'contentType',
-        invoice.fileMimeType,
-        stored.contentType,
-      );
-    }
-    if (
-      invoice.fileBytesSize !== null &&
-      stored.contentLength !== invoice.fileBytesSize
-    ) {
-      throw uploadMismatch(
-        'contentLength',
-        invoice.fileBytesSize,
-        stored.contentLength,
-      );
-    }
+    const check = await this.documentUploads.verifyUpload(
+      documentKey(userId, 'purchase-invoices', purchaseInvoiceId),
+      { mimeType: invoice.fileMimeType, bytesSize: invoice.fileBytesSize },
+    );
+    // On a mismatch the app reissues the presigned POST and resends.
+    const stored = storedDocumentOf(check, purchaseInvoiceId);
 
     const uploaded = await this.stockEntryRepository.update(purchaseInvoiceId, {
       uploadedAt: new Date(),
     });
-    const current = await this.extractionService.run(uploaded);
+    const current = await this.purchaseReadingService.run(uploaded);
 
     return {
       contentLength: stored.contentLength,
       contentType: stored.contentType ?? '',
-      extraction: this.extractionService.view(current),
+      extraction: this.purchaseReadingService.view(current),
     };
   }
 
@@ -217,18 +207,6 @@ export class StockEntryService {
     };
   }
 
-  private createPresignedPost(
-    key: string,
-    dto: CreateUploadUrlDto,
-  ): Promise<UploadUrlResponseDto> {
-    return this.documentStorage.createPresignedPost({
-      key,
-      contentType: dto.fileMimeType,
-      contentLength: dto.fileBytesSize,
-      expiresInMs: PRESIGNED_TTL_MS,
-    });
-  }
-
   private isFileHashViolation(error: UniqueConstraintError) {
     return error.fields.some(field => field.includes('file_hash'));
   }
@@ -237,6 +215,20 @@ export class StockEntryService {
     return fileDuplicated(
       await this.stockEntryRepository.findIdByFileHash(userId, fileHash),
     );
+  }
+}
+
+function storedDocumentOf(
+  check: UploadCheck,
+  purchaseInvoiceId: string,
+): StoredDocument {
+  switch (check.status) {
+    case 'missing':
+      throw uploadNotFinished(purchaseInvoiceId);
+    case 'mismatch':
+      throw uploadMismatch(check.field, check.declared, check.stored);
+    case 'stored':
+      return check.document;
   }
 }
 

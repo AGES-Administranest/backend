@@ -4,11 +4,14 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
   DocumentStorage,
+  PresignedGet,
+  PresignedGetRequest,
   PresignedPost,
   PresignedPostRequest,
   StoredDocument,
@@ -99,6 +102,29 @@ export class S3DocumentStorage extends DocumentStorage {
   }
 
   /**
+   * Unlike the presigned POST, the host is part of the signature: the URL only
+   * works against the `AWS_ENDPOINT_URL` this API was started with.
+   */
+  async createPresignedGet(
+    request: PresignedGetRequest,
+  ): Promise<PresignedGet> {
+    const signedAt = Date.now();
+    const url = await getSignedUrl(
+      this.client,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: request.key,
+        ...(request.fileName && {
+          ResponseContentDisposition: attachmentNamed(request.fileName),
+        }),
+      }),
+      { expiresIn: Math.floor(request.expiresInMs / 1000) },
+    );
+
+    return { url, expiresAt: signedAt + request.expiresInMs };
+  }
+
+  /**
    * `HeadObject` has no body, so the SDK cannot name the error the way it does
    * for `GetObject` (`NoSuchKey`): what comes back is a bare 404.
    */
@@ -116,4 +142,14 @@ export class S3DocumentStorage extends DocumentStorage {
       name === 'NoSuchKey'
     );
   }
+}
+
+/** RFC 6266: `filename*` carries accents; `filename` is the ASCII fallback. */
+function attachmentNamed(fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  const encoded = encodeURIComponent(fileName).replace(
+    /['()*]/g,
+    char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }

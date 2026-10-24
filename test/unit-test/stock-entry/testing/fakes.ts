@@ -20,7 +20,11 @@ export class FakeStorage {
     { document: StoredDocument; bytes: Uint8Array }
   >();
 
-  put(key: string, document: StoredDocument, bytes = new Uint8Array()) {
+  put(
+    key: string,
+    document: StoredDocument,
+    bytes: Uint8Array = new Uint8Array(),
+  ) {
     this.objects.set(key, { document, bytes });
   }
 
@@ -34,6 +38,10 @@ export class FakeStorage {
 
   createPresignedPost() {
     return Promise.resolve({ url: 'https://bucket', fields: {}, expiresAt: 0 });
+  }
+
+  createPresignedGet({ key }: { key: string }) {
+    return Promise.resolve({ url: `https://bucket/${key}`, expiresAt: 0 });
   }
 }
 

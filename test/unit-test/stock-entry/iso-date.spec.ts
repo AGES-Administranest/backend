@@ -3,10 +3,7 @@ import { validate } from 'class-validator';
 
 import { ReplaceDraftLinesDto } from '../../../src/modules/stock-entry/dto/replace-draft-lines.dto';
 import { UpdateDraftHeaderDto } from '../../../src/modules/stock-entry/dto/update-draft-header.dto';
-import {
-  fromIsoDate,
-  toIsoDate,
-} from '../../../src/modules/stock-entry/iso-date';
+import { fromIsoDate, toIsoDate } from '../../../src/shared/dates/iso-date';
 
 const orderDateErrors = async (orderDate: unknown) => {
   const errors = await validate(
