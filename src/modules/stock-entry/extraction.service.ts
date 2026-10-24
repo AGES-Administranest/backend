@@ -5,12 +5,11 @@ import {
   PurchaseInvoice,
 } from '@prisma/client';
 
-import { buildDocumentKey } from './document-key';
 import { ExtractionResponseDto } from './dto/extraction-response.dto';
-import { fromIsoDate, toIsoDate } from './iso-date';
 import { EXTRACTION_TIMEOUT_MS } from './stock-entry.constants';
 import { StockEntryRepository } from './stock-entry.repository';
-import { DocumentStorage } from '../../infra/storage';
+import { documentKey, DocumentStorage } from '../../infra/storage';
+import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
 import {
   ExtractionFailureReason,
   ExtractionResult,
@@ -121,7 +120,7 @@ export class ExtractionService {
   private async extract(
     invoice: PurchaseInvoice,
   ): Promise<Prisma.PurchaseInvoiceUncheckedUpdateInput> {
-    const key = buildDocumentKey(invoice.userId, invoice.id);
+    const key = documentKey(invoice.userId, 'purchase-invoices', invoice.id);
     // The upload was verified a moment ago; its absence now is not a user error.
     const buffer = await this.documentStorage.getDocument(key);
     if (!buffer) throw new Error(`No document at ${key}`);

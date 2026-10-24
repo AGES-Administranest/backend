@@ -21,6 +21,10 @@ export abstract class DocumentStorage {
    * memory.
    */
   abstract getDocument(key: string): Promise<Uint8Array | null>;
+
+  abstract createPresignedGet(
+    request: PresignedGetRequest,
+  ): Promise<PresignedGet>;
 }
 
 export type PresignedPostRequest = {
@@ -33,6 +37,19 @@ export type PresignedPostRequest = {
 export type PresignedPost = {
   url: string;
   fields: Record<string, string>;
+  /** Ms since the epoch, comparable with `Date.now()` on the client. */
+  expiresAt: number;
+};
+
+export type PresignedGetRequest = {
+  key: string;
+  expiresInMs: number;
+  /** The key has no extension, so without this the file saves as `original`. */
+  fileName?: string;
+};
+
+export type PresignedGet = {
+  url: string;
   /** Ms since the epoch, comparable with `Date.now()` on the client. */
   expiresAt: number;
 };

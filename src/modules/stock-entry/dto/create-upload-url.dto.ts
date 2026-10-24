@@ -7,7 +7,7 @@ import {
   Min,
 } from 'class-validator';
 
-import { ALLOWED_FILE_MIME_TYPES } from '../stock-entry.constants';
+import { PURCHASE_INVOICE_UPLOAD } from '../stock-entry.constants';
 
 export class CreateUploadUrlDto {
   @IsString()
@@ -15,8 +15,8 @@ export class CreateUploadUrlDto {
   filename!: string;
 
   @IsString()
-  @IsIn(ALLOWED_FILE_MIME_TYPES)
-  fileMimeType!: (typeof ALLOWED_FILE_MIME_TYPES)[number];
+  @IsIn(PURCHASE_INVOICE_UPLOAD.allowedMimeTypes)
+  fileMimeType!: (typeof PURCHASE_INVOICE_UPLOAD.allowedMimeTypes)[number];
 
   @IsString()
   @Matches(/^[a-f0-9]{64}$/, {
