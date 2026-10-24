@@ -67,6 +67,10 @@ async function bootstrap() {
         'financial-entries',
         'Statement, manual entries, and offline sync',
       )
+      .addTag(
+        'financial-balance',
+        "The signed-in user's monthly income and expenses",
+      )
       .addTag('stock-entries', 'Purchase invoice drafts and confirmation')
       .addTag('client', 'Clínicas e hospitais atendidos pelo usuário')
       .addTag('equipment', 'Equipamento do usuário')
