@@ -84,6 +84,10 @@ async function bootstrap() {
         'pricing-settings',
         'Income goal, weekly hours and safety margin for the hour value (US19)',
       )
+      .addTag(
+        'pricing',
+        'The value of the working hour, calculated part by part (US20)',
+      )
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
       // Without this the page is unusable now that the guard is global: every
       // request from /docs would answer 401 with nowhere to put a token.

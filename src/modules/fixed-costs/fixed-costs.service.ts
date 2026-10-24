@@ -10,6 +10,14 @@ import { FinancialEntryService } from '../financial';
 const money = (value: Prisma.Decimal): string =>
   value.toFixed(2, Prisma.Decimal.ROUND_HALF_UP);
 
+/** The month's cost sources, unrounded except where the source already is. */
+export interface MonthlyCosts {
+  professionalExpenses: Prisma.Decimal;
+  personalExpenses: Prisma.Decimal;
+  depreciation: Prisma.Decimal;
+  transport: Prisma.Decimal;
+}
+
 @Injectable()
 export class FixedCostsService {
   constructor(
@@ -22,12 +30,40 @@ export class FixedCostsService {
     userId: string,
     query: QueryFixedCostsSummaryDto,
   ): Promise<FixedCostsSummaryResponse> {
-    // Expenses and depreciation both follow the requested month (UTC, like
-    // the statement, so the cards match it). For the current month the
-    // depreciation is as of now; for any other month, as of its last day.
+    // The current month is read in UTC, like the statement, so the cards
+    // match it.
     const now = new Date();
     const year = query.year ?? now.getUTCFullYear();
     const month = query.month ?? now.getUTCMonth() + 1;
+
+    const costs = await this.getMonthlyCosts(userId, year, month, now);
+    const total = costs.professionalExpenses
+      .plus(costs.personalExpenses)
+      .plus(costs.depreciation)
+      .plus(costs.transport);
+
+    return {
+      professionalExpenses: money(costs.professionalExpenses),
+      personalExpenses: money(costs.personalExpenses),
+      depreciation: money(costs.depreciation),
+      transport: money(costs.transport),
+      total: money(total),
+    };
+  }
+
+  /**
+   * The four cost sources of one month. The fixed-costs summary and the
+   * hourly rate (US20) both read them here, so the two screens cannot
+   * disagree on what a month cost.
+   */
+  async getMonthlyCosts(
+    userId: string,
+    year: number,
+    month: number,
+    now = new Date(),
+  ): Promise<MonthlyCosts> {
+    // For the current month the depreciation is as of now; for any other
+    // month, as of its last day.
     const isCurrentMonth =
       year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
     // day 0 of the next month = last day of the requested month
@@ -40,19 +76,12 @@ export class FixedCostsService {
       this.equipment.summary(userId, asOf),
       this.repository.findTransportMonthly(userId),
     ]);
-    const depreciation = new Prisma.Decimal(equipmentSummary.monthlyTotal);
-    const transportCost = transport ?? new Prisma.Decimal(0);
-    const total = expenses.professional
-      .plus(expenses.personal)
-      .plus(depreciation)
-      .plus(transportCost);
 
     return {
-      professionalExpenses: money(expenses.professional),
-      personalExpenses: money(expenses.personal),
-      depreciation: money(depreciation),
-      transport: money(transportCost),
-      total: money(total),
+      professionalExpenses: expenses.professional,
+      personalExpenses: expenses.personal,
+      depreciation: new Prisma.Decimal(equipmentSummary.monthlyTotal),
+      transport: transport ?? new Prisma.Decimal(0),
     };
   }
 }
