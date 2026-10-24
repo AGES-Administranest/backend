@@ -8,7 +8,7 @@
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  previewFeatures = ["postgresqlExtensions", "partialIndexes"]
 }
 
 datasource db {
@@ -645,8 +645,9 @@ model ServiceInvoice {
   client         Client?         @relation(fields: [clientId], references: [id])
   financialEntry FinancialEntry?
 
-  /// was a global UNIQUE: two users with the same PDF collided
-  @@unique([userId, fileHash])
+  /// was a global UNIQUE: two users with the same PDF collided. Partial so
+  /// that a deleted note frees its file to be uploaded again.
+  @@unique([userId, fileHash], where: raw("deleted_at IS NULL"))
   /// the duplicate warning looks up notes with the same date and amount
   @@index([userId, issueDate, amount])
   @@index([userId, number])

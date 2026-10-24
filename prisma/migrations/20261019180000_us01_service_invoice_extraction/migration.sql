@@ -25,4 +25,5 @@ ALTER COLUMN "file_url" DROP NOT NULL;
 CREATE INDEX "service_invoice_user_id_issue_date_amount_idx" ON "service_invoice"("user_id", "issue_date", "amount");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "service_invoice_user_id_file_hash_key" ON "service_invoice"("user_id", "file_hash");
+-- A deleted note frees its file to be uploaded again.
+CREATE UNIQUE INDEX "service_invoice_user_id_file_hash_key" ON "service_invoice"("user_id", "file_hash") WHERE (deleted_at IS NULL);

@@ -102,7 +102,7 @@ those of `purchase_invoice` instead of living in a shared table (ADR-14).
 
 | Column | Rule |
 |---|---|
-| `file_hash` | Unique per user (`user_id`, `file_hash`): the same PDF again is refused, but two users may hold the same file. |
+| `file_hash` | Unique per user (`user_id`, `file_hash`) among notes not deleted: the same PDF again is refused while its note exists, but once the note is deleted (`deleted_at`) the file can be uploaded again. Two users may hold the same file. |
 | `taker_tax_id` | CNPJ or CPF read from the note, unmasked. It is only a lookup key: the taker is `client_id`, set when the user confirms the review. |
 | `amount` | Gross amount of the services, before deductions and withheld taxes. It is the amount of the income entry. |
 | `issue_date`, `amount` | Indexed with `user_id` for the duplicate warning: a note with the same date and amount is flagged, not refused. |
