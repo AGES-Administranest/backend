@@ -104,11 +104,28 @@ export const ERROR_CODES = [
   // vehicles
   'VEHICLE_NOT_FOUND',
 
+  // trips
+  'TRIP_NOT_FOUND',
+  // The trip lacks a field its mode needs, or carries one it does not take
+  // (details.missing and details.notAllowed): OWN_VEHICLE needs vehicleId and
+  // distanceKm and refuses cost, which the server calculates; RIDE needs cost.
+  'TRIP_MODE_FIELDS_INVALID',
+  // An inactive vehicle cannot be chosen for a trip, though old trips keep it.
+  'TRIP_VEHICLE_INACTIVE',
+  // The clientId sent is not the client of the appointment sent with it.
+  'TRIP_CLIENT_MISMATCH',
+  // The device id is taken: by another trip with different content, by a
+  // deleted trip, or by another account (ADR-09).
+  'TRIP_ID_CONFLICT',
+
   // pricing settings
   // The income goal, weekly hours and safety margin were never saved. Not a
   // failure for the app: it is the calculator's initial state (US19), shown
   // before any hour value can be calculated.
   'PRICING_SETTINGS_NOT_FOUND',
+  // The monthly transport cost was never saved (US18). The card shows an empty
+  // field, not an error.
+  'TRANSPORT_COST_NOT_FOUND',
 
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
@@ -122,6 +139,15 @@ export const ERROR_CODES = [
   'INVOICE_UPLOAD_MISMATCH',
   'INVOICE_NOT_READY',
 
+  // service-invoices (NFSe). Same cases as the purchase invoice above, under
+  // their own prefix: the app tells the two flows apart by code.
+  'SERVICE_INVOICE_NOT_FOUND',
+  'SERVICE_INVOICE_NOT_EDITABLE',
+  'SERVICE_INVOICE_FILE_DUPLICATED',
+  'SERVICE_INVOICE_FILE_TOO_LARGE',
+  'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
+  'SERVICE_INVOICE_UPLOAD_MISMATCH',
+
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',
   'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
@@ -133,6 +159,13 @@ export const ERROR_CODES = [
   'FINANCIAL_CATEGORY_INVALID',
   // A default category the confirmation step needs was not seeded.
   'FINANCIAL_CATEGORY_NOT_SEEDED',
+  // The name is already used in this nature by one of the user's categories or
+  // a default, ignoring case, accents and extra spaces. `details.id` is that
+  // category, so the app selects it instead of creating a second one.
+  'FINANCIAL_CATEGORY_DUPLICATED',
+  // The app-generated id (ADR-09) already belongs to another category: one
+  // with a different payload, a default, or another account's.
+  'FINANCIAL_CATEGORY_ID_CONFLICT',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -101,6 +101,49 @@ describe('ClientService', () => {
     });
   });
 
+  describe('findByTaxId', () => {
+    it('finds the client holding the tax id, without leaking userId', async () => {
+      repository.findByTaxId.mockResolvedValue(
+        client({ taxId: '12345678000195', active: false }),
+      );
+
+      const result = await service.findByTaxId('user-1', '12345678000195');
+
+      expect(repository.findByTaxId).toHaveBeenCalledWith(
+        'user-1',
+        '12345678000195',
+      );
+      expect(result).toMatchObject({ id: 'client-1', active: false });
+      expect(result).not.toHaveProperty('userId');
+    });
+
+    it('answers null when no client holds it', async () => {
+      await expect(
+        service.findByTaxId('user-1', '12345678000195'),
+      ).resolves.toBeNull();
+    });
+  });
+
+  describe('suggestByName', () => {
+    it("ranks only the user's active clients", async () => {
+      repository.findMany.mockResolvedValue([
+        client({ id: 'other', name: 'Clínica Santa Maria' }),
+        client({ id: 'same', name: 'Clínica Exemplo' }),
+      ]);
+
+      const result = await service.suggestByName(
+        'user-1',
+        'CLINICA VETERINARIA EXEMPLO LTDA',
+      );
+
+      expect(repository.findMany).toHaveBeenCalledWith({
+        userId: 'user-1',
+        active: true,
+      });
+      expect(result.map(suggestion => suggestion.id)).toEqual(['same']);
+    });
+  });
+
   describe('create', () => {
     const dto: CreateClientDto = { type: 'CLINIC', name: 'Clínica Nova' };
 

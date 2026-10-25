@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+import { ensureDefaultFinancialCategories } from './helpers/default-financial-categories';
 import {
   bearer,
   body,
@@ -386,6 +387,175 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('service-invoices', () => {
+    const issueUploadUrl = (user: TestUser, id: string, fileHash: string) =>
+      request(http)
+        .post(`/service-invoices/${id}/upload-url`)
+        .set('Authorization', bearer(user))
+        .send({
+          filename: 'nfse.pdf',
+          fileMimeType: 'application/pdf',
+          fileHash,
+          fileBytesSize: 1024,
+        });
+
+    /** A draft, with the number the app would have read. */
+    const noteOf = async (user: TestUser): Promise<string> => {
+      const id = randomUUID();
+      await issueUploadUrl(user, id, randomBytes(32).toString('hex')).expect(
+        200,
+      );
+      await prisma.serviceInvoice.update({
+        where: { id },
+        data: { number: '1287', uploadedAt: new Date() },
+      });
+      return id;
+    };
+
+    const readNote = (id: string) =>
+      prisma.serviceInvoice.findUniqueOrThrow({ where: { id } });
+
+    it('answers 404, not 403, when issuing an upload url for another account note, and leaves it untouched', async () => {
+      const id = randomUUID();
+      await issueUploadUrl(ana, id, 'a'.repeat(64)).expect(200);
+
+      const response = await issueUploadUrl(bruno, id, 'b'.repeat(64)).expect(
+        404,
+      );
+
+      expect(body(response)).toMatchObject({
+        code: 'SERVICE_INVOICE_NOT_FOUND',
+      });
+      const stored = await readNote(id);
+      expect(stored.fileHash).toBe('a'.repeat(64));
+      expect(stored.fileUrl).toBe(
+        `users/${stored.userId}/service-invoices/${id}/original`,
+      );
+    });
+
+    it('lets another account upload the same file to a note of its own', async () => {
+      await issueUploadUrl(ana, randomUUID(), 'c'.repeat(64)).expect(200);
+
+      await issueUploadUrl(bruno, randomUUID(), 'c'.repeat(64)).expect(200);
+    });
+
+    it('does not list another account notes', async () => {
+      await noteOf(ana);
+      const brunoNote = await noteOf(bruno);
+
+      const response = await request(http)
+        .get('/service-invoices')
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      const ids = (response.body as { id: string }[]).map(note => note.id);
+      expect(ids).toEqual([brunoNote]);
+    });
+
+    it('answers 404, not 403, when reading or downloading another account note', async () => {
+      const id = await noteOf(ana);
+
+      for (const path of [
+        `/service-invoices/${id}`,
+        `/service-invoices/${id}/file`,
+      ]) {
+        const response = await request(http)
+          .get(path)
+          .set('Authorization', bearer(bruno))
+          .expect(404);
+        expect(body(response)).toMatchObject({
+          code: 'SERVICE_INVOICE_NOT_FOUND',
+        });
+      }
+    });
+
+    it('refuses to save the review of another account note, and leaves it untouched', async () => {
+      const id = await noteOf(ana);
+
+      await request(http)
+        .patch(`/service-invoices/${id}`)
+        .set('Authorization', bearer(bruno))
+        .send({ number: '9999' })
+        .expect(404);
+
+      expect((await readNote(id)).number).toBe('1287');
+    });
+
+    it('refuses to discard another account note, and leaves it a draft', async () => {
+      const id = await noteOf(ana);
+
+      await request(http)
+        .delete(`/service-invoices/${id}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect((await readNote(id)).status).toBe('DRAFT');
+    });
+
+    it('does not let a note be linked to another account client', async () => {
+      const id = await noteOf(ana);
+      const brunoRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: bruno.cognitoSub },
+      });
+      const brunoClient = await prisma.client.create({
+        data: { userId: brunoRow.id, type: 'CLINIC', name: 'Clínica do Bruno' },
+      });
+
+      const response = await request(http)
+        .patch(`/service-invoices/${id}`)
+        .set('Authorization', bearer(ana))
+        .send({ clientId: brunoClient.id })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'CLIENT_NOT_FOUND' });
+      expect((await readNote(id)).clientId).toBeNull();
+    });
+
+    it('never offers another account client or note in the review', async () => {
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      const anaClient = await prisma.client.create({
+        data: {
+          userId: anaRow.id,
+          type: 'CLINIC',
+          name: 'Clínica Exemplo',
+          taxId: '12345678000195',
+          taxIdType: 'CNPJ',
+        },
+      });
+      const sameNote = {
+        number: '1287',
+        issueDate: new Date('2026-10-13T00:00:00Z'),
+        amount: 1500,
+        takerTaxId: '12345678000195',
+      };
+      const anaNote = await noteOf(ana);
+      await prisma.serviceInvoice.update({
+        where: { id: anaNote },
+        data: { ...sameNote, status: 'CONFIRMED', clientId: anaClient.id },
+      });
+      const brunoNote = await noteOf(bruno);
+      await prisma.serviceInvoice.update({
+        where: { id: brunoNote },
+        data: {
+          ...sameNote,
+          rawExtraction: { taker: { name: 'CLINICA EXEMPLO LTDA' } },
+        },
+      });
+
+      const response = await request(http)
+        .get(`/service-invoices/${brunoNote}`)
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      const review = body(response).review as Record<string, unknown>;
+      expect(review).not.toHaveProperty('clientMatch');
+      expect(review).not.toHaveProperty('clientSuggestions');
+      expect(review).not.toHaveProperty('duplicateOf');
+    });
+  });
+
   describe('appointments', () => {
     const createAppointment = async (
       user: TestUser,
@@ -503,6 +673,98 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('financial categories', () => {
+    const createCategory = async (
+      user: TestUser,
+      name: string,
+    ): Promise<string> => {
+      const id = randomUUID();
+      await request(http)
+        .post('/financial-categories')
+        .set('Authorization', bearer(user))
+        .send({ id, name, nature: 'EXPENSE', defaultScope: 'PERSONAL' })
+        .expect(201);
+
+      return id;
+    };
+
+    /** The caller's own categories: defaults are shared and prove nothing. */
+    const listOwnNames = async (user: TestUser): Promise<string[]> => {
+      const response = await request(http)
+        .get('/financial-categories')
+        .set('Authorization', bearer(user))
+        .expect(200);
+
+      return (response.body as { name: string; isDefault: boolean }[])
+        .filter(category => !category.isDefault)
+        .map(category => category.name);
+    };
+
+    it('does not list another account categories', async () => {
+      await createCategory(ana, 'Comida da Ana');
+
+      expect(await listOwnNames(bruno)).not.toContain('Comida da Ana');
+      expect(await listOwnNames(ana)).toContain('Comida da Ana');
+    });
+
+    it('lets another account create a category with the same name', async () => {
+      await createCategory(ana, 'Comida');
+      await createCategory(bruno, 'Comida');
+
+      expect(await listOwnNames(ana)).toEqual(['Comida']);
+      expect(await listOwnNames(bruno)).toEqual(['Comida']);
+    });
+
+    it('refuses another account category in an entry, and records no entry', async () => {
+      const anaCategory = await createCategory(ana, 'Comida da Ana');
+
+      const response = await request(http)
+        .post('/financial-entries')
+        .set('Authorization', bearer(bruno))
+        .send({
+          id: randomUUID(),
+          nature: 'EXPENSE',
+          description: 'Almoço',
+          amount: 30,
+          accrualDate: '2026-09-25T12:00:00.000Z',
+          categoryId: anaCategory,
+        })
+        .expect(400);
+
+      expect(body(response)).toMatchObject({
+        code: 'FINANCIAL_CATEGORY_INVALID',
+      });
+      expect(await prisma.financialEntry.count()).toBe(0);
+    });
+
+    it('refuses another account category id, and leaves the category untouched', async () => {
+      const anaCategory = await createCategory(ana, 'Comida da Ana');
+
+      const response = await request(http)
+        .post('/financial-categories')
+        .set('Authorization', bearer(bruno))
+        .send({
+          id: anaCategory,
+          name: 'Comida da Ana',
+          nature: 'EXPENSE',
+          defaultScope: 'PERSONAL',
+        })
+        .expect(409);
+
+      // The same answer as any id already in use: nothing says whose it is.
+      expect(body(response)).toMatchObject({
+        code: 'FINANCIAL_CATEGORY_ID_CONFLICT',
+      });
+      expect(body(response)).not.toHaveProperty('details');
+      expect(await listOwnNames(bruno)).toEqual([]);
+      const stored = await prisma.financialCategory.findUniqueOrThrow({
+        where: { id: anaCategory },
+        include: { user: true },
+      });
+      expect(stored.user?.email).toBe(ana.email);
+    });
+  });
+
   describe('vehicles', () => {
     const createVehicle = async (
       user: TestUser,
@@ -606,6 +868,236 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
 
       const stored = await prisma.vehicle.findUniqueOrThrow({
         where: { id: brunoVehicle },
+      });
+      expect(stored.userId).not.toBe(anaRow.id);
+    });
+  });
+
+  describe('trips', () => {
+    // Each trip posts its expense under the default Travel category, which
+    // resetDatabase's TRUNCATE ... CASCADE wipes with everything else.
+    beforeEach(async () => {
+      await ensureDefaultFinancialCategories(prisma);
+    });
+
+    /** The trip's expense as stored, to prove an attempted write left it alone. */
+    const expenseOf = (tripId: string) =>
+      prisma.financialEntry.findUniqueOrThrow({ where: { tripId } });
+
+    const createVehicle = async (user: TestUser): Promise<string> => {
+      const response = await request(http)
+        .post('/vehicles')
+        .set('Authorization', bearer(user))
+        .send({
+          brand: 'Fiat',
+          model: 'Strada',
+          fuelType: 'FLEX',
+          avgConsumptionKmL: 12.5,
+          fuelPrice: 5.899,
+        })
+        .expect(201);
+
+      return body(response).id as string;
+    };
+
+    const createTrip = async (
+      user: TestUser,
+      fields: Record<string, unknown> = {},
+    ): Promise<string> => {
+      const response = await request(http)
+        .post('/trips')
+        .set('Authorization', bearer(user))
+        .send({
+          mode: 'RIDE',
+          occurredOn: '2026-10-18',
+          origin: 'Casa',
+          destination: 'Clinica da Ana',
+          cost: 32.9,
+          ...fields,
+        })
+        .expect(201);
+
+      return body(response).id as string;
+    };
+
+    const readTripAsOwner = async (user: TestUser, tripId: string) => {
+      const response = await request(http)
+        .get(`/trips/${tripId}`)
+        .set('Authorization', bearer(user))
+        .expect(200);
+
+      return body(response);
+    };
+
+    it('does not list another account trips, nor count them in the totals', async () => {
+      const anaVehicle = await createVehicle(ana);
+      await createTrip(ana, {
+        mode: 'OWN_VEHICLE',
+        vehicleId: anaVehicle,
+        cost: undefined,
+        distanceKm: 300,
+      });
+      await createTrip(ana);
+      await createTrip(bruno, { destination: 'Clinica do Bruno', cost: 10 });
+
+      const response = await request(http)
+        .get('/trips')
+        .query({ from: '2026-10-01', to: '2026-10-31' })
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      expect(body(response)).toMatchObject({
+        total: 1,
+        totalKm: '0.00',
+        totalCost: '10.00',
+      });
+      const destinations = (
+        body(response).items as { destination: string }[]
+      ).map(trip => trip.destination);
+      expect(destinations).toEqual(['Clinica do Bruno']);
+    });
+
+    it('answers 404, not 403, when reading another account trip', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .get(`/trips/${anaTrip}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_NOT_FOUND' });
+    });
+
+    it('refuses to update another account trip, and leaves it untouched', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .patch(`/trips/${anaTrip}`)
+        .set('Authorization', bearer(bruno))
+        .send({ cost: 999, destination: 'Renomeado pelo Bruno' })
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_NOT_FOUND' });
+      expect(await readTripAsOwner(ana, anaTrip)).toMatchObject({
+        destination: 'Clinica da Ana',
+        cost: '32.9',
+      });
+      const expense = await expenseOf(anaTrip);
+      expect(expense.amount.toString()).toBe('32.9');
+      expect(expense.description).toBe('Casa → Clinica da Ana');
+    });
+
+    it('refuses to delete another account trip, and leaves it in place', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .delete(`/trips/${anaTrip}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_NOT_FOUND' });
+      await readTripAsOwner(ana, anaTrip);
+      expect((await expenseOf(anaTrip)).deletedAt).toBeNull();
+    });
+
+    it('refuses a trip that points at another account vehicle, appointment or client', async () => {
+      const anaVehicle = await createVehicle(ana);
+      const anaAppointment = body(
+        await request(http)
+          .post('/appointments')
+          .set('Authorization', bearer(ana))
+          .send({
+            startsAt: '2026-10-18T13:00:00.000Z',
+            endsAt: '2026-10-18T14:00:00.000Z',
+          })
+          .expect(201),
+      ).id as string;
+      const anaClient = body(
+        await request(http)
+          .post('/client')
+          .set('Authorization', bearer(ana))
+          .send({ type: 'CLINIC', name: 'Clinica da Ana' })
+          .expect(201),
+      ).id as string;
+
+      const ride = {
+        mode: 'RIDE',
+        occurredOn: '2026-10-18',
+        origin: 'Casa',
+        destination: 'Clinica',
+        cost: 10,
+      };
+      const cases: [Record<string, unknown>, string][] = [
+        [
+          {
+            mode: 'OWN_VEHICLE',
+            vehicleId: anaVehicle,
+            occurredOn: '2026-10-18',
+            origin: 'Casa',
+            destination: 'Clinica',
+            distanceKm: 10,
+          },
+          'VEHICLE_NOT_FOUND',
+        ],
+        [{ ...ride, appointmentId: anaAppointment }, 'APPOINTMENT_NOT_FOUND'],
+        [{ ...ride, clientId: anaClient }, 'CLIENT_NOT_FOUND'],
+      ];
+      for (const [trip, code] of cases) {
+        const response = await request(http)
+          .post('/trips')
+          .set('Authorization', bearer(bruno))
+          .send(trip)
+          .expect(422);
+
+        expect(body(response)).toMatchObject({ code });
+      }
+      expect(await prisma.financialEntry.count()).toBe(0);
+      expect(await prisma.trip.count()).toBe(0);
+    });
+
+    it('refuses another account device id, and leaves that trip untouched', async () => {
+      const anaTrip = await createTrip(ana);
+
+      const response = await request(http)
+        .post('/trips')
+        .set('Authorization', bearer(bruno))
+        .send({
+          id: anaTrip,
+          mode: 'RIDE',
+          occurredOn: '2026-10-18',
+          origin: 'Casa',
+          destination: 'Clinica da Ana',
+          cost: 32.9,
+        })
+        .expect(409);
+
+      expect(body(response)).toMatchObject({ code: 'TRIP_ID_CONFLICT' });
+      const stored = await prisma.trip.findUniqueOrThrow({
+        where: { id: anaTrip },
+      });
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      expect(stored.userId).toBe(anaRow.id);
+      expect(await prisma.trip.count()).toBe(1);
+      expect(await prisma.financialEntry.count()).toBe(1);
+      expect((await expenseOf(anaTrip)).userId).toBe(anaRow.id);
+    });
+
+    it('cannot reassign a trip by sending a userId', async () => {
+      const brunoTrip = await createTrip(bruno);
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+
+      await request(http)
+        .patch(`/trips/${brunoTrip}`)
+        .set('Authorization', bearer(bruno))
+        .send({ userId: anaRow.id })
+        .expect(400);
+
+      const stored = await prisma.trip.findUniqueOrThrow({
+        where: { id: brunoTrip },
       });
       expect(stored.userId).not.toBe(anaRow.id);
     });

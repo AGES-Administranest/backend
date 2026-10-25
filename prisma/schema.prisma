@@ -8,7 +8,7 @@
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  previewFeatures = ["postgresqlExtensions", "partialIndexes"]
 }
 
 datasource db {
@@ -81,6 +81,15 @@ enum FuelType {
   DIESEL
 
   @@map("fuel_type_enum")
+}
+
+/// OWN_VEHICLE is priced from a vehicle's cost per km; RIDE (app or taxi) is
+/// the fare the user paid.
+enum TripMode {
+  OWN_VEHICLE
+  RIDE
+
+  @@map("trip_mode_enum")
 }
 
 enum EntryNature {
@@ -195,6 +204,14 @@ enum PurchaseInvoiceStatus {
   @@map("purchase_invoice_status_enum")
 }
 
+enum ServiceInvoiceStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+
+  @@map("service_invoice_status_enum")
+}
+
 enum ExtractionStatus {
   PENDING
   PROCESSING
@@ -214,18 +231,13 @@ enum ExtractionFailureReason {
   /// PDF with no text to read (a scan): the file stays as a receipt and the
   /// items are typed by hand
   NO_TEXT_LAYER
+  /// NFSe whose text was read but where none of its fields was found: the
+  /// review is filled in by hand
+  NO_FIELDS_FOUND
 
   @@map("extraction_failure_reason_enum")
 }
 
-enum ExtractionJobStatus {
-  QUEUED
-  PROCESSING
-  DONE
-  FAILED
-
-  @@map("extraction_job_status_enum")
-}
 
 /// Identity and owner of all data. No admin role: the system is for individual
 /// use by the professional, with no confirmed need for multi-user support.
@@ -297,6 +309,7 @@ model Client {
   user            User             @relation(fields: [userId], references: [id])
   appointments    Appointment[]
   serviceInvoices ServiceInvoice[]
+  trips           Trip[]
 
   @@index([userId, active])
   @@map("client")
@@ -349,24 +362,43 @@ model Appointment {
   @@map("appointment")
 }
 
-/// No vehicle record and no cost split across multiple appointments: the cost
-/// is recorded directly per trip.
+/// A trip to a client. OWN_VEHICLE prices it from the vehicle's cost per km,
+/// copied into cost_per_km when recorded, so later fuel price changes and
+/// inactivating the vehicle leave it unchanged; RIDE stores the fare paid.
+/// Mode rules are enforced by the CHECK in migration
+/// 20261018205653_trip_vehicle_mode. Several trips may share a date.
 model Trip {
   id            String    @id @default(uuid()) @db.Uuid
   userId        String    @map("user_id") @db.Uuid
+  mode          TripMode
+  /// required for OWN_VEHICLE, NULL for RIDE
+  vehicleId     String?   @map("vehicle_id") @db.Uuid
   appointmentId String?   @map("appointment_id") @db.Uuid
+  clientId      String?   @map("client_id") @db.Uuid
   occurredOn    DateTime  @map("occurred_on") @db.Date
+  origin        String    @db.VarChar(200)
+  destination   String    @db.VarChar(200)
+  /// required for OWN_VEHICLE, optional for RIDE. CHECK > 0.
   distanceKm    Decimal?  @map("distance_km") @db.Decimal(10, 2)
-  cost          Decimal?  @db.Decimal(14, 2)
+  /// R$ per km copied from the vehicle when the trip was priced; NULL for
+  /// RIDE. CHECK >= 0.
+  costPerKm     Decimal?  @map("cost_per_km") @db.Decimal(10, 4)
+  /// R$. OWN_VEHICLE: distance_km × cost_per_km rounded to cents, so it can
+  /// be 0.00 for a very short trip; RIDE: the fare paid. CHECK >= 0.
+  cost          Decimal   @db.Decimal(14, 2)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   user           User            @relation(fields: [userId], references: [id])
+  vehicle        Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   appointment    Appointment?    @relation(fields: [appointmentId], references: [id])
+  client         Client?         @relation(fields: [clientId], references: [id])
   financialEntry FinancialEntry?
 
   @@index([userId, occurredOn])
+  @@index([userId, clientId])
+  @@index([vehicleId])
   @@map("trip")
 }
 
@@ -389,7 +421,8 @@ model Vehicle {
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  user User @relation(fields: [userId], references: [id])
+  user  User   @relation(fields: [userId], references: [id])
+  trips Trip[]
 
   @@index([userId, active])
   @@map("vehicle")
@@ -593,32 +626,60 @@ model Equipment {
 
 /// Revenue invoice issued OUTSIDE the app. The monthly billing report sums
 /// amount by month, with no need for a grouping table linking to appointments.
+///
+/// Its income entry is independent of appointments: confirming a note always
+/// records one. The user is expected to upload only notes of appointments not
+/// registered in the app; the system does not check it, so the same revenue
+/// can be counted twice.
 model ServiceInvoice {
-  id            String    @id @default(uuid()) @db.Uuid
-  userId        String    @map("user_id") @db.Uuid
-  clientId      String?   @map("client_id") @db.Uuid
-  number        String?
-  issueDate     DateTime? @map("issue_date") @db.Date
-  amount        Decimal?  @db.Decimal(14, 2)
-  description   String?
-  /// storage URL — PDF or photo
-  fileUrl       String    @map("file_url")
-  fileMimeType  String?   @map("file_mime_type")
-  /// ensures idempotency on reprocessing
-  fileHash      String?   @unique @map("file_hash")
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  /// the taker the user confirmed; set in the review, never by the extraction
+  clientId    String?   @map("client_id") @db.Uuid
+  number      String?
+  issueDate   DateTime? @map("issue_date") @db.Date
+  /// gross amount of the services, before deductions and withheld taxes
+  amount      Decimal?  @db.Decimal(14, 2)
+  description String?
+  /// CNPJ or CPF of the taker as read from the note, unmasked; used to find
+  /// the client, and to pre-fill a new one when none matches
+  takerTaxId  String?   @map("taker_tax_id") @db.VarChar(14)
+
+  status           ServiceInvoiceStatus     @default(DRAFT)
+  extractionStatus ExtractionStatus         @default(PENDING) @map("extraction_status")
+  failureReason    ExtractionFailureReason? @map("failure_reason")
+
+  /// Holds the object's deterministic KEY, not a signed URL: the presigned
+  /// POST expires, the key does not. Nullable — the draft is born before any
+  /// object exists in the bucket.
+  fileUrl       String? @map("file_url")
+  /// original name declared by the app, for display only
+  fileName      String? @map("file_name")
+  /// declared by the app and pinned in the presigned policy
+  fileMimeType  String? @map("file_mime_type")
+  fileBytesSize Int?    @map("file_bytes_size")
+  fileHash      String? @map("file_hash")
   /// raw OCR output — used when extraction partially fails
-  rawExtraction Json?     @map("raw_extraction")
+  rawExtraction Json?   @map("raw_extraction")
+
+  uploadRequestedAt DateTime? @map("upload_requested_at") @db.Timestamptz(6)
+  uploadedAt        DateTime? @map("uploaded_at") @db.Timestamptz(6)
   /// NULL = data still exactly as it came out of the OCR, not reviewed
-  reviewedAt    DateTime? @map("reviewed_at") @db.Timestamptz(6)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   user           User            @relation(fields: [userId], references: [id])
   client         Client?         @relation(fields: [clientId], references: [id])
   financialEntry FinancialEntry?
 
-  @@index([userId, issueDate])
+  /// was a global UNIQUE: two users with the same PDF collided. Partial so
+  /// that a deleted note frees its file to be uploaded again.
+  @@unique([userId, fileHash], where: raw("deleted_at IS NULL"))
+  /// the duplicate warning looks up notes with the same date and amount
+  @@index([userId, issueDate, amount])
   @@index([userId, number])
   @@map("service_invoice")
 }
@@ -690,7 +751,6 @@ model PurchaseInvoice {
   supplier       Supplier?             @relation(fields: [supplierId], references: [id])
   lines          PurchaseInvoiceLine[]
   financialEntry FinancialEntry?
-  extractionJob  ExtractionJob?
 
   /// was a global UNIQUE: two users with the same PDF collided
   @@unique([userId, fileHash])
@@ -699,23 +759,6 @@ model PurchaseInvoice {
   @@map("purchase_invoice")
 }
 
-model ExtractionJob {
-  id                String              @id @default(uuid()) @db.Uuid
-  purchaseInvoiceId String              @unique @map("purchase_invoice_id") @db.Uuid
-  status            ExtractionJobStatus @default(QUEUED)
-  attempts          Int                 @default(0)
-  /// startedAt plus a time limit is the way out for a job stuck in PROCESSING
-  /// after a Node restart (ADR-05)
-  startedAt         DateTime?           @map("started_at") @db.Timestamptz(6)
-  finishedAt        DateTime?           @map("finished_at") @db.Timestamptz(6)
-  lastError         String?             @map("last_error")
-  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  purchaseInvoice PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
-
-  @@index([status, createdAt])
-  @@map("extraction_job")
-}
 
 /// item_id is optional: the OCR may return a line that does not match any
 /// registered item.
@@ -772,7 +815,10 @@ model FinancialCategory {
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user    User?            @relation(fields: [userId], references: [id])
+  /// Restrict, like every other relation to User. SetNull (Prisma's default
+  /// for an optional relation) would turn a deleted user's categories into
+  /// system defaults that every other user sees.
+  user    User?            @relation(fields: [userId], references: [id], onDelete: Restrict)
   entries FinancialEntry[]
 
   @@unique([userId, nature, name])

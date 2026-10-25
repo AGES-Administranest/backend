@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 
-import { ExtractorStrategy } from './extractor-strategy';
-import { PdfTextExtractor } from './pdf-text-extractor';
+import { ExtractionService } from './extraction.service';
+import { NfseExtractor } from './nfse/nfse-extractor';
+import { PurchaseOrderExtractor } from './purchase-order/purchase-order-extractor';
 
 @Module({
-  providers: [{ provide: ExtractorStrategy, useClass: PdfTextExtractor }],
-  exports: [ExtractorStrategy],
+  providers: [PurchaseOrderExtractor, NfseExtractor, ExtractionService],
+  exports: [ExtractionService],
 })
 export class ExtractionModule {}

@@ -1,8 +1,9 @@
+import { PdfText } from './pdf-builder';
 import {
   groupLines,
   TextFragment,
   TextLine,
-} from '../../../../src/modules/extraction/domain/text-lines';
+} from '../../../../src/modules/extraction/core/text-lines';
 
 // Helvetica at 10 pt averages about 5 pt per glyph.
 const CHAR_WIDTH = 5;
@@ -29,4 +30,11 @@ export function pages(...spec: [rows: Row[], page: number][]): TextLine[] {
       ),
     })),
   );
+}
+
+/** The same page `buildPdf` would draw, without going through a PDF. */
+export function fromPdfTexts(texts: PdfText[], page = 1): TextLine[] {
+  return groupLines([
+    { page, fragments: texts.map(([x, y, text]) => fragment(text, x, y)) },
+  ]);
 }

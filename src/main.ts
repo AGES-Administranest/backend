@@ -67,6 +67,10 @@ async function bootstrap() {
         'financial-entries',
         'Statement, manual entries, and offline sync',
       )
+      .addTag(
+        'financial-balance',
+        "The signed-in user's monthly income and expenses",
+      )
       .addTag('stock-entries', 'Purchase invoice drafts and confirmation')
       .addTag('client', 'Clínicas e hospitais atendidos pelo usuário')
       .addTag('equipment', 'Equipamento do usuário')
@@ -75,10 +79,18 @@ async function bootstrap() {
         'vehicles',
         "The user's vehicles and their fuel cost per kilometre",
       )
+      .addTag(
+        'trips',
+        "The user's trips to clients, by own vehicle or by ride, and their cost",
+      )
       .addTag('fixed-costs', "The user's monthly fixed-cost summary")
       .addTag(
         'pricing-settings',
         'Income goal, weekly hours and safety margin for the hour value (US19)',
+      )
+      .addTag(
+        'pricing',
+        'The value of the working hour, calculated part by part (US20)',
       )
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
       // Without this the page is unusable now that the guard is global: every

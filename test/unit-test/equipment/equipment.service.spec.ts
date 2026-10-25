@@ -259,3 +259,69 @@ describe('EquipmentService', () => {
     });
   });
 });
+
+describe('EquipmentService.summary with asOf', () => {
+  // (6000 - 0) / 60 = 100 a month, bought on 2026-03-15
+  const item = (overrides: Partial<Equipment> = {}) =>
+    equipment({
+      purchaseValue: new Decimal(6000),
+      salvageValue: new Decimal(0),
+      acquisitionDate: new Date('2026-03-15T00:00:00Z'),
+      usefulLifeMonths: 60,
+      ...overrides,
+    });
+
+  const build = (rows: unknown[]) =>
+    new EquipmentService({
+      findMany: jest.fn().mockResolvedValue(rows),
+    } as never);
+
+  it('returns 0 for a date before the purchase', async () => {
+    const result = await build([item()]).summary(
+      'user-1',
+      new Date('2026-02-28T23:59:59Z'),
+    );
+
+    expect(result.monthlyTotal).toBe(0);
+    expect(result.count).toBe(0);
+  });
+
+  it('charges the full quota in the month of the purchase', async () => {
+    const result = await build([item()]).summary(
+      'user-1',
+      new Date('2026-03-31T23:59:59Z'),
+    );
+
+    expect(result.monthlyTotal).toBe(100);
+    expect(result.count).toBe(1);
+  });
+
+  it('depreciates inside the useful life', async () => {
+    const result = await build([item()]).summary(
+      'user-1',
+      new Date('2027-06-30T23:59:59Z'),
+    );
+
+    expect(result.monthlyTotal).toBe(100);
+  });
+
+  it('returns 0 after the end of the useful life', async () => {
+    const result = await build([item()]).summary(
+      'user-1',
+      new Date('2032-12-31T23:59:59Z'),
+    );
+
+    expect(result.monthlyTotal).toBe(0);
+  });
+
+  it('defaults asOf to now', async () => {
+    const bought = new Date();
+    bought.setUTCFullYear(bought.getUTCFullYear() - 1);
+
+    const result = await build([item({ acquisitionDate: bought })]).summary(
+      'user-1',
+    );
+
+    expect(result.monthlyTotal).toBe(100);
+  });
+});

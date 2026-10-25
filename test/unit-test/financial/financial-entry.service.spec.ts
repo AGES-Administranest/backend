@@ -26,6 +26,7 @@ const row = (overrides: Partial<StatementRow> = {}): StatementRow => ({
     id: 'cat-1',
     name: 'Professional fees',
     defaultScope: EntryScope.PROFESSIONAL,
+    userId: null,
   },
   ...overrides,
 });
@@ -98,6 +99,32 @@ describe('FinancialEntryService', () => {
         }),
       ).origin,
     ).toEqual({ type: EntrySource.APPOINTMENT, id: 'appt-1' });
+  });
+
+  it('flags a default category and a user one with the same name, without the owner', () => {
+    expect(toStatementEntry(row()).category).toEqual({
+      id: 'cat-1',
+      name: 'Professional fees',
+      scope: EntryScope.PROFESSIONAL,
+      isDefault: true,
+    });
+    expect(
+      toStatementEntry(
+        row({
+          category: {
+            id: 'cat-2',
+            name: 'Professional fees',
+            defaultScope: EntryScope.PERSONAL,
+            userId: 'user-1',
+          },
+        }),
+      ).category,
+    ).toEqual({
+      id: 'cat-2',
+      name: 'Professional fees',
+      scope: EntryScope.PERSONAL,
+      isDefault: false,
+    });
   });
 });
 
@@ -425,6 +452,187 @@ describe('FinancialEntryService manual writes', () => {
       code: 'FINANCIAL_ENTRY_DELETE_VIA_ORIGIN',
       kind: 'CONFLICT',
       details: { type: EntrySource.APPOINTMENT, id: 'appt-1' },
+    });
+  });
+});
+
+describe('FinancialEntryService, trip expenses', () => {
+  const tx = { tx: true };
+  let repository: {
+    findByTrip: jest.Mock;
+    updateById: jest.Mock;
+    create: jest.Mock;
+  };
+  let categories: { findDefault: jest.Mock };
+  let service: FinancialEntryService;
+
+  const input = (amount: string) => ({
+    userId: 'user-1',
+    tripId: 'trip-1',
+    amount: new Prisma.Decimal(amount),
+    occurredOn: new Date('2026-10-18T00:00:00.000Z'),
+    description: 'Casa → Clínica',
+  });
+
+  beforeEach(() => {
+    repository = {
+      findByTrip: jest.fn().mockResolvedValue(null),
+      updateById: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn().mockResolvedValue(row()),
+    };
+    categories = {
+      findDefault: jest.fn().mockResolvedValue({
+        id: 'travel',
+        defaultScope: EntryScope.PROFESSIONAL,
+      }),
+    };
+    service = new FinancialEntryService(
+      repository as never,
+      categories as never,
+    );
+  });
+
+  describe('recordTrip', () => {
+    it('posts a professional expense under Travel, in the trip transaction', async () => {
+      await service.recordTrip(input('141.57'), tx as never);
+
+      expect(repository.findByTrip).toHaveBeenCalledWith(
+        'user-1',
+        'trip-1',
+        tx,
+      );
+      expect(categories.findDefault).toHaveBeenCalledWith(
+        'Travel',
+        EntryNature.EXPENSE,
+      );
+      const [data, client] = repository.create.mock.calls[0] as [
+        Prisma.FinancialEntryUncheckedCreateInput,
+        unknown,
+      ];
+      expect(client).toBe(tx);
+      expect(data).toEqual({
+        userId: 'user-1',
+        nature: EntryNature.EXPENSE,
+        scope: EntryScope.PROFESSIONAL,
+        categoryId: 'travel',
+        description: 'Casa → Clínica',
+        amount: new Prisma.Decimal('141.57'),
+        accrualDate: new Date('2026-10-18T00:00:00.000Z'),
+        source: EntrySource.TRIP,
+        tripId: 'trip-1',
+      });
+    });
+
+    it('updates the amount, date and description of the existing expense', async () => {
+      repository.findByTrip.mockResolvedValue({
+        id: 'entry-1',
+        deletedAt: null,
+      });
+
+      await service.recordTrip(input('47.19'), tx as never);
+
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(repository.updateById).toHaveBeenCalledWith(
+        'entry-1',
+        {
+          amount: new Prisma.Decimal('47.19'),
+          accrualDate: new Date('2026-10-18T00:00:00.000Z'),
+          description: 'Casa → Clínica',
+          deletedAt: null,
+        },
+        tx,
+      );
+    });
+
+    it('revives a deleted expense when the cost rises from zero', async () => {
+      repository.findByTrip.mockResolvedValue({
+        id: 'entry-1',
+        deletedAt: new Date('2026-10-18T12:00:00.000Z'),
+      });
+
+      await service.recordTrip(input('0.01'), tx as never);
+
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(repository.updateById).toHaveBeenCalledWith(
+        'entry-1',
+        expect.objectContaining({ deletedAt: null }),
+        tx,
+      );
+    });
+
+    it('removes the expense, never setting it to zero, when the cost drops to zero', async () => {
+      repository.findByTrip.mockResolvedValue({
+        id: 'entry-1',
+        deletedAt: null,
+      });
+
+      await service.recordTrip(input('0'), tx as never);
+
+      const [id, data, client] = repository.updateById.mock.calls[0] as [
+        string,
+        { deletedAt: unknown; amount?: unknown },
+        unknown,
+      ];
+      expect(id).toBe('entry-1');
+      expect(data.deletedAt).toBeInstanceOf(Date);
+      expect(data).not.toHaveProperty('amount');
+      expect(client).toBe(tx);
+    });
+
+    it.each([
+      ['no expense', null],
+      ['an already removed one', { id: 'entry-1', deletedAt: new Date() }],
+    ])('posts nothing for a zero cost with %s', async (_case, existing) => {
+      repository.findByTrip.mockResolvedValue(existing);
+
+      await service.recordTrip(input('0.00'), tx as never);
+
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(repository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('fails when the Travel category is not seeded', async () => {
+      categories.findDefault.mockResolvedValue(null);
+
+      await expect(
+        service.recordTrip(input('141.57'), tx as never),
+      ).rejects.toMatchObject({
+        kind: 'INVALID_INPUT',
+        code: 'FINANCIAL_CATEGORY_NOT_SEEDED',
+      } satisfies Partial<DomainError>);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeTripEntry', () => {
+    it('soft-deletes the expense in the trip transaction', async () => {
+      repository.findByTrip.mockResolvedValue({
+        id: 'entry-1',
+        deletedAt: null,
+      });
+
+      await service.removeTripEntry('user-1', 'trip-1', tx as never);
+
+      const [id, data, client] = repository.updateById.mock.calls[0] as [
+        string,
+        { deletedAt: unknown },
+        unknown,
+      ];
+      expect(id).toBe('entry-1');
+      expect(Object.keys(data)).toEqual(['deletedAt']);
+      expect(data.deletedAt).toBeInstanceOf(Date);
+      expect(client).toBe(tx);
+    });
+
+    it.each([
+      ['no expense', null],
+      ['an already removed one', { id: 'entry-1', deletedAt: new Date() }],
+    ])('does nothing for a trip with %s', async (_case, existing) => {
+      repository.findByTrip.mockResolvedValue(existing);
+
+      await service.removeTripEntry('user-1', 'trip-1', tx as never);
+
+      expect(repository.updateById).not.toHaveBeenCalled();
     });
   });
 });

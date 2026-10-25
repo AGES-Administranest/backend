@@ -19,7 +19,10 @@ const statementSelect = {
   serviceInvoiceId: true,
   purchaseInvoiceId: true,
   tripId: true,
-  category: { select: { id: true, name: true, defaultScope: true } },
+  // userId only feeds isDefault in the response; it is never returned.
+  category: {
+    select: { id: true, name: true, defaultScope: true, userId: true },
+  },
 } satisfies Prisma.FinancialEntrySelect;
 
 export type StatementRow = Prisma.FinancialEntryGetPayload<{
@@ -83,6 +86,32 @@ export class FinancialEntryRepository {
     });
   }
 
+  sumByNatureScopeCategory(
+    userId: string,
+    filter: StatementFilter,
+  ): Promise<
+    {
+      nature: EntryNature;
+      scope: EntryScope;
+      categoryId: string;
+      total: Prisma.Decimal;
+    }[]
+  > {
+    return runQuery(async () => {
+      const rows = await this.prisma.financialEntry.groupBy({
+        by: ['nature', 'scope', 'categoryId'],
+        where: this.statementWhere(userId, filter),
+        _sum: { amount: true },
+      });
+      return rows.map(row => ({
+        nature: row.nature,
+        scope: row.scope,
+        categoryId: row.categoryId,
+        total: row._sum.amount ?? new Prisma.Decimal(0),
+      }));
+    });
+  }
+
   findStatement(
     userId: string,
     filter: StatementFilter,
@@ -111,6 +140,34 @@ export class FinancialEntryRepository {
         where: { userId, purchaseInvoiceId, deletedAt: null },
         select: { id: true },
       }),
+    );
+  }
+
+  /**
+   * The trip's entry, deleted or not: trip_id is unique, so a deleted entry is
+   * revived rather than created again.
+   */
+  findByTrip(
+    userId: string,
+    tripId: string,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<{ id: string; deletedAt: Date | null } | null> {
+    return runQuery(() =>
+      db.financialEntry.findFirst({
+        where: { userId, tripId },
+        select: { id: true, deletedAt: true },
+      }),
+    );
+  }
+
+  /** For automatic entries, whose origin decides every change. */
+  async updateById(
+    id: string,
+    data: Prisma.FinancialEntryUncheckedUpdateInput,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<void> {
+    await runQuery(() =>
+      db.financialEntry.update({ where: { id }, data, select: { id: true } }),
     );
   }
 

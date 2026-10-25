@@ -2,13 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { EntryNature, EntryScope, EntrySource, Prisma } from '@prisma/client';
 
 import { CreateFinancialEntryDto } from './dto/create-financial-entry.dto';
+import { QueryFinancialBalanceDto } from './dto/query-financial-balance.dto';
 import { QueryFinancialEntryDto } from './dto/query-financial-entry.dto';
 import { SyncFinancialEntryDto } from './dto/sync-financial-entry.dto';
 import { UpdateFinancialEntryDto } from './dto/update-financial-entry.dto';
+import { FinancialBalanceResponse } from './entities/financial-balance.entity';
 import {
   FinancialEntryResponse,
   FinancialEntrySyncResult,
 } from './entities/financial-entry.entity';
+import { EXPENSE_GROUPS, expenseGroupOf } from './expense-groups';
 import { FinancialCategoryRepository } from './financial-category.repository';
 import {
   FinancialEntryRepository,
@@ -28,6 +31,9 @@ export function accrualMonth(year?: number, month?: number, now = new Date()) {
 }
 
 const CLOCK_SKEW_TOLERANCE_MS = 10 * 60 * 1000;
+
+const money = (value: Prisma.Decimal): string =>
+  value.toFixed(2, Prisma.Decimal.ROUND_HALF_UP);
 
 function sameManualPayload(
   existing: OwnedEntry,
@@ -64,6 +70,8 @@ export function toStatementEntry(row: StatementRow): FinancialEntryResponse {
       id: row.category.id,
       name: row.category.name,
       scope: row.category.defaultScope,
+      // Same rule as GET /financial-categories: no owner means a default.
+      isDefault: row.category.userId === null,
     },
     scope: row.scope,
     amount: row.amount,
@@ -98,6 +106,68 @@ export class FinancialEntryService {
       query.limit,
     );
     return rows.map(toStatementEntry);
+  }
+
+  async getBalance(
+    userId: string,
+    query: QueryFinancialBalanceDto,
+  ): Promise<FinancialBalanceResponse> {
+    const { from, to } = accrualMonth(query.year, query.month);
+    const rows = await this.repository.sumByNatureScopeCategory(userId, {
+      from,
+      to,
+    });
+    const expenseCategoryIds = [
+      ...new Set(
+        rows
+          .filter(row => row.nature === EntryNature.EXPENSE)
+          .map(row => row.categoryId),
+      ),
+    ];
+    const names = expenseCategoryIds.length
+      ? await this.categories.findNames(userId, expenseCategoryIds)
+      : [];
+    const nameById = new Map(
+      names.map(category => [category.id, category.name]),
+    );
+
+    const zero = new Prisma.Decimal(0);
+    let totalIncome = zero;
+    let professionalExpenses = zero;
+    let personalExpenses = zero;
+    const byGroup = new Map(
+      EXPENSE_GROUPS.map(group => [group, zero] as const),
+    );
+
+    for (const row of rows) {
+      if (row.nature === EntryNature.INCOME) {
+        totalIncome = totalIncome.plus(row.total);
+        continue;
+      }
+      if (row.scope === EntryScope.PROFESSIONAL) {
+        professionalExpenses = professionalExpenses.plus(row.total);
+      } else {
+        personalExpenses = personalExpenses.plus(row.total);
+      }
+      const group = expenseGroupOf(nameById.get(row.categoryId) ?? '');
+      byGroup.set(group, (byGroup.get(group) ?? zero).plus(row.total));
+    }
+
+    const totalExpenses = professionalExpenses.plus(personalExpenses);
+    return {
+      totalIncome: money(totalIncome),
+      totalExpenses: money(totalExpenses),
+      professionalExpenses: money(professionalExpenses),
+      personalExpenses: money(personalExpenses),
+      netBalance: money(totalIncome.minus(totalExpenses)),
+      expensesByCategory: {
+        items: EXPENSE_GROUPS.map(category => ({
+          category,
+          subtotal: money(byGroup.get(category) ?? zero),
+        })),
+        total: money(totalExpenses),
+      },
+    };
   }
 
   /** The month's expenses per scope, by the same rule as the statement. */
@@ -223,6 +293,106 @@ export class FinancialEntryService {
         source: EntrySource.PURCHASE_INVOICE,
         purchaseInvoiceId: input.purchaseInvoiceId,
       },
+      db,
+    );
+  }
+
+  /**
+   * Keeps a trip's expense (US14) in step with the trip, inside the trip's
+   * transaction. Like the purchase invoice's, it is an automatic entry: the
+   * generic routes refuse changes to its amount, date and nature, and its
+   * removal, so those follow the trip alone. The description is rewritten on
+   * every change; a category, scope or notes edited by the user are kept. The
+   * status stays at the column default, as for purchase invoices.
+   *
+   * A trip that costs 0.00 (a very short one by car) has no expense, since an
+   * entry's amount must be positive: an existing one is soft-deleted instead
+   * of being set to zero, and comes back if the cost rises again.
+   */
+  async recordTrip(
+    input: {
+      userId: string;
+      tripId: string;
+      amount: Prisma.Decimal;
+      occurredOn: Date;
+      description: string;
+    },
+    db: Prisma.TransactionClient,
+  ): Promise<void> {
+    const existing = await this.repository.findByTrip(
+      input.userId,
+      input.tripId,
+      db,
+    );
+
+    if (input.amount.isZero()) {
+      if (existing?.deletedAt === null) {
+        await this.repository.updateById(
+          existing.id,
+          { deletedAt: new Date() },
+          db,
+        );
+      }
+      return;
+    }
+
+    if (existing) {
+      await this.repository.updateById(
+        existing.id,
+        {
+          amount: input.amount,
+          accrualDate: input.occurredOn,
+          description: input.description,
+          deletedAt: null,
+        },
+        db,
+      );
+      return;
+    }
+
+    const category = await this.categories.findDefault(
+      'Travel',
+      EntryNature.EXPENSE,
+    );
+    if (!category) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'FINANCIAL_CATEGORY_NOT_SEEDED',
+        'Travel category is not seeded',
+      );
+    }
+
+    await this.repository.create(
+      {
+        userId: input.userId,
+        nature: EntryNature.EXPENSE,
+        scope: EntryScope.PROFESSIONAL,
+        categoryId: category.id,
+        description: input.description,
+        amount: input.amount,
+        accrualDate: input.occurredOn,
+        source: EntrySource.TRIP,
+        tripId: input.tripId,
+      },
+      db,
+    );
+  }
+
+  /**
+   * Soft-deletes the expense of a deleted trip, inside the trip's transaction.
+   * No reversing entry is posted: the expense leaves the statement.
+   */
+  async removeTripEntry(
+    userId: string,
+    tripId: string,
+    db: Prisma.TransactionClient,
+  ): Promise<void> {
+    const existing = await this.repository.findByTrip(userId, tripId, db);
+    if (!existing || existing.deletedAt !== null) return;
+
+    await this.repository.updateById(
+      existing.id,
+      { deletedAt: new Date() },
       db,
     );
   }

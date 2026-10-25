@@ -12,7 +12,7 @@ import { DraftDetailDto } from './dto/draft-detail.dto';
 import { DraftSummaryDto } from './dto/draft-summary.dto';
 import { ReplaceDraftLinesDto } from './dto/replace-draft-lines.dto';
 import { UpdateDraftHeaderDto } from './dto/update-draft-header.dto';
-import { ExtractionService } from './extraction.service';
+import { PurchaseReadingService } from './purchase-reading.service';
 import {
   invoiceNotEditable,
   invoiceNotFound,
@@ -29,7 +29,7 @@ import { ItemService } from '../item';
 export class StockEntryDraftService {
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
-    private readonly extractionService: ExtractionService,
+    private readonly purchaseReadingService: PurchaseReadingService,
     private readonly itemService: ItemService,
     private readonly financialEntries: FinancialEntryService,
   ) {}
@@ -42,7 +42,7 @@ export class StockEntryDraftService {
   async getDraft(userId: string, id: string): Promise<DraftDetailDto> {
     const invoice = await this.stockEntryRepository.findWithLines(id, userId);
     if (!invoice) throw invoiceNotFound(id);
-    return toDraftDetail(invoice, this.extractionService.view(invoice));
+    return toDraftDetail(invoice, this.purchaseReadingService.view(invoice));
   }
 
   async updateHeader(
