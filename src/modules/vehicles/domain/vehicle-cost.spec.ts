@@ -29,7 +29,7 @@ describe('costPerKm', () => {
     expect(costPerKm('0.3', '3').toString()).toBe('0.1');
   });
 
-  it('keeps full precision, so a trip cost is not built on a rounded value', () => {
+  it('keeps full precision until it is formatted', () => {
     const perKm = costPerKm('5.899', '12.5');
     const tripOf300Km = perKm.times(300);
 

@@ -20,6 +20,7 @@ import { ServiceInvoicesModule } from './modules/service-invoices';
 import { StockEntryModule } from './modules/stock-entry';
 import { StockMovementsModule } from './modules/stock-movements';
 import { SupplierModule } from './modules/supplier/supplier.module';
+import { TripsModule } from './modules/trips';
 import { UsersModule } from './modules/users/users.module';
 import { VehiclesModule } from './modules/vehicles';
 import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
@@ -57,6 +58,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     StockEntryModule,
     ServiceInvoicesModule,
     VehiclesModule,
+    TripsModule,
     PricingSettingsModule,
     PricingModule,
   ],

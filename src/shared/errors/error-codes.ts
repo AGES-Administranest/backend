@@ -104,6 +104,20 @@ export const ERROR_CODES = [
   // vehicles
   'VEHICLE_NOT_FOUND',
 
+  // trips
+  'TRIP_NOT_FOUND',
+  // The trip lacks a field its mode needs, or carries one it does not take
+  // (details.missing and details.notAllowed): OWN_VEHICLE needs vehicleId and
+  // distanceKm and refuses cost, which the server calculates; RIDE needs cost.
+  'TRIP_MODE_FIELDS_INVALID',
+  // An inactive vehicle cannot be chosen for a trip, though old trips keep it.
+  'TRIP_VEHICLE_INACTIVE',
+  // The clientId sent is not the client of the appointment sent with it.
+  'TRIP_CLIENT_MISMATCH',
+  // The device id is taken: by another trip with different content, by a
+  // deleted trip, or by another account (ADR-09).
+  'TRIP_ID_CONFLICT',
+
   // pricing settings
   // The income goal, weekly hours and safety margin were never saved. Not a
   // failure for the app: it is the calculator's initial state (US19), shown

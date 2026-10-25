@@ -143,6 +143,34 @@ export class FinancialEntryRepository {
     );
   }
 
+  /**
+   * The trip's entry, deleted or not: trip_id is unique, so a deleted entry is
+   * revived rather than created again.
+   */
+  findByTrip(
+    userId: string,
+    tripId: string,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<{ id: string; deletedAt: Date | null } | null> {
+    return runQuery(() =>
+      db.financialEntry.findFirst({
+        where: { userId, tripId },
+        select: { id: true, deletedAt: true },
+      }),
+    );
+  }
+
+  /** For automatic entries, whose origin decides every change. */
+  async updateById(
+    id: string,
+    data: Prisma.FinancialEntryUncheckedUpdateInput,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<void> {
+    await runQuery(() =>
+      db.financialEntry.update({ where: { id }, data, select: { id: true } }),
+    );
+  }
+
   findForUser(userId: string, id: string): Promise<OwnedEntry | null> {
     return runQuery(() =>
       this.prisma.financialEntry.findFirst({
