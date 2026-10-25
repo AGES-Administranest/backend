@@ -86,6 +86,32 @@ export class FinancialEntryRepository {
     });
   }
 
+  sumByNatureScopeCategory(
+    userId: string,
+    filter: StatementFilter,
+  ): Promise<
+    {
+      nature: EntryNature;
+      scope: EntryScope;
+      categoryId: string;
+      total: Prisma.Decimal;
+    }[]
+  > {
+    return runQuery(async () => {
+      const rows = await this.prisma.financialEntry.groupBy({
+        by: ['nature', 'scope', 'categoryId'],
+        where: this.statementWhere(userId, filter),
+        _sum: { amount: true },
+      });
+      return rows.map(row => ({
+        nature: row.nature,
+        scope: row.scope,
+        categoryId: row.categoryId,
+        total: row._sum.amount ?? new Prisma.Decimal(0),
+      }));
+    });
+  }
+
   findStatement(
     userId: string,
     filter: StatementFilter,

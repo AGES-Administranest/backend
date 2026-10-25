@@ -88,6 +88,21 @@ export class FinancialCategoryRepository {
     });
   }
 
+  findNames(
+    userId: string,
+    ids: string[],
+  ): Promise<{ id: string; name: string }[]> {
+    return runQuery(() =>
+      this.prisma.financialCategory.findMany({
+        where: {
+          id: { in: ids },
+          OR: [{ userId: null }, { userId }],
+        },
+        select: { id: true, name: true },
+      }),
+    );
+  }
+
   findDefault(
     name: string,
     nature: EntryNature,
