@@ -19,7 +19,10 @@ const statementSelect = {
   serviceInvoiceId: true,
   purchaseInvoiceId: true,
   tripId: true,
-  category: { select: { id: true, name: true, defaultScope: true } },
+  // userId only feeds isDefault in the response; it is never returned.
+  category: {
+    select: { id: true, name: true, defaultScope: true, userId: true },
+  },
 } satisfies Prisma.FinancialEntrySelect;
 
 export type StatementRow = Prisma.FinancialEntryGetPayload<{

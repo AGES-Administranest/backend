@@ -92,6 +92,24 @@ describe('FixedCostsService', () => {
     expect(summary.total).toBe('2269.58');
   });
 
+  it('hands the month costs to other modules as unformatted Decimals', async () => {
+    const costs = await service.getMonthlyCosts('user-1', 2026, 3);
+
+    expect(costs.professionalExpenses.toString()).toBe('1250');
+    expect(costs.personalExpenses.toString()).toBe('830.5');
+    expect(costs.depreciation.toString()).toBe('189.08');
+    expect(costs.transport.toString()).toBe('300');
+    expect(entries.sumExpensesByScope).toHaveBeenCalledWith('user-1', 2026, 3);
+  });
+
+  it('reads the depreciation as of now for the current month', async () => {
+    const now = new Date(Date.UTC(2026, 9, 19, 20, 42));
+
+    await service.getMonthlyCosts('user-1', 2026, 10, now);
+
+    expect(equipment.summary).toHaveBeenCalledWith('user-1', now);
+  });
+
   it('returns zeros for an empty month', async () => {
     entries.sumExpensesByScope.mockResolvedValue({
       professional: dec('0'),

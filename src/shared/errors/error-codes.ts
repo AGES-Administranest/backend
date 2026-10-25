@@ -136,6 +136,13 @@ export const ERROR_CODES = [
   'FINANCIAL_CATEGORY_INVALID',
   // A default category the confirmation step needs was not seeded.
   'FINANCIAL_CATEGORY_NOT_SEEDED',
+  // The name is already used in this nature by one of the user's categories or
+  // a default, ignoring case, accents and extra spaces. `details.id` is that
+  // category, so the app selects it instead of creating a second one.
+  'FINANCIAL_CATEGORY_DUPLICATED',
+  // The app-generated id (ADR-09) already belongs to another category: one
+  // with a different payload, a default, or another account's.
+  'FINANCIAL_CATEGORY_ID_CONFLICT',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
