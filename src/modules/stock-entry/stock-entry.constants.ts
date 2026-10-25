@@ -6,9 +6,6 @@ export const PURCHASE_INVOICE_UPLOAD = {
   presignedTtlMs: 10 * 60 * 1000,
 } as const satisfies UploadPolicy;
 
-/** Past this the reading is dropped and the invoice fails with TIMEOUT. */
-export const EXTRACTION_TIMEOUT_MS = 20 * 1000;
-
 /**
  * The reader stops at 50 pages; a dense order fits about 40 lines a page. The
  * cap keeps one save from carrying an unbounded body.

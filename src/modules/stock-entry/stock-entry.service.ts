@@ -4,7 +4,7 @@ import { Prisma, PurchaseInvoice } from '@prisma/client';
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
 import { UploadConfirmationResponseDto } from './dto/upload-confirmation-response.dto';
 import { UploadUrlResponseDto } from './dto/upload-url-response.dto';
-import { ExtractionService } from './extraction.service';
+import { PurchaseReadingService } from './purchase-reading.service';
 import { PURCHASE_INVOICE_UPLOAD } from './stock-entry.constants';
 import {
   fileDuplicated,
@@ -28,7 +28,7 @@ export class StockEntryService {
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
     private readonly documentUploads: DocumentUploads,
-    private readonly extractionService: ExtractionService,
+    private readonly purchaseReadingService: PurchaseReadingService,
   ) {}
 
   /** `userId` is the local id the guard resolved from the token, never the body. */
@@ -82,12 +82,12 @@ export class StockEntryService {
     const uploaded = await this.stockEntryRepository.update(purchaseInvoiceId, {
       uploadedAt: new Date(),
     });
-    const current = await this.extractionService.run(uploaded);
+    const current = await this.purchaseReadingService.run(uploaded);
 
     return {
       contentLength: stored.contentLength,
       contentType: stored.contentType ?? '',
-      extraction: this.extractionService.view(current),
+      extraction: this.purchaseReadingService.view(current),
     };
   }
 

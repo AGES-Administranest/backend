@@ -2,7 +2,7 @@ import {
   groupLines,
   lineText,
   TextFragment,
-} from '../../../../src/modules/extraction/domain/text-lines';
+} from '../../../../src/modules/extraction/core/text-lines';
 import { fragment } from '../testing/layout';
 
 const cellsOf = (fragments: TextFragment[]) =>

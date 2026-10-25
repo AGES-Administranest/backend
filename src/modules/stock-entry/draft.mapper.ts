@@ -6,7 +6,7 @@ import { DraftSummaryDto } from './dto/draft-summary.dto';
 import { ExtractionResponseDto } from './dto/extraction-response.dto';
 import { DraftLineInputDto } from './dto/replace-draft-lines.dto';
 import { UpdateDraftHeaderDto } from './dto/update-draft-header.dto';
-import { storedExtractionOf } from './extraction.service';
+import { storedExtractionOf } from './purchase-reading.service';
 import {
   DraftLineRow,
   InvoiceWithLines,

@@ -6,14 +6,15 @@ import {
 } from '@prisma/client';
 
 import { ExtractionResponseDto } from './dto/extraction-response.dto';
-import { EXTRACTION_TIMEOUT_MS } from './stock-entry.constants';
 import { StockEntryRepository } from './stock-entry.repository';
 import { documentKey, DocumentStorage } from '../../infra/storage';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
 import {
-  ExtractionFailureReason,
-  ExtractionResult,
-  ExtractorStrategy,
+  ExtractionService,
+  PURCHASE_ORDER_SETTINGS,
+  PurchaseOrderFailureReason,
+  PurchaseOrderResult,
+  runClaimedReading,
 } from '../extraction';
 import { LineMatch, MatchItemService } from '../item-match';
 import { SupplierService } from '../supplier';
@@ -23,7 +24,7 @@ import { SupplierService } from '../supplier';
  * `purchase_invoice_line` rows when the user saves them.
  */
 export type StoredExtraction = {
-  result: ExtractionResult;
+  result: PurchaseOrderResult;
   /** One per item, in the same order. */
   matches: LineMatch[];
 };
@@ -34,15 +35,14 @@ export function storedExtractionOf(
   return invoice.rawExtraction as StoredExtraction | null;
 }
 
-const FAILURE_REASONS: Record<ExtractionFailureReason, FailureReasonColumn> = {
-  unreadable: 'UNREADABLE',
-  no_table_found: 'NO_TABLE_FOUND',
-  timeout: 'TIMEOUT',
-  unsupported_format: 'UNSUPPORTED_FORMAT',
-  no_text_layer: 'NO_TEXT_LAYER',
-};
-
-const STALE_PROCESSING_MS = 2 * EXTRACTION_TIMEOUT_MS;
+const FAILURE_REASONS: Record<PurchaseOrderFailureReason, FailureReasonColumn> =
+  {
+    unreadable: 'UNREADABLE',
+    no_table_found: 'NO_TABLE_FOUND',
+    timeout: 'TIMEOUT',
+    unsupported_format: 'UNSUPPORTED_FORMAT',
+    no_text_layer: 'NO_TEXT_LAYER',
+  };
 
 /**
  * Reads the uploaded PDF and matches its lines against the catalog, inside the
@@ -50,11 +50,11 @@ const STALE_PROCESSING_MS = 2 * EXTRACTION_TIMEOUT_MS;
  * there is no queue yet. The states are the ones a worker would write.
  */
 @Injectable()
-export class ExtractionService {
+export class PurchaseReadingService {
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
     private readonly documentStorage: DocumentStorage,
-    private readonly extractor: ExtractorStrategy,
+    private readonly extractionService: ExtractionService,
     private readonly matchItemService: MatchItemService,
     private readonly supplierService: SupplierService,
   ) {}
@@ -64,33 +64,20 @@ export class ExtractionService {
    * invoice as it stands. A photo (MANUAL), a finished reading or one another
    * request is running come back as they are.
    */
-  async run(invoice: PurchaseInvoice): Promise<PurchaseInvoice> {
-    const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
-    const claimed = await this.stockEntryRepository.claimExtraction(
-      invoice.id,
-      staleBefore,
-    );
-    if (!claimed) {
-      return (
-        (await this.stockEntryRepository.findByIdAndUser(
-          invoice.id,
-          invoice.userId,
-        )) ?? invoice
-      );
-    }
+  run(invoice: PurchaseInvoice): Promise<PurchaseInvoice> {
+    const repository = this.stockEntryRepository;
 
-    try {
-      return await this.stockEntryRepository.update(
-        invoice.id,
-        await this.extract(invoice),
-      );
-    } catch (error) {
-      // Left in PROCESSING, the retry would wait on a reading nobody runs.
-      await this.stockEntryRepository.update(invoice.id, {
-        extractionStatus: 'PENDING',
-      });
-      throw error;
-    }
+    return runClaimedReading(PURCHASE_ORDER_SETTINGS.timeoutMs, {
+      claim: staleBefore => repository.claimExtraction(invoice.id, staleBefore),
+      current: async () =>
+        (await repository.findByIdAndUser(invoice.id, invoice.userId)) ??
+        invoice,
+      read: async () =>
+        repository.update(invoice.id, await this.extract(invoice)),
+      release: async () => {
+        await repository.update(invoice.id, { extractionStatus: 'PENDING' });
+      },
+    });
   }
 
   view(invoice: PurchaseInvoice): ExtractionResponseDto {
@@ -125,13 +112,10 @@ export class ExtractionService {
     const buffer = await this.documentStorage.getDocument(key);
     if (!buffer) throw new Error(`No document at ${key}`);
 
-    const result = await this.withTimeout(
-      this.extractor.extract({
-        buffer,
-        mimeType: invoice.fileMimeType ?? '',
-        userId: invoice.userId,
-      }),
-    );
+    const result = await this.extractionService.extract('purchase-order', {
+      buffer,
+      mimeType: invoice.fileMimeType ?? '',
+    });
     const supplierId = result.supplier?.cnpj
       ? await this.supplierService.findIdByTaxId(
           invoice.userId,
@@ -164,24 +148,5 @@ export class ExtractionService {
       }),
       ...(supplierId && { supplierId }),
     };
-  }
-
-  /** The reading cannot be interrupted: past the limit its answer is dropped. */
-  private async withTimeout(
-    reading: Promise<ExtractionResult>,
-  ): Promise<ExtractionResult> {
-    let timer: NodeJS.Timeout | undefined;
-    const timedOut = new Promise<ExtractionResult>(resolve => {
-      timer = setTimeout(
-        () =>
-          resolve({ status: 'failed', failureReason: 'timeout', items: [] }),
-        EXTRACTION_TIMEOUT_MS,
-      );
-    });
-    try {
-      return await Promise.race([reading, timedOut]);
-    } finally {
-      clearTimeout(timer);
-    }
   }
 }

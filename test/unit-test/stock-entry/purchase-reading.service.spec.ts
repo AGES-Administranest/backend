@@ -3,12 +3,14 @@ import { PurchaseInvoice } from '@prisma/client';
 import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
 import { documentKey } from '../../../src/infra/storage';
 import {
-  ExtractionInput,
-  ExtractionResult,
+  DocumentBytes,
+  ExtractionService,
+  PURCHASE_ORDER_SETTINGS,
+  PurchaseOrderResult,
 } from '../../../src/modules/extraction';
+import { PurchaseOrderExtractor } from '../../../src/modules/extraction/purchase-order/purchase-order-extractor';
 import { LineMatch, MatchItemService } from '../../../src/modules/item-match';
-import { ExtractionService } from '../../../src/modules/stock-entry/extraction.service';
-import { EXTRACTION_TIMEOUT_MS } from '../../../src/modules/stock-entry/stock-entry.constants';
+import { PurchaseReadingService } from '../../../src/modules/stock-entry/purchase-reading.service';
 import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
 import { SupplierService } from '../../../src/modules/supplier';
 
@@ -17,7 +19,9 @@ const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';
 const KEY = documentKey(USER_ID, 'purchase-invoices', INVOICE_ID);
 const PDF = new TextEncoder().encode('%PDF-1.7');
 
-const READ: ExtractionResult = {
+const { timeoutMs } = PURCHASE_ORDER_SETTINGS;
+
+const READ: PurchaseOrderResult = {
   status: 'success',
   supplier: { cnpj: '11222333000181', name: 'Distribuidora Exemplo Ltda' },
   invoiceNumber: '4521',
@@ -49,22 +53,22 @@ const PRESELECTED: LineMatch = {
   ],
 };
 
-class FakeExtractor {
-  readonly inputs: ExtractionInput[] = [];
-  answer: () => Promise<ExtractionResult> = () => Promise.resolve(READ);
+class FakeExtractor extends PurchaseOrderExtractor {
+  readonly inputs: DocumentBytes[] = [];
+  answer: () => Promise<PurchaseOrderResult> = () => Promise.resolve(READ);
 
-  extract(input: ExtractionInput) {
+  override extract(input: DocumentBytes) {
     this.inputs.push(input);
     return this.answer();
   }
 }
 
-describe('ExtractionService', () => {
+describe('PurchaseReadingService', () => {
   let repository: FakeStockEntryRepository;
   let extractor: FakeExtractor;
   let matchLines: jest.Mock;
   let findIdByTaxId: jest.Mock;
-  let service: ExtractionService;
+  let service: PurchaseReadingService;
 
   const draft = (fields: Partial<PurchaseInvoice> = {}) => {
     repository.invoice = {
@@ -97,10 +101,10 @@ describe('ExtractionService', () => {
     matchLines = jest.fn().mockResolvedValue([PRESELECTED]);
     findIdByTaxId = jest.fn().mockResolvedValue('supplier-1');
 
-    service = new ExtractionService(
+    service = new PurchaseReadingService(
       repository as unknown as StockEntryRepository,
       storage,
-      extractor,
+      new ExtractionService(extractor),
       { matchLines } as unknown as MatchItemService,
       { findIdByTaxId } as unknown as SupplierService,
     );
@@ -112,7 +116,7 @@ describe('ExtractionService', () => {
     await run();
 
     expect(extractor.inputs).toEqual([
-      { buffer: PDF, mimeType: 'application/pdf', userId: USER_ID },
+      { buffer: PDF, mimeType: 'application/pdf' },
     ]);
     expect(matchLines).toHaveBeenCalledWith(
       USER_ID,
@@ -184,7 +188,7 @@ describe('ExtractionService', () => {
       extractor.answer = () => new Promise(() => {});
 
       const running = run();
-      await jest.advanceTimersByTimeAsync(EXTRACTION_TIMEOUT_MS);
+      await jest.advanceTimersByTimeAsync(timeoutMs);
       await running;
 
       expect(repository.invoice).toMatchObject({
@@ -223,7 +227,7 @@ describe('ExtractionService', () => {
   it('takes over a reading left PROCESSING by a process that died', async () => {
     draft({
       extractionStatus: 'PROCESSING',
-      updatedAt: new Date(Date.now() - 3 * EXTRACTION_TIMEOUT_MS),
+      updatedAt: new Date(Date.now() - 3 * timeoutMs),
     });
 
     await run();

@@ -1,11 +1,9 @@
-import { buildPdf, PdfText } from './testing/pdf-builder';
-import { MAX_PAGES } from '../../../src/modules/extraction/pdf/pdf-text-reader';
-import { PdfTextExtractor } from '../../../src/modules/extraction/pdf-text-extractor';
-
-const USER_ID = 'user-1';
+import { MAX_PAGES } from '../../../../src/modules/extraction/core/pdf/pdf-text-reader';
+import { PurchaseOrderExtractor } from '../../../../src/modules/extraction/purchase-order/purchase-order-extractor';
+import { buildPdf, PdfText } from '../testing/pdf-builder';
 
 const extract = (buffer: Uint8Array, mimeType = 'application/pdf') =>
-  new PdfTextExtractor().extract({ buffer, mimeType, userId: USER_ID });
+  new PurchaseOrderExtractor().extract({ buffer, mimeType });
 
 const HEADER: PdfText[] = [
   [40, 40, 'VET DISTRIBUIDORA DE INSUMOS LTDA'],
@@ -39,7 +37,7 @@ const TABLE: PdfText[] = [
   [480, 240, 'R$ 452,50'],
 ];
 
-describe('PdfTextExtractor', () => {
+describe('PurchaseOrderExtractor', () => {
   it('reads a purchase order into header fields and item lines', async () => {
     const result = await extract(await buildPdf([[...HEADER, ...TABLE]]));
 

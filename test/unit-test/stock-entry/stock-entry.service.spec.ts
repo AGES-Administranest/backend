@@ -2,10 +2,13 @@ import { PurchaseInvoice } from '@prisma/client';
 
 import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
 import { documentKey, DocumentUploads } from '../../../src/infra/storage';
-import { ExtractionResult } from '../../../src/modules/extraction';
+import {
+  ExtractionService,
+  PurchaseOrderResult,
+} from '../../../src/modules/extraction';
 import { MatchItemService } from '../../../src/modules/item-match';
 import { CreateUploadUrlDto } from '../../../src/modules/stock-entry/dto/create-upload-url.dto';
-import { ExtractionService } from '../../../src/modules/stock-entry/extraction.service';
+import { PurchaseReadingService } from '../../../src/modules/stock-entry/purchase-reading.service';
 import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
 import { StockEntryService } from '../../../src/modules/stock-entry/stock-entry.service';
 import { SupplierService } from '../../../src/modules/supplier';
@@ -22,7 +25,7 @@ const UPLOAD: CreateUploadUrlDto = {
   fileBytesSize: 2483911,
 };
 
-const READ: ExtractionResult = {
+const READ: PurchaseOrderResult = {
   status: 'success',
   invoiceNumber: '4521',
   items: [
@@ -40,10 +43,10 @@ describe('StockEntryService', () => {
     storage = new FakeStorage();
     repository = new FakeStockEntryRepository();
     extract = jest.fn().mockResolvedValue(READ);
-    const extraction = new ExtractionService(
+    const reading = new PurchaseReadingService(
       repository as unknown as StockEntryRepository,
       storage,
-      { extract },
+      { extract } as unknown as ExtractionService,
       {
         matchLines: () =>
           Promise.resolve([{ decision: 'none', candidates: [] }]),
@@ -55,7 +58,7 @@ describe('StockEntryService', () => {
     service = new StockEntryService(
       repository as unknown as StockEntryRepository,
       new DocumentUploads(storage),
-      extraction,
+      reading,
     );
   });
 
