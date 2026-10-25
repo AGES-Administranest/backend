@@ -1,6 +1,13 @@
 import { Prisma, ServiceInvoice } from '@prisma/client';
 
 import { UniqueConstraintError } from '../../../../src/infra/prisma/prisma-errors';
+import { ClientEntity, ClientService } from '../../../../src/modules/client';
+import { DuplicateCriteria } from '../../../../src/modules/service-invoices/domain/find-duplicates';
+import { ServiceInvoiceReviewService } from '../../../../src/modules/service-invoices/service-invoice-review.service';
+import {
+  DuplicateNote,
+  ServiceInvoicesRepository,
+} from '../../../../src/modules/service-invoices/service-invoices.repository';
 
 export { FakeStorage } from '../../stock-entry/testing/fakes';
 
@@ -44,6 +51,9 @@ export class FakeServiceInvoicesRepository {
   invoice: ServiceInvoice | null = null;
   /** Other notes of the user, by the hash of the file they hold. */
   readonly invoiceIdsByHash = new Map<string, string>();
+  /** The confirmed note `findDuplicate` answers with, whatever is asked. */
+  duplicate: DuplicateNote | null = null;
+  readonly duplicateQueries: DuplicateCriteria[] = [];
 
   findByIdAndUser(id: string, userId: string) {
     const { invoice } = this;
@@ -56,6 +66,15 @@ export class FakeServiceInvoicesRepository {
 
   findIdByFileHash(_userId: string, fileHash: string) {
     return Promise.resolve(this.invoiceIdsByHash.get(fileHash));
+  }
+
+  findDuplicate(
+    _userId: string,
+    _excludeId: string,
+    criteria: DuplicateCriteria,
+  ) {
+    this.duplicateQueries.push(criteria);
+    return Promise.resolve(this.duplicate);
   }
 
   /** Same condition as the real repository's `where`. */
@@ -122,4 +141,50 @@ export class FakeServiceInvoicesRepository {
     };
     return Promise.resolve(true);
   }
+}
+
+/** The user's clients, as `ClientService` would find them. */
+export class FakeClients {
+  byTaxId: ClientEntity | null = null;
+  byName: ClientEntity[] = [];
+  readonly findOne = jest.fn((id: string) => Promise.resolve({ id }));
+  readonly findByTaxId = jest.fn(() => Promise.resolve(this.byTaxId));
+  readonly suggestByName = jest.fn(() => Promise.resolve(this.byName));
+
+  get service(): ClientService {
+    return this as unknown as ClientService;
+  }
+}
+
+export function client(fields: Partial<ClientEntity> = {}): ClientEntity {
+  return {
+    id: '7c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f',
+    type: 'CLINIC',
+    name: 'Clínica Veterinária Exemplo',
+    taxId: '12345678000195',
+    taxIdType: 'CNPJ',
+    contactName: null,
+    email: null,
+    phone: null,
+    addressLine: null,
+    city: null,
+    state: null,
+    serviceDays: [],
+    paymentTermsDays: null,
+    preferredPaymentMethod: null,
+    active: true,
+    createdAt: new Date('2026-10-01T12:00:00Z'),
+    updatedAt: new Date('2026-10-01T12:00:00Z'),
+    ...fields,
+  };
+}
+
+export function reviewService(
+  repository: FakeServiceInvoicesRepository,
+  clients: FakeClients,
+): ServiceInvoiceReviewService {
+  return new ServiceInvoiceReviewService(
+    repository as unknown as ServiceInvoicesRepository,
+    clients.service,
+  );
 }

@@ -1,10 +1,17 @@
 import { Prisma, ServiceInvoice } from '@prisma/client';
 
-import { NfseReviewDto } from './dto/nfse-review.dto';
+import { DuplicateReason } from './domain/find-duplicates';
+import {
+  ClientOptionDto,
+  DuplicateServiceInvoiceDto,
+  NfseReviewDto,
+} from './dto/nfse-review.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
 import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
+import { DuplicateNote } from './service-invoices.repository';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
+import { ClientEntity } from '../client';
 import { NfseResult } from '../extraction';
 
 /** The reading as it came out, kept in `raw_extraction`. */
@@ -54,12 +61,37 @@ export function toSummary(invoice: ServiceInvoice): ServiceInvoiceSummaryDto {
   };
 }
 
-export function toDetail(invoice: ServiceInvoice): ServiceInvoiceDetailDto {
+export function toClientOption(client: ClientEntity): ClientOptionDto {
+  return {
+    id: client.id,
+    name: client.name,
+    ...(client.taxId && { taxId: client.taxId }),
+  };
+}
+
+export function toDuplicate(
+  duplicate: DuplicateNote,
+  reason: DuplicateReason,
+): DuplicateServiceInvoiceDto {
+  return {
+    id: duplicate.id,
+    ...(duplicate.number && { number: duplicate.number }),
+    ...(duplicate.issueDate && { issueDate: toIsoDate(duplicate.issueDate) }),
+    ...(duplicate.amount !== null && { amount: Number(duplicate.amount) }),
+    ...(duplicate.client && { clientName: duplicate.client.name }),
+    reason,
+  };
+}
+
+export function toDetail(
+  invoice: ServiceInvoice,
+  review: NfseReviewDto,
+): ServiceInvoiceDetailDto {
   return {
     id: invoice.id,
     status: invoice.status,
     ...(invoice.fileName && { fileName: invoice.fileName }),
-    review: toReview(invoice),
+    review,
     ...(invoice.uploadedAt && { uploadedAt: invoice.uploadedAt.toISOString() }),
     ...(invoice.reviewedAt && { reviewedAt: invoice.reviewedAt.toISOString() }),
   };

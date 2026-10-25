@@ -1,8 +1,11 @@
 import {
+  client,
   draftNote,
+  FakeClients,
   FakeServiceInvoicesRepository,
   FakeStorage,
   INVOICE_ID,
+  reviewService,
   USER_ID,
 } from './testing/fakes';
 import { documentKey, DocumentUploads } from '../../../src/infra/storage';
@@ -31,10 +34,12 @@ describe('ServiceInvoiceUploadService', () => {
   let storage: FakeStorage;
   let repository: FakeServiceInvoicesRepository;
   let extraction: ExtractionService;
+  let clients: FakeClients;
 
   beforeEach(() => {
     storage = new FakeStorage();
     repository = new FakeServiceInvoicesRepository();
+    clients = new FakeClients();
     extraction = new ExtractionService(
       new PurchaseOrderExtractor(),
       new NfseExtractor(),
@@ -51,6 +56,7 @@ describe('ServiceInvoiceUploadService', () => {
       repository as unknown as ServiceInvoicesRepository,
       new DocumentUploads(storage),
       reading,
+      reviewService(repository, clients),
     );
   });
 
@@ -161,6 +167,25 @@ describe('ServiceInvoiceUploadService', () => {
         takerTaxId: '12345678000195',
         uploadedAt: expect.any(Date) as Date,
       });
+    });
+
+    it('links the taker the NFSe names to the client with its tax id', async () => {
+      clients.byTaxId = client();
+      upload(await buildPdf([NATIONAL_DANFSE]));
+
+      await expect(confirm()).resolves.toMatchObject({
+        review: {
+          clientMatch: {
+            id: client().id,
+            name: 'Clínica Veterinária Exemplo',
+            taxId: '12345678000195',
+          },
+        },
+      });
+      expect(clients.findByTaxId).toHaveBeenCalledWith(
+        USER_ID,
+        '12345678000195',
+      );
     });
 
     it('fails a note where no field is found, for the review to be filled by hand', async () => {

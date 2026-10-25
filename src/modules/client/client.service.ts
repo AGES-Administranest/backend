@@ -3,6 +3,7 @@ import { Client } from '@prisma/client';
 
 import { ClientEntity } from './client.entity';
 import { ClientRepository } from './client.repository';
+import { rankByName } from './domain/name-match';
 import { CreateClientDto } from './dto/create-client.dto';
 import { DeleteClientDto } from './dto/delete-client.dto';
 import { QueryClientDto } from './dto/query-client.dto';
@@ -29,6 +30,24 @@ export class ClientService {
     const client = await this.clientRepository.findById(id, userId);
     if (!client) throw this.clientNotFound(id);
     return this.sanitize(client);
+  }
+
+  /** An inactive client still holds its tax id; a deleted one does not. */
+  async findByTaxId(
+    userId: string,
+    taxId: string,
+  ): Promise<ClientEntity | null> {
+    const client = await this.clientRepository.findByTaxId(userId, taxId);
+    return client && this.sanitize(client);
+  }
+
+  /** The active clients whose name looks like `name`, the closest first. */
+  async suggestByName(userId: string, name: string): Promise<ClientEntity[]> {
+    const clients = await this.clientRepository.findMany({
+      userId,
+      active: true,
+    });
+    return rankByName(name, clients).map(client => this.sanitize(client));
   }
 
   async create(userId: string, dto: CreateClientDto): Promise<ClientEntity> {

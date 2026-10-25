@@ -1,4 +1,5 @@
 import { ABBREVIATIONS, SYNONYMS, UNITS } from './vocabulary';
+import { removeAccents } from '../../../shared/text/accents';
 
 /**
  * The same form for a document line and a catalog name: no accents, lowercase,
@@ -22,10 +23,6 @@ const STEPS: ((text: string) => string)[] = [
 
 export function normalize(text: string): string {
   return STEPS.reduce((result, step) => step(result), text);
-}
-
-function removeAccents(text: string): string {
-  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
 function lowercase(text: string): string {

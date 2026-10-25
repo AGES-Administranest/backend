@@ -5,7 +5,7 @@ import { CreateServiceInvoiceUploadUrlDto } from './dto/create-upload-url.dto';
 import { ServiceInvoiceUploadConfirmationDto } from './dto/upload-confirmation-response.dto';
 import { ServiceInvoiceUploadUrlResponseDto } from './dto/upload-url-response.dto';
 import { NfseReadingService } from './nfse-reading.service';
-import { toReview } from './service-invoice.mapper';
+import { ServiceInvoiceReviewService } from './service-invoice-review.service';
 import { SERVICE_INVOICE_UPLOAD } from './service-invoices.constants';
 import {
   fileDuplicated,
@@ -31,6 +31,7 @@ export class ServiceInvoiceUploadService {
     private readonly repository: ServiceInvoicesRepository,
     private readonly documentUploads: DocumentUploads,
     private readonly nfseReadingService: NfseReadingService,
+    private readonly reviewService: ServiceInvoiceReviewService,
   ) {}
 
   /** `userId` is the local id the guard resolved from the token, never the body. */
@@ -85,7 +86,7 @@ export class ServiceInvoiceUploadService {
     return {
       contentLength: stored.contentLength,
       contentType: stored.contentType ?? '',
-      review: toReview(current),
+      review: await this.reviewService.reviewOf(userId, current),
     };
   }
 
