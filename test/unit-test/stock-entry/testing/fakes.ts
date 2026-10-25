@@ -20,7 +20,11 @@ export class FakeStorage {
     { document: StoredDocument; bytes: Uint8Array }
   >();
 
-  put(key: string, document: StoredDocument, bytes = new Uint8Array()) {
+  put(
+    key: string,
+    document: StoredDocument,
+    bytes: Uint8Array = new Uint8Array(),
+  ) {
     this.objects.set(key, { document, bytes });
   }
 

@@ -125,6 +125,15 @@ export const ERROR_CODES = [
   'INVOICE_UPLOAD_MISMATCH',
   'INVOICE_NOT_READY',
 
+  // service-invoices (NFSe). Same cases as the purchase invoice above, under
+  // their own prefix: the app tells the two flows apart by code.
+  'SERVICE_INVOICE_NOT_FOUND',
+  'SERVICE_INVOICE_NOT_EDITABLE',
+  'SERVICE_INVOICE_FILE_DUPLICATED',
+  'SERVICE_INVOICE_FILE_TOO_LARGE',
+  'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
+  'SERVICE_INVOICE_UPLOAD_MISMATCH',
+
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',
   'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
