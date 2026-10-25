@@ -26,6 +26,7 @@ const row = (overrides: Partial<StatementRow> = {}): StatementRow => ({
     id: 'cat-1',
     name: 'Professional fees',
     defaultScope: EntryScope.PROFESSIONAL,
+    userId: null,
   },
   ...overrides,
 });
@@ -98,6 +99,32 @@ describe('FinancialEntryService', () => {
         }),
       ).origin,
     ).toEqual({ type: EntrySource.APPOINTMENT, id: 'appt-1' });
+  });
+
+  it('flags a default category and a user one with the same name, without the owner', () => {
+    expect(toStatementEntry(row()).category).toEqual({
+      id: 'cat-1',
+      name: 'Professional fees',
+      scope: EntryScope.PROFESSIONAL,
+      isDefault: true,
+    });
+    expect(
+      toStatementEntry(
+        row({
+          category: {
+            id: 'cat-2',
+            name: 'Professional fees',
+            defaultScope: EntryScope.PERSONAL,
+            userId: 'user-1',
+          },
+        }),
+      ).category,
+    ).toEqual({
+      id: 'cat-2',
+      name: 'Professional fees',
+      scope: EntryScope.PERSONAL,
+      isDefault: false,
+    });
   });
 });
 
