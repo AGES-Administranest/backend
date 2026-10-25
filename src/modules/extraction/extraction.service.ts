@@ -6,6 +6,7 @@ import {
   ExtractionInputs,
   ExtractionResults,
 } from './document-extractor';
+import { NfseExtractor } from './nfse/nfse-extractor';
 import { PurchaseOrderExtractor } from './purchase-order/purchase-order-extractor';
 
 /** Reads bytes into fields. It never touches the bucket or the database. */
@@ -13,8 +14,8 @@ import { PurchaseOrderExtractor } from './purchase-order/purchase-order-extracto
 export class ExtractionService {
   private readonly extractors: { [K in DocumentKind]: DocumentExtractor<K> };
 
-  constructor(purchaseOrder: PurchaseOrderExtractor) {
-    this.extractors = { 'purchase-order': purchaseOrder };
+  constructor(purchaseOrder: PurchaseOrderExtractor, nfse: NfseExtractor) {
+    this.extractors = { 'purchase-order': purchaseOrder, nfse };
   }
 
   /** The reading cannot be interrupted: past the limit its answer is dropped. */

@@ -8,6 +8,7 @@ import {
   PURCHASE_ORDER_SETTINGS,
   PurchaseOrderResult,
 } from '../../../src/modules/extraction';
+import { NfseExtractor } from '../../../src/modules/extraction/nfse/nfse-extractor';
 import { PurchaseOrderExtractor } from '../../../src/modules/extraction/purchase-order/purchase-order-extractor';
 import { LineMatch, MatchItemService } from '../../../src/modules/item-match';
 import { PurchaseReadingService } from '../../../src/modules/stock-entry/purchase-reading.service';
@@ -104,7 +105,7 @@ describe('PurchaseReadingService', () => {
     service = new PurchaseReadingService(
       repository as unknown as StockEntryRepository,
       storage,
-      new ExtractionService(extractor),
+      new ExtractionService(extractor, new NfseExtractor()),
       { matchLines } as unknown as MatchItemService,
       { findIdByTaxId } as unknown as SupplierService,
     );

@@ -14,6 +14,12 @@ export type {
 export { ExtractionModule } from './extraction.module';
 export { ExtractionService } from './extraction.service';
 export type {
+  ExtractedTaker,
+  NfseFailureReason,
+  NfseResult,
+} from './nfse/nfse-result';
+export { NFSE_SETTINGS } from './nfse/nfse-settings';
+export type {
   ExtractedItem,
   ExtractedSupplier,
   PurchaseOrderFailureReason,
