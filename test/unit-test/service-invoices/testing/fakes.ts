@@ -2,10 +2,16 @@ import { Prisma, ServiceInvoice } from '@prisma/client';
 
 import { UniqueConstraintError } from '../../../../src/infra/prisma/prisma-errors';
 import { ClientEntity, ClientService } from '../../../../src/modules/client';
+import {
+  FinancialEntryService,
+  ServiceInvoiceIncome,
+} from '../../../../src/modules/financial';
 import { DuplicateCriteria } from '../../../../src/modules/service-invoices/domain/find-duplicates';
+import { ServiceInvoiceConfirmationService } from '../../../../src/modules/service-invoices/service-invoice-confirmation.service';
 import { ServiceInvoiceReviewService } from '../../../../src/modules/service-invoices/service-invoice-review.service';
 import {
   DuplicateNote,
+  IncomeWrite,
   ServiceInvoicesRepository,
 } from '../../../../src/modules/service-invoices/service-invoices.repository';
 
@@ -108,7 +114,7 @@ export class FakeServiceInvoicesRepository {
     const stored = Object.fromEntries(
       Object.entries(data).map(([field, value]) => [
         field,
-        value === Prisma.DbNull ? null : value,
+        value === Prisma.DbNull ? null : readBack(field, value),
       ]),
     );
     this.invoice = {
@@ -117,6 +123,79 @@ export class FakeServiceInvoicesRepository {
       updatedAt: new Date(),
     } as ServiceInvoice;
     return Promise.resolve(this.invoice);
+  }
+
+  async confirmDraft(
+    id: string,
+    userId: string,
+    recordIncome: IncomeWrite<string>,
+  ): Promise<string | null> {
+    const confirmed = await this.updateInStatus(id, userId, 'DRAFT', {
+      status: 'CONFIRMED',
+      reviewedAt: new Date(),
+    });
+    if (!confirmed) return null;
+
+    return this.rollingBackOnError(confirmed.before, () =>
+      recordIncome(TX, confirmed.after),
+    );
+  }
+
+  async updateConfirmed(
+    id: string,
+    userId: string,
+    data: Prisma.ServiceInvoiceUncheckedUpdateManyInput,
+    adjustIncome: IncomeWrite<void>,
+  ): Promise<boolean> {
+    const edited = await this.updateInStatus(id, userId, 'CONFIRMED', data);
+    if (!edited) return false;
+
+    await this.rollingBackOnError(edited.before, () =>
+      adjustIncome(TX, edited.after),
+    );
+    return true;
+  }
+
+  async deleteConfirmed(
+    id: string,
+    userId: string,
+    removeIncome: IncomeWrite<void>,
+  ): Promise<boolean> {
+    const deleted = await this.updateInStatus(id, userId, 'CONFIRMED', {
+      deletedAt: new Date(),
+    });
+    if (!deleted) return false;
+
+    await this.rollingBackOnError(deleted.before, () =>
+      removeIncome(TX, deleted.after),
+    );
+    return true;
+  }
+
+  private async updateInStatus(
+    id: string,
+    userId: string,
+    status: 'DRAFT' | 'CONFIRMED',
+    data: Prisma.ServiceInvoiceUncheckedUpdateManyInput,
+  ): Promise<{ before: ServiceInvoice; after: ServiceInvoice } | null> {
+    const before = await this.findByIdAndUser(id, userId);
+    if (before?.status !== status) return null;
+
+    const after = await this.update(id, data);
+    return { before, after };
+  }
+
+  /** As the real transaction: a write that throws leaves the note as it was. */
+  private async rollingBackOnError<Result>(
+    before: ServiceInvoice,
+    write: () => Promise<Result>,
+  ): Promise<Result> {
+    try {
+      return await write();
+    } catch (error) {
+      this.invoice = before;
+      throw error;
+    }
   }
 
   /** Same rule as the conditional update in the real repository. */
@@ -177,6 +256,69 @@ export function client(fields: Partial<ClientEntity> = {}): ClientEntity {
     updatedAt: new Date('2026-10-01T12:00:00Z'),
     ...fields,
   };
+}
+
+const TX = {} as Prisma.TransactionClient;
+
+/** The column types Prisma reads back: the amount is a Decimal. */
+function readBack(field: string, value: unknown): unknown {
+  return field === 'amount' && typeof value === 'number'
+    ? new Prisma.Decimal(value)
+    : value;
+}
+
+/** The income entries of the notes, by note id. */
+export class FakeFinancialEntries {
+  readonly entries = new Map<
+    string,
+    ServiceInvoiceIncome & { id: string; deletedAt: Date | null }
+  >();
+
+  readonly recordServiceInvoice = jest.fn((income: ServiceInvoiceIncome) => {
+    const entry = {
+      ...income,
+      id: `entry-${income.serviceInvoiceId}`,
+      deletedAt: null,
+    };
+    this.entries.set(income.serviceInvoiceId, entry);
+    return Promise.resolve(entry.id);
+  });
+
+  readonly adjustServiceInvoiceEntry = jest.fn(
+    (income: ServiceInvoiceIncome) => {
+      const entry = this.entries.get(income.serviceInvoiceId);
+      if (entry)
+        this.entries.set(income.serviceInvoiceId, { ...entry, ...income });
+      return Promise.resolve();
+    },
+  );
+
+  readonly removeServiceInvoiceEntry = jest.fn(
+    (_userId: string, serviceInvoiceId: string) => {
+      const entry = this.entries.get(serviceInvoiceId);
+      if (entry) {
+        this.entries.set(serviceInvoiceId, { ...entry, deletedAt: new Date() });
+      }
+      return Promise.resolve();
+    },
+  );
+
+  get service(): FinancialEntryService {
+    return this as unknown as FinancialEntryService;
+  }
+}
+
+export function confirmationService(
+  repository: FakeServiceInvoicesRepository,
+  clients: FakeClients,
+  financialEntries: FakeFinancialEntries,
+): ServiceInvoiceConfirmationService {
+  return new ServiceInvoiceConfirmationService(
+    repository as unknown as ServiceInvoicesRepository,
+    reviewService(repository, clients),
+    clients.service,
+    financialEntries.service,
+  );
 }
 
 export function reviewService(

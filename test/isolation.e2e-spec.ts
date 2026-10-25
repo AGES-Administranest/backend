@@ -511,6 +511,33 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       expect((await readNote(id)).clientId).toBeNull();
     });
 
+    it('answers 404, not 403, when confirming another account note, and posts nothing', async () => {
+      const id = await noteOf(ana);
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      const anaClient = await prisma.client.create({
+        data: { userId: anaRow.id, type: 'CLINIC', name: 'Clínica Exemplo' },
+      });
+      await prisma.serviceInvoice.update({
+        where: { id },
+        data: {
+          issueDate: new Date('2026-10-13T00:00:00Z'),
+          amount: 1500,
+          clientId: anaClient.id,
+        },
+      });
+
+      await request(http)
+        .post(`/service-invoices/${id}/confirm`)
+        .set('Authorization', bearer(bruno))
+        .send({})
+        .expect(404);
+
+      expect((await readNote(id)).status).toBe('DRAFT');
+      await expect(prisma.financialEntry.count()).resolves.toBe(0);
+    });
+
     it('never offers another account client or note in the review', async () => {
       const anaRow = await prisma.user.findUniqueOrThrow({
         where: { cognitoSub: ana.cognitoSub },

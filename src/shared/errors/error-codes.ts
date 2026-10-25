@@ -147,6 +147,10 @@ export const ERROR_CODES = [
   'SERVICE_INVOICE_FILE_TOO_LARGE',
   'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
   'SERVICE_INVOICE_UPLOAD_MISMATCH',
+  'SERVICE_INVOICE_NOT_READY',
+  // A confirmed note has the same amount and date, or the same number and
+  // taker. The app shows it and resends with allowDuplicate.
+  'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

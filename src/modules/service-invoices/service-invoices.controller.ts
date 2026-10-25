@@ -23,6 +23,8 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 
+import { ConfirmServiceInvoiceDto } from './dto/confirm-service-invoice.dto';
+import { ServiceInvoiceConfirmationDto } from './dto/confirmation-response.dto';
 import { CreateServiceInvoiceUploadUrlDto } from './dto/create-upload-url.dto';
 import { ServiceInvoiceDownloadUrlDto } from './dto/download-url-response.dto';
 import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
@@ -31,6 +33,7 @@ import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
 import { ServiceInvoiceUploadConfirmationDto } from './dto/upload-confirmation-response.dto';
 import { ServiceInvoiceUploadUrlResponseDto } from './dto/upload-url-response.dto';
+import { ServiceInvoiceConfirmationService } from './service-invoice-confirmation.service';
 import { ServiceInvoiceDraftService } from './service-invoice-draft.service';
 import { ServiceInvoiceUploadService } from './service-invoice-upload.service';
 import { CurrentUser } from '../../shared/auth';
@@ -43,6 +46,7 @@ export class ServiceInvoicesController {
   constructor(
     private readonly uploadService: ServiceInvoiceUploadService,
     private readonly draftService: ServiceInvoiceDraftService,
+    private readonly confirmationService: ServiceInvoiceConfirmationService,
   ) {}
 
   @Get()
@@ -81,19 +85,25 @@ export class ServiceInvoicesController {
   @Patch(':id')
   @HttpCode(204)
   @ApiOperation({
-    summary: 'Saves the review of a draft',
-    description: 'An absent field is left as it is; null clears it',
+    summary: 'Saves the review of a draft, or edits a confirmed note',
+    description:
+      'An absent field is left as it is; null clears it. On a confirmed note ' +
+      'the income entry follows the amount, the issue date and the due date, ' +
+      'and the issue date, the amount and the client cannot be cleared.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Saved' })
-  @ApiBadRequestResponse({ description: 'Invalid payload' })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid payload, or a required field cleared on a confirmed note (SERVICE_INVOICE_NOT_READY)',
+  })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({
     description:
       'The note or the client is missing or not yours (SERVICE_INVOICE_NOT_FOUND, CLIENT_NOT_FOUND)',
   })
   @ApiConflictResponse({
-    description: 'The note is no longer a draft (SERVICE_INVOICE_NOT_EDITABLE)',
+    description: 'The note was discarded (SERVICE_INVOICE_NOT_EDITABLE)',
   })
   update(
     @CurrentUser() user: AuthenticatedUser,
@@ -106,25 +116,63 @@ export class ServiceInvoicesController {
   @Delete(':id')
   @HttpCode(204)
   @ApiOperation({
-    summary: 'Discards a draft',
+    summary: 'Discards a draft, or deletes a confirmed note',
     description:
-      'The note stays on record as CANCELLED, with its document; the same ' +
-      'file can start a new note',
+      'A draft stays on record as CANCELLED, with its document. A confirmed ' +
+      'note is deleted with its income entry. Either way the same file can ' +
+      'start a new note.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiNoContentResponse({ description: 'Discarded' })
+  @ApiNoContentResponse({ description: 'Discarded or deleted' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({
     description: 'Missing, or another account (SERVICE_INVOICE_NOT_FOUND)',
   })
   @ApiConflictResponse({
-    description: 'The note is no longer a draft (SERVICE_INVOICE_NOT_EDITABLE)',
+    description:
+      'The note was already discarded (SERVICE_INVOICE_NOT_EDITABLE)',
   })
   discard(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.draftService.discard(user.id, id);
+  }
+
+  @Post(':id/confirm')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Confirms the note and records its income entry (US03)',
+    description:
+      'Needs an issue date, an amount and a client. The entry is a ' +
+      'PROFESSIONAL income under "Professional fees", accrued on the issue ' +
+      "date and due after the client's payment terms. It is recorded even " +
+      'when an appointment already earned the same revenue: the user is ' +
+      'expected to upload only notes of appointments not registered in the app.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ServiceInvoiceConfirmationDto })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid payload, or a field is missing, listed in the details (SERVICE_INVOICE_NOT_READY)',
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiNotFoundResponse({
+    description:
+      'The note or its client is missing or not yours (SERVICE_INVOICE_NOT_FOUND, CLIENT_NOT_FOUND)',
+  })
+  @ApiConflictResponse({
+    description:
+      'A confirmed note looks like this one, sent in details.duplicateOf; ' +
+      'resend with allowDuplicate (SERVICE_INVOICE_POSSIBLE_DUPLICATE). Or ' +
+      'the note is not a draft (SERVICE_INVOICE_NOT_EDITABLE)',
+  })
+  confirm(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ConfirmServiceInvoiceDto,
+  ): Promise<ServiceInvoiceConfirmationDto> {
+    return this.confirmationService.confirm(user.id, id, dto);
   }
 
   @Get(':id/file')

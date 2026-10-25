@@ -1,8 +1,10 @@
 import { INestApplication } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+import { ensureDefaultFinancialCategories } from './helpers/default-financial-categories';
 import {
   bearer,
   body,
@@ -39,6 +41,7 @@ describe('service-invoices (e2e)', () => {
 
   beforeEach(async () => {
     await resetDatabase(prisma);
+    await ensureDefaultFinancialCategories(prisma);
     await request(http)
       .post('/auth/session')
       .set('Authorization', bearer(ana))
@@ -185,12 +188,9 @@ describe('service-invoices (e2e)', () => {
     });
   });
 
-  it('refuses a review that is not a draft anymore', async () => {
+  it('refuses a review of a discarded draft', async () => {
     const id = await newDraft();
-    await prisma.serviceInvoice.update({
-      where: { id },
-      data: { status: 'CONFIRMED' },
-    });
+    await discard(id).expect(204);
 
     const response = await saveReview(id, { number: '1288' }).expect(409);
 
@@ -374,6 +374,184 @@ describe('service-invoices (e2e)', () => {
       const review = await readReview(await readDraft());
 
       expect(review).not.toHaveProperty('duplicateOf');
+    });
+  });
+
+  describe('confirmation', () => {
+    const ISSUED = '2026-10-13';
+
+    const confirm = (id: string, payload: Record<string, unknown> = {}) =>
+      request(http)
+        .post(`/service-invoices/${id}/confirm`)
+        .set('Authorization', bearer(ana))
+        .send(payload);
+
+    /** A draft reviewed with everything a confirmation needs. */
+    const reviewedDraft = async (fileHash?: string) => {
+      const client = await prisma.client.create({
+        data: {
+          userId,
+          type: 'CLINIC',
+          name: 'Clínica Exemplo',
+          paymentTermsDays: 30,
+        },
+      });
+      const id = await newDraft(fileHash);
+      await saveReview(id, {
+        issueDate: ISSUED,
+        amount: 1500,
+        number: '1287',
+        clientId: client.id,
+      }).expect(204);
+      return id;
+    };
+
+    const entryOf = (serviceInvoiceId: string) =>
+      prisma.financialEntry.findUnique({ where: { serviceInvoiceId } });
+
+    const statement = async () => {
+      const response = await request(http)
+        .get('/financial-entries')
+        .query({ year: 2026, month: 10 })
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      return response.body as {
+        id: string;
+        amount: string;
+        source: string;
+        origin: { type: string; id: string };
+      }[];
+    };
+
+    it('records the income entry of the note, due after the client terms', async () => {
+      const id = await reviewedDraft();
+
+      const response = await confirm(id).expect(200);
+
+      const { financialEntryId } = body(response) as {
+        financialEntryId: string;
+      };
+      expect(body(response)).toEqual({ id, financialEntryId });
+      await expect(entryOf(id)).resolves.toMatchObject({
+        id: financialEntryId,
+        nature: 'INCOME',
+        scope: 'PROFESSIONAL',
+        source: 'SERVICE_INVOICE',
+        status: 'PENDING',
+        description: 'NFS-e 1287',
+        accrualDate: new Date(`${ISSUED}T00:00:00Z`),
+        dueDate: new Date('2026-11-12T00:00:00Z'),
+      });
+      expect(await statement()).toEqual([
+        expect.objectContaining({
+          id: financialEntryId,
+          amount: '1500',
+          source: 'SERVICE_INVOICE',
+          origin: { type: 'SERVICE_INVOICE', id },
+        }),
+      ]);
+    });
+
+    it('lists what is missing before confirming', async () => {
+      const id = await newDraft();
+      await saveReview(id, { amount: 1500 }).expect(204);
+
+      const response = await confirm(id).expect(400);
+
+      expect(body(response)).toMatchObject({
+        code: 'SERVICE_INVOICE_NOT_READY',
+        details: { missing: ['issueDate', 'clientId'] },
+      });
+      await expect(entryOf(id)).resolves.toBeNull();
+    });
+
+    it('confirms a note once, with one entry', async () => {
+      const id = await reviewedDraft();
+      await confirm(id).expect(200);
+
+      const response = await confirm(id).expect(409);
+
+      expect(body(response)).toMatchObject({
+        code: 'SERVICE_INVOICE_NOT_EDITABLE',
+      });
+      await expect(
+        prisma.financialEntry.count({ where: { serviceInvoiceId: id } }),
+      ).resolves.toBe(1);
+    });
+
+    it('points to a confirmed note that looks the same until the user insists', async () => {
+      const first = await reviewedDraft();
+      await confirm(first).expect(200);
+      const second = await reviewedDraft();
+
+      const refused = await confirm(second).expect(409);
+      expect(body(refused)).toMatchObject({
+        code: 'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
+        details: {
+          duplicateOf: { id: first, reason: 'SAME_AMOUNT_AND_DATE' },
+        },
+      });
+      await expect(entryOf(second)).resolves.toBeNull();
+
+      await confirm(second, { allowDuplicate: true }).expect(200);
+      await expect(entryOf(second)).resolves.not.toBeNull();
+    });
+
+    it('takes the entry along when a confirmed note is edited', async () => {
+      const id = await reviewedDraft();
+      await confirm(id).expect(200);
+
+      await saveReview(id, { amount: 1450, issueDate: '2026-10-20' }).expect(
+        204,
+      );
+
+      await expect(entryOf(id)).resolves.toMatchObject({
+        amount: new Prisma.Decimal(1450),
+        accrualDate: new Date('2026-10-20T00:00:00Z'),
+        dueDate: new Date('2026-11-19T00:00:00Z'),
+      });
+    });
+
+    it('keeps the required fields of a confirmed note', async () => {
+      const id = await reviewedDraft();
+      await confirm(id).expect(200);
+
+      await saveReview(id, { amount: null }).expect(400);
+
+      await expect(entryOf(id)).resolves.toMatchObject({
+        amount: new Prisma.Decimal(1500),
+      });
+    });
+
+    it('leaves the amount of the entry to the note', async () => {
+      const id = await reviewedDraft();
+      const { financialEntryId } = body(await confirm(id).expect(200)) as {
+        financialEntryId: string;
+      };
+
+      const response = await request(http)
+        .patch(`/financial-entries/${financialEntryId}`)
+        .set('Authorization', bearer(ana))
+        .send({ amount: 10 })
+        .expect(400);
+
+      expect(body(response)).toMatchObject({
+        code: 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+      });
+    });
+
+    it('deletes a confirmed note with its entry, freeing its file', async () => {
+      const fileHash = newFileHash();
+      const id = await reviewedDraft(fileHash);
+      await confirm(id).expect(200);
+
+      await discard(id).expect(204);
+
+      expect(await statement()).toEqual([]);
+      await expect(
+        prisma.serviceInvoice.findUniqueOrThrow({ where: { id } }),
+      ).resolves.toMatchObject({ deletedAt: expect.any(Date) as Date });
+      await newDraft(fileHash);
     });
   });
 

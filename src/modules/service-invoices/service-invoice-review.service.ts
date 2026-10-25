@@ -35,7 +35,7 @@ export class ServiceInvoiceReviewService {
   ): Promise<NfseReviewDto> {
     const [taker, duplicateOf] = await Promise.all([
       this.takerOf(userId, invoice),
-      this.duplicateOf(userId, invoice),
+      this.findDuplicate(userId, invoice),
     ]);
     return {
       ...toReview(invoice),
@@ -68,7 +68,8 @@ export class ServiceInvoiceReviewService {
     };
   }
 
-  private async duplicateOf(
+  /** A confirmed note that looks like this one, as the review shows it. */
+  async findDuplicate(
     userId: string,
     invoice: ServiceInvoice,
   ): Promise<DuplicateServiceInvoiceDto | null> {

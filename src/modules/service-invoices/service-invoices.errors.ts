@@ -1,5 +1,7 @@
 import { ServiceInvoice } from '@prisma/client';
 
+import { RequiredField } from './domain/confirmation';
+import { DuplicateServiceInvoiceDto } from './dto/nfse-review.dto';
 import { SERVICE_INVOICE_UPLOAD } from './service-invoices.constants';
 import { DomainError } from '../../shared/errors/domain-error';
 
@@ -25,6 +27,43 @@ export function serviceInvoiceNotEditable(
       status: invoice.status,
       extractionStatus: invoice.extractionStatus,
     },
+  );
+}
+
+/**
+ * Why a conditional write matched nothing: the note is gone or not this
+ * user's, or it is no longer in the state the write required.
+ */
+export function refusalOf(
+  invoice: ServiceInvoice | null,
+  id: string,
+): DomainError {
+  return invoice
+    ? serviceInvoiceNotEditable(invoice)
+    : serviceInvoiceNotFound(id);
+}
+
+export function serviceInvoiceNotReady(
+  id: string,
+  missing: RequiredField[],
+): DomainError {
+  return new DomainError(
+    'INVALID_INPUT',
+    'SERVICE_INVOICE_NOT_READY',
+    'A confirmed note needs an issue date, an amount greater than zero and a client',
+    { id, missing },
+  );
+}
+
+/** Carries the note it looks like, for the app to show before insisting. */
+export function possibleDuplicate(
+  duplicateOf: DuplicateServiceInvoiceDto,
+): DomainError {
+  return new DomainError(
+    'CONFLICT',
+    'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
+    'A confirmed note looks like this one',
+    { duplicateOf },
   );
 }
 
