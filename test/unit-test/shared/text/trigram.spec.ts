@@ -1,7 +1,4 @@
-import {
-  similarity,
-  trigrams,
-} from '../../../../src/modules/item-match/domain/trigram';
+import { similarity, trigrams } from '../../../../src/shared/text/trigram';
 
 describe('trigrams', () => {
   it('pads each word like pg_trgm', () => {

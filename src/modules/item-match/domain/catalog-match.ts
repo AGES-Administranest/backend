@@ -1,7 +1,6 @@
 import { compareAttributes, Comparison } from './attribute-comparison';
 import { Attributes, extractAttributes } from './attributes';
 import { normalize } from './normalize';
-import { similarity } from './trigram';
 import {
   FILLER_WORDS,
   flagWords,
@@ -11,6 +10,7 @@ import {
   VARIANT_FLAGS,
   VARIANT_WORDS,
 } from './vocabulary';
+import { similarity } from '../../../shared/text/trigram';
 
 export type CatalogItem = { id: string; name: string; unit?: string };
 
