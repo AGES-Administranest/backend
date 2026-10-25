@@ -37,4 +37,11 @@ export class FinancialCategoryResponse {
 
   @ApiProperty({ enum: EntryScope, example: 'PROFESSIONAL' })
   defaultScope!: EntryScope;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'true for a system default category (shared by every user), false for one the user created',
+  })
+  isDefault!: boolean;
 }

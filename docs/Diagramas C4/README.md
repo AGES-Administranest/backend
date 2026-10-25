@@ -6,6 +6,7 @@
 | [C4-01-contexto.md](C4-01-contexto.md)                   | **Nível 1 — Contexto:** quem usa o sistema e com que mundo ele conversa              |
 | [C4-02-containers.md](C4-02-containers.md)               | **Nível 2 — Containers:** app mobile, API, banco, Cognito e S3                       |
 | [C4-03-componentes-users.md](C4-03-componentes-users.md) | **Nível 3 — Componentes:** o módulo `Users` como molde de todos os módulos           |
+| [C4-03-components-documents.md](C4-03-components-documents.md) | **Level 3 — Components:** the uploaded documents (purchase order and NFSe), ADR-14 |
 
 Os diagramas são blocos ```mermaid — renderizam direto no GitHub, no VS Code e
 nos plugins de Markdown, sem ferramenta extra.
