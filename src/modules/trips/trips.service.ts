@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, Trip, TripMode } from '@prisma/client';
 
+import { FinancialEntryService } from '../financial';
 import { snapshotCostPerKm, tripCost } from './domain/trip-cost';
 import { isSameTrip, modeViolations, TripDraft } from './domain/trip-rules';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -9,9 +10,8 @@ import { UpdateTripDto } from './dto/update-trip.dto';
 import { TripEntity, TripListEntity } from './entities/trip.entity';
 import { TripsRepository } from './trips.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
+import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
 import { DomainError } from '../../shared/errors/domain-error';
-import { fromIsoDate, toIsoDate } from '../../shared/validation/iso-date';
-import { FinancialEntryService } from '../financial';
 
 type Tx = Prisma.TransactionClient;
 

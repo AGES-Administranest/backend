@@ -8,7 +8,7 @@ import {
   Min,
 } from 'class-validator';
 
-import { IsIsoDate } from '../../../shared/validation/iso-date';
+import { IsIsoDate } from '../../../shared/dates/iso-date';
 import { MAX_DRAFT_AMOUNT } from '../stock-entry.constants';
 
 /** An absent field is left as it is; `null` clears it. */

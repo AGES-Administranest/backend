@@ -14,7 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-import { IsIsoDate } from '../../../shared/validation/iso-date';
+import { IsIsoDate } from '../../../shared/dates/iso-date';
 import { MAX_DRAFT_AMOUNT, MAX_DRAFT_LINES } from '../stock-entry.constants';
 
 /** Values stay optional in a draft: the confirmation is what requires them. */

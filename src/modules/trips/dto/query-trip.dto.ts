@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
-import { IsIsoDate } from '../../../shared/validation/iso-date';
+import { IsIsoDate } from '../../../shared/dates/iso-date';
 
 // No `userId`: the listing is scoped to the token's owner (ADR-11).
 export class QueryTripDto {

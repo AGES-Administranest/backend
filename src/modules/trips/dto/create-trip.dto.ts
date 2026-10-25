@@ -13,7 +13,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-import { IsIsoDate } from '../../../shared/validation/iso-date';
+import { IsIsoDate } from '../../../shared/dates/iso-date';
 import {
   MAX_DISTANCE_KM,
   MAX_RIDE_COST,

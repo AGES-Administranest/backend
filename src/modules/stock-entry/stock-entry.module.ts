@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { ExtractionService } from './extraction.service';
+import { PurchaseReadingService } from './purchase-reading.service';
 import { StockEntryDraftService } from './stock-entry-draft.service';
 import { StockEntryController } from './stock-entry.controller';
 import { StockEntryRepository } from './stock-entry.repository';
@@ -12,8 +12,8 @@ import { ItemMatchModule } from '../item-match';
 import { SupplierModule } from '../supplier';
 
 /**
- * `DocumentStorage` is not listed here: it comes from the global
- * `StorageModule`, registered once in `AppModule`.
+ * `DocumentStorage` and `DocumentUploads` are not listed here: they come from
+ * the global `StorageModule`, registered once in `AppModule`.
  */
 @Module({
   imports: [
@@ -29,7 +29,7 @@ import { SupplierModule } from '../supplier';
   providers: [
     StockEntryService,
     StockEntryDraftService,
-    ExtractionService,
+    PurchaseReadingService,
     StockEntryRepository,
   ],
   exports: [StockEntryService],
