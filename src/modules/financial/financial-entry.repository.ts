@@ -19,7 +19,10 @@ const statementSelect = {
   serviceInvoiceId: true,
   purchaseInvoiceId: true,
   tripId: true,
-  category: { select: { id: true, name: true, defaultScope: true } },
+  // userId only feeds isDefault in the response; it is never returned.
+  category: {
+    select: { id: true, name: true, defaultScope: true, userId: true },
+  },
 } satisfies Prisma.FinancialEntrySelect;
 
 export type StatementRow = Prisma.FinancialEntryGetPayload<{
@@ -78,6 +81,32 @@ export class FinancialEntryRepository {
       });
       return rows.map(row => ({
         scope: row.scope,
+        total: row._sum.amount ?? new Prisma.Decimal(0),
+      }));
+    });
+  }
+
+  sumByNatureScopeCategory(
+    userId: string,
+    filter: StatementFilter,
+  ): Promise<
+    {
+      nature: EntryNature;
+      scope: EntryScope;
+      categoryId: string;
+      total: Prisma.Decimal;
+    }[]
+  > {
+    return runQuery(async () => {
+      const rows = await this.prisma.financialEntry.groupBy({
+        by: ['nature', 'scope', 'categoryId'],
+        where: this.statementWhere(userId, filter),
+        _sum: { amount: true },
+      });
+      return rows.map(row => ({
+        nature: row.nature,
+        scope: row.scope,
+        categoryId: row.categoryId,
         total: row._sum.amount ?? new Prisma.Decimal(0),
       }));
     });

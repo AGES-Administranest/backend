@@ -12,8 +12,8 @@ import { ItemMatchModule } from '../item-match';
 import { SupplierModule } from '../supplier';
 
 /**
- * `DocumentStorage` is not listed here: it comes from the global
- * `StorageModule`, registered once in `AppModule`.
+ * `DocumentStorage` and `DocumentUploads` are not listed here: they come from
+ * the global `StorageModule`, registered once in `AppModule`.
  */
 @Module({
   imports: [

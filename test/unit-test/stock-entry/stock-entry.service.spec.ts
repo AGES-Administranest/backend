@@ -1,12 +1,12 @@
 import { PurchaseInvoice } from '@prisma/client';
 
 import { FakeStockEntryRepository, FakeStorage } from './testing/fakes';
+import { documentKey, DocumentUploads } from '../../../src/infra/storage';
 import {
   ExtractionService,
   PurchaseOrderResult,
 } from '../../../src/modules/extraction';
 import { MatchItemService } from '../../../src/modules/item-match';
-import { buildDocumentKey } from '../../../src/modules/stock-entry/document-key';
 import { CreateUploadUrlDto } from '../../../src/modules/stock-entry/dto/create-upload-url.dto';
 import { PurchaseReadingService } from '../../../src/modules/stock-entry/purchase-reading.service';
 import { StockEntryRepository } from '../../../src/modules/stock-entry/stock-entry.repository';
@@ -16,7 +16,7 @@ import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const USER = { id: 'user-1', cognitoSub: 'sub-123' };
 const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';
-const KEY = buildDocumentKey(USER.id, INVOICE_ID);
+const KEY = documentKey(USER.id, 'purchase-invoices', INVOICE_ID);
 
 const UPLOAD: CreateUploadUrlDto = {
   filename: 'pedido-4521.pdf',
@@ -57,7 +57,7 @@ describe('StockEntryService', () => {
     );
     service = new StockEntryService(
       repository as unknown as StockEntryRepository,
-      storage,
+      new DocumentUploads(storage),
       reading,
     );
   });
@@ -197,10 +197,13 @@ describe('StockEntryService', () => {
     // The client claiming success is not evidence: only the key it should have
     // written to is.
     it('does not accept an object written under another key', async () => {
-      storage.put(buildDocumentKey(USER.id, 'another-invoice'), {
-        contentLength: 10,
-        contentType: 'application/pdf',
-      });
+      storage.put(
+        documentKey(USER.id, 'purchase-invoices', 'another-invoice'),
+        {
+          contentLength: 10,
+          contentType: 'application/pdf',
+        },
+      );
 
       await expect(confirm()).rejects.toBeInstanceOf(DomainError);
     });

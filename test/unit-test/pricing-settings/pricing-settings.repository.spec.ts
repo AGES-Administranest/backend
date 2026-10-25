@@ -55,4 +55,24 @@ describe('PricingSettingsRepository', () => {
     expect(create).not.toHaveProperty('transportCostMonthly');
     expect(update).not.toHaveProperty('transportCostMonthly');
   });
+
+  it('creates or overwrites only the transport cost, leaving the goals alone', async () => {
+    await repository.saveTransportCost('user-1', 450);
+
+    expect(prisma.pricingSettings.upsert).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      create: { userId: 'user-1', transportCostMonthly: 450 },
+      update: { transportCostMonthly: 450 },
+    });
+  });
+
+  it('writes a transport cost of zero instead of treating it as empty', async () => {
+    await repository.saveTransportCost('user-1', 0);
+
+    expect(prisma.pricingSettings.upsert).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      create: { userId: 'user-1', transportCostMonthly: 0 },
+      update: { transportCostMonthly: 0 },
+    });
+  });
 });
