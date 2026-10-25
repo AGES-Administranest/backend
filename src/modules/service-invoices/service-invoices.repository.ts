@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, ServiceInvoice, ServiceInvoiceStatus } from '@prisma/client';
 
+import { DuplicateCriteria } from './domain/find-duplicates';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+
+export type DuplicateNote = ServiceInvoice & {
+  client: { name: string } | null;
+};
 
 export type ServiceInvoiceFilters = {
   status?: ServiceInvoiceStatus;
@@ -60,6 +65,43 @@ export class ServiceInvoicesRepository {
       }),
     );
     return invoice?.id;
+  }
+
+  /**
+   * The latest confirmed note that looks like this one. Drafts do not count:
+   * an abandoned upload would warn about a note that was never registered.
+   */
+  findDuplicate(
+    userId: string,
+    excludeId: string,
+    { amountAndDate, numberAndTaker }: DuplicateCriteria,
+  ): Promise<DuplicateNote | null> {
+    const sameTaker = numberAndTaker && [
+      ...(numberAndTaker.clientId
+        ? [{ clientId: numberAndTaker.clientId }]
+        : []),
+      ...(numberAndTaker.takerTaxId
+        ? [{ takerTaxId: numberAndTaker.takerTaxId }]
+        : []),
+    ];
+    return runQuery(() =>
+      this.prisma.serviceInvoice.findFirst({
+        where: {
+          userId,
+          id: { not: excludeId },
+          status: 'CONFIRMED',
+          deletedAt: null,
+          OR: [
+            ...(amountAndDate ? [amountAndDate] : []),
+            ...(numberAndTaker
+              ? [{ number: numberAndTaker.number, OR: sameTaker }]
+              : []),
+          ],
+        },
+        include: { client: { select: { name: true } } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
   }
 
   /**

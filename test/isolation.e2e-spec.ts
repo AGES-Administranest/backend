@@ -509,6 +509,50 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       expect(body(response)).toMatchObject({ code: 'CLIENT_NOT_FOUND' });
       expect((await readNote(id)).clientId).toBeNull();
     });
+
+    it('never offers another account client or note in the review', async () => {
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      const anaClient = await prisma.client.create({
+        data: {
+          userId: anaRow.id,
+          type: 'CLINIC',
+          name: 'Clínica Exemplo',
+          taxId: '12345678000195',
+          taxIdType: 'CNPJ',
+        },
+      });
+      const sameNote = {
+        number: '1287',
+        issueDate: new Date('2026-10-13T00:00:00Z'),
+        amount: 1500,
+        takerTaxId: '12345678000195',
+      };
+      const anaNote = await noteOf(ana);
+      await prisma.serviceInvoice.update({
+        where: { id: anaNote },
+        data: { ...sameNote, status: 'CONFIRMED', clientId: anaClient.id },
+      });
+      const brunoNote = await noteOf(bruno);
+      await prisma.serviceInvoice.update({
+        where: { id: brunoNote },
+        data: {
+          ...sameNote,
+          rawExtraction: { taker: { name: 'CLINICA EXEMPLO LTDA' } },
+        },
+      });
+
+      const response = await request(http)
+        .get(`/service-invoices/${brunoNote}`)
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      const review = body(response).review as Record<string, unknown>;
+      expect(review).not.toHaveProperty('clientMatch');
+      expect(review).not.toHaveProperty('clientSuggestions');
+      expect(review).not.toHaveProperty('duplicateOf');
+    });
   });
 
   describe('appointments', () => {

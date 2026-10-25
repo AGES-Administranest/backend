@@ -230,6 +230,153 @@ describe('service-invoices (e2e)', () => {
     expect(await listIds('?to=2026-09-30')).toEqual([september]);
   });
 
+  describe('review', () => {
+    const TAKER_TAX_ID = '12345678000195';
+    const ISSUED = '2026-10-13';
+
+    const readReview = async (id: string) => {
+      const response = await request(http)
+        .get(`/service-invoices/${id}`)
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      return body(response).review as Record<string, unknown>;
+    };
+
+    /** A draft as a reading of the NFSe leaves it. */
+    const readDraft = async (): Promise<string> => {
+      const id = await newDraft();
+      await prisma.serviceInvoice.update({
+        where: { id },
+        data: {
+          extractionStatus: 'SUCCESS',
+          issueDate: new Date(`${ISSUED}T00:00:00Z`),
+          amount: 1500,
+          number: '1287',
+          takerTaxId: TAKER_TAX_ID,
+          rawExtraction: {
+            status: 'success',
+            taker: {
+              name: 'CLINICA VETERINARIA EXEMPLO LTDA',
+              taxId: TAKER_TAX_ID,
+            },
+          },
+        },
+      });
+      return id;
+    };
+
+    const createClient = (name: string, taxId?: string) =>
+      prisma.client.create({
+        data: {
+          userId,
+          type: 'CLINIC',
+          name,
+          ...(taxId && { taxId, taxIdType: 'CNPJ' as const }),
+        },
+      });
+
+    /** A note already registered, with its own file. */
+    const registeredNote = async (data: Record<string, unknown>) => {
+      const id = await newDraft();
+      await prisma.serviceInvoice.update({
+        where: { id },
+        data: { status: 'CONFIRMED', ...data },
+      });
+      return id;
+    };
+
+    it('links the client holding the taker tax id', async () => {
+      const client = await createClient('Clínica Exemplo', TAKER_TAX_ID);
+      await createClient('Clínica Exemplo Norte');
+
+      const review = await readReview(await readDraft());
+
+      expect(review.clientMatch).toEqual({
+        id: client.id,
+        name: 'Clínica Exemplo',
+        taxId: TAKER_TAX_ID,
+      });
+      expect(review).not.toHaveProperty('clientSuggestions');
+    });
+
+    it('suggests clients by name, accents and legal form aside', async () => {
+      const same = await createClient('Clínica Exemplo');
+      const north = await createClient('Clínica Exemplo Norte');
+      await createClient('Clínica Veterinária Bichos');
+
+      const review = await readReview(await readDraft());
+
+      expect(review).not.toHaveProperty('clientMatch');
+      expect(review.clientSuggestions).toEqual([
+        { id: same.id, name: 'Clínica Exemplo' },
+        { id: north.id, name: 'Clínica Exemplo Norte' },
+      ]);
+    });
+
+    it('stops suggesting once the user picked a client', async () => {
+      const client = await createClient('Clínica Exemplo', TAKER_TAX_ID);
+      const id = await readDraft();
+      await saveReview(id, { clientId: client.id }).expect(204);
+
+      const review = await readReview(id);
+
+      expect(review.clientId).toBe(client.id);
+      expect(review).not.toHaveProperty('clientMatch');
+    });
+
+    it('warns about a registered note with the same amount and date', async () => {
+      const client = await createClient('Clínica Exemplo', TAKER_TAX_ID);
+      const registered = await registeredNote({
+        issueDate: new Date(`${ISSUED}T00:00:00Z`),
+        amount: 1500,
+        number: '1201',
+        clientId: client.id,
+      });
+
+      const review = await readReview(await readDraft());
+
+      expect(review.duplicateOf).toEqual({
+        id: registered,
+        number: '1201',
+        issueDate: ISSUED,
+        amount: 1500,
+        clientName: 'Clínica Exemplo',
+        reason: 'SAME_AMOUNT_AND_DATE',
+      });
+    });
+
+    it('warns about a registered note with the same number and taker', async () => {
+      const registered = await registeredNote({
+        issueDate: new Date('2026-09-01T00:00:00Z'),
+        amount: 900,
+        number: '1287',
+        takerTaxId: TAKER_TAX_ID,
+      });
+
+      const review = await readReview(await readDraft());
+
+      expect(review.duplicateOf).toMatchObject({
+        id: registered,
+        reason: 'SAME_NUMBER_AND_TAKER',
+      });
+    });
+
+    it('does not count drafts, discarded or deleted notes', async () => {
+      const same = {
+        issueDate: new Date(`${ISSUED}T00:00:00Z`),
+        amount: 1500,
+      };
+      const draft = await newDraft();
+      await prisma.serviceInvoice.update({ where: { id: draft }, data: same });
+      await registeredNote({ ...same, status: 'CANCELLED', fileHash: null });
+      await registeredNote({ ...same, deletedAt: new Date() });
+
+      const review = await readReview(await readDraft());
+
+      expect(review).not.toHaveProperty('duplicateOf');
+    });
+  });
+
   it('signs the download only after the upload was confirmed', async () => {
     const id = await newDraft();
     const download = () =>

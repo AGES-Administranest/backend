@@ -2,13 +2,14 @@ import { Prisma } from '@prisma/client';
 
 import {
   draftNote,
+  FakeClients,
   FakeServiceInvoicesRepository,
   FakeStorage,
   INVOICE_ID,
+  reviewService,
   USER_ID,
 } from './testing/fakes';
 import { documentKey, DocumentUploads } from '../../../src/infra/storage';
-import { ClientService } from '../../../src/modules/client';
 import { ServiceInvoiceDraftService } from '../../../src/modules/service-invoices/service-invoice-draft.service';
 import { ServiceInvoicesRepository } from '../../../src/modules/service-invoices/service-invoices.repository';
 import { DomainError } from '../../../src/shared/errors/domain-error';
@@ -22,11 +23,13 @@ describe('ServiceInvoiceDraftService', () => {
 
   beforeEach(() => {
     repository = new FakeServiceInvoicesRepository();
-    findClient = jest.fn().mockResolvedValue({ id: CLIENT_ID });
+    const clients = new FakeClients();
+    findClient = clients.findOne;
     service = new ServiceInvoiceDraftService(
       repository as unknown as ServiceInvoicesRepository,
       new DocumentUploads(new FakeStorage()),
-      { findOne: findClient } as unknown as ClientService,
+      clients.service,
+      reviewService(repository, clients),
     );
   });
 

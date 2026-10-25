@@ -5,6 +5,7 @@ import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
 import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
+import { ServiceInvoiceReviewService } from './service-invoice-review.service';
 import { toDetail, toReviewChanges, toSummary } from './service-invoice.mapper';
 import {
   serviceInvoiceNotEditable,
@@ -24,6 +25,7 @@ export class ServiceInvoiceDraftService {
     private readonly repository: ServiceInvoicesRepository,
     private readonly documentUploads: DocumentUploads,
     private readonly clientService: ClientService,
+    private readonly reviewService: ServiceInvoiceReviewService,
   ) {}
 
   async list(
@@ -44,7 +46,11 @@ export class ServiceInvoiceDraftService {
   }
 
   async get(userId: string, id: string): Promise<ServiceInvoiceDetailDto> {
-    return toDetail(await this.findOrFail(userId, id));
+    const invoice = await this.findOrFail(userId, id);
+    return toDetail(
+      invoice,
+      await this.reviewService.reviewOf(userId, invoice),
+    );
   }
 
   /** A confirmed note is edited along with its income entry (subtask 5). */
