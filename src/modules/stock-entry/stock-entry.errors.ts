@@ -1,6 +1,6 @@
 import { PurchaseInvoice } from '@prisma/client';
 
-import { MAX_FILE_BYTES_SIZE } from './stock-entry.constants';
+import { PURCHASE_INVOICE_UPLOAD } from './stock-entry.constants';
 import { DomainError } from '../../shared/errors/domain-error';
 
 /** 404 and not 403: confirming that the invoice exists already leaks it. */
@@ -36,11 +36,12 @@ export function invoiceNotEditable(invoice: PurchaseInvoice): DomainError {
 }
 
 export function fileTooLarge(fileBytesSize: number): DomainError {
+  const { maxBytesSize } = PURCHASE_INVOICE_UPLOAD;
   return new DomainError(
     'PAYLOAD_TOO_LARGE',
     'INVOICE_FILE_TOO_LARGE',
-    `The file exceeds the ${MAX_FILE_BYTES_SIZE} byte limit`,
-    { fileBytesSize, maxFileBytesSize: MAX_FILE_BYTES_SIZE },
+    `The file exceeds the ${maxBytesSize} byte limit`,
+    { fileBytesSize, maxFileBytesSize: maxBytesSize },
   );
 }
 

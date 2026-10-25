@@ -32,12 +32,13 @@ export class EquipmentService {
     return equipment.map(item => this.sanitize(item, asOf));
   }
 
-  async summary(userId: string): Promise<EquipmentSummaryEntity> {
-    const equipment = await this.equipmentRepository.findMany({
-      userId,
-      active: true,
-    });
-    const asOf = new Date();
+  async summary(
+    userId: string,
+    asOf = new Date(),
+  ): Promise<EquipmentSummaryEntity> {
+    const equipment = (
+      await this.equipmentRepository.findMany({ userId, active: true })
+    ).filter(item => item.acquisitionDate <= asOf);
     const monthlyTotal = equipment.reduce((total, item) => {
       const depreciation = calculateDepreciation({
         purchaseValue: item.purchaseValue.toNumber(),

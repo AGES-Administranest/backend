@@ -1,11 +1,10 @@
-export const ALLOWED_FILE_MIME_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-] as const;
+import { UploadPolicy } from '../../infra/storage';
 
-export const MAX_FILE_BYTES_SIZE = 15 * 1024 * 1024;
-
-export const PRESIGNED_TTL_MS = 10 * 60 * 1000;
+export const PURCHASE_INVOICE_UPLOAD = {
+  allowedMimeTypes: ['application/pdf', 'image/jpeg'],
+  maxBytesSize: 15 * 1024 * 1024,
+  presignedTtlMs: 10 * 60 * 1000,
+} as const satisfies UploadPolicy;
 
 /**
  * The reader stops at 50 pages; a dense order fits about 40 lines a page. The
