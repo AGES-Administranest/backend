@@ -69,6 +69,13 @@ export class FinancialEntryCategoryResponse {
     description: 'The category default scope',
   })
   scope!: EntryScope;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'true for a system default category (shared by every user), false for one the user created. Tells a user category apart from a default with the same name.',
+  })
+  isDefault!: boolean;
 }
 
 export class FinancialEntryOriginResponse {

@@ -672,6 +672,98 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('financial categories', () => {
+    const createCategory = async (
+      user: TestUser,
+      name: string,
+    ): Promise<string> => {
+      const id = randomUUID();
+      await request(http)
+        .post('/financial-categories')
+        .set('Authorization', bearer(user))
+        .send({ id, name, nature: 'EXPENSE', defaultScope: 'PERSONAL' })
+        .expect(201);
+
+      return id;
+    };
+
+    /** The caller's own categories: defaults are shared and prove nothing. */
+    const listOwnNames = async (user: TestUser): Promise<string[]> => {
+      const response = await request(http)
+        .get('/financial-categories')
+        .set('Authorization', bearer(user))
+        .expect(200);
+
+      return (response.body as { name: string; isDefault: boolean }[])
+        .filter(category => !category.isDefault)
+        .map(category => category.name);
+    };
+
+    it('does not list another account categories', async () => {
+      await createCategory(ana, 'Comida da Ana');
+
+      expect(await listOwnNames(bruno)).not.toContain('Comida da Ana');
+      expect(await listOwnNames(ana)).toContain('Comida da Ana');
+    });
+
+    it('lets another account create a category with the same name', async () => {
+      await createCategory(ana, 'Comida');
+      await createCategory(bruno, 'Comida');
+
+      expect(await listOwnNames(ana)).toEqual(['Comida']);
+      expect(await listOwnNames(bruno)).toEqual(['Comida']);
+    });
+
+    it('refuses another account category in an entry, and records no entry', async () => {
+      const anaCategory = await createCategory(ana, 'Comida da Ana');
+
+      const response = await request(http)
+        .post('/financial-entries')
+        .set('Authorization', bearer(bruno))
+        .send({
+          id: randomUUID(),
+          nature: 'EXPENSE',
+          description: 'Almoço',
+          amount: 30,
+          accrualDate: '2026-09-25T12:00:00.000Z',
+          categoryId: anaCategory,
+        })
+        .expect(400);
+
+      expect(body(response)).toMatchObject({
+        code: 'FINANCIAL_CATEGORY_INVALID',
+      });
+      expect(await prisma.financialEntry.count()).toBe(0);
+    });
+
+    it('refuses another account category id, and leaves the category untouched', async () => {
+      const anaCategory = await createCategory(ana, 'Comida da Ana');
+
+      const response = await request(http)
+        .post('/financial-categories')
+        .set('Authorization', bearer(bruno))
+        .send({
+          id: anaCategory,
+          name: 'Comida da Ana',
+          nature: 'EXPENSE',
+          defaultScope: 'PERSONAL',
+        })
+        .expect(409);
+
+      // The same answer as any id already in use: nothing says whose it is.
+      expect(body(response)).toMatchObject({
+        code: 'FINANCIAL_CATEGORY_ID_CONFLICT',
+      });
+      expect(body(response)).not.toHaveProperty('details');
+      expect(await listOwnNames(bruno)).toEqual([]);
+      const stored = await prisma.financialCategory.findUniqueOrThrow({
+        where: { id: anaCategory },
+        include: { user: true },
+      });
+      expect(stored.user?.email).toBe(ana.email);
+    });
+  });
+
   describe('vehicles', () => {
     const createVehicle = async (
       user: TestUser,

@@ -14,6 +14,7 @@ import { EquipmentModule } from './modules/equipment';
 import { FinancialModule } from './modules/financial/financial.module';
 import { FixedCostsModule } from './modules/fixed-costs';
 import { ItemModule } from './modules/item/item.module';
+import { PricingModule } from './modules/pricing';
 import { PricingSettingsModule } from './modules/pricing-settings';
 import { ServiceInvoicesModule } from './modules/service-invoices';
 import { StockEntryModule } from './modules/stock-entry';
@@ -57,6 +58,7 @@ import { JwtAuthGuard, SharedAuthModule } from './shared/auth';
     ServiceInvoicesModule,
     VehiclesModule,
     PricingSettingsModule,
+    PricingModule,
   ],
   controllers: [AppController],
   // The guard is assembled here, and not in SharedAuthModule, because this is

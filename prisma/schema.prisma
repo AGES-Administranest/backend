@@ -785,7 +785,10 @@ model FinancialCategory {
   createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user    User?            @relation(fields: [userId], references: [id])
+  /// Restrict, like every other relation to User. SetNull (Prisma's default
+  /// for an optional relation) would turn a deleted user's categories into
+  /// system defaults that every other user sees.
+  user    User?            @relation(fields: [userId], references: [id], onDelete: Restrict)
   entries FinancialEntry[]
 
   @@unique([userId, nature, name])
