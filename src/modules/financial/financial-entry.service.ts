@@ -20,6 +20,7 @@ import {
 } from './financial-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
+import { EquipmentService } from '../equipment';
 
 export function accrualMonth(year?: number, month?: number, now = new Date()) {
   const y = year ?? now.getUTCFullYear();
@@ -86,6 +87,7 @@ export class FinancialEntryService {
   constructor(
     private readonly repository: FinancialEntryRepository,
     private readonly categories: FinancialCategoryRepository,
+    private readonly equipment: EquipmentService,
   ) {}
 
   async findAll(
@@ -113,10 +115,14 @@ export class FinancialEntryService {
     query: QueryFinancialBalanceDto,
   ): Promise<FinancialBalanceResponse> {
     const { from, to } = accrualMonth(query.year, query.month);
-    const rows = await this.repository.sumByNatureScopeCategory(userId, {
-      from,
-      to,
-    });
+    const [rows, depreciation] = await Promise.all([
+      this.repository.sumByNatureScopeCategory(userId, { from, to }),
+      this.equipment.monthlyDepreciation(
+        userId,
+        from.getUTCFullYear(),
+        from.getUTCMonth() + 1,
+      ),
+    ]);
     const expenseCategoryIds = [
       ...new Set(
         rows
@@ -133,10 +139,19 @@ export class FinancialEntryService {
 
     const zero = new Prisma.Decimal(0);
     let totalIncome = zero;
-    let professionalExpenses = zero;
+    // Depreciation (US15) is computed here, never posted to financial_entry,
+    // so the statement has no duplicate line. It is a professional expense.
+    // Trips are already in the rows (US14), so nothing is added for transport.
+    // TODO: a manual "Fixed costs" entry also registered in US18 counts
+    // twice; the rule is pending alignment with the team.
+    const monthDepreciation = new Prisma.Decimal(depreciation);
+    let professionalExpenses = monthDepreciation;
     let personalExpenses = zero;
     const byGroup = new Map(
-      EXPENSE_GROUPS.map(group => [group, zero] as const),
+      EXPENSE_GROUPS.map(
+        group =>
+          [group, group === 'DEPRECIATION' ? monthDepreciation : zero] as const,
+      ),
     );
 
     for (const row of rows) {
@@ -188,6 +203,25 @@ export class FinancialEntryService {
       professional: totalOf(EntryScope.PROFESSIONAL),
       personal: totalOf(EntryScope.PERSONAL),
     };
+  }
+
+  /** The month's trip expenses (US14), the part of the expenses that is transport. */
+  async sumTripExpenses(
+    userId: string,
+    year?: number,
+    month?: number,
+  ): Promise<Prisma.Decimal> {
+    const { from, to } = accrualMonth(year, month);
+    const rows = await this.repository.sumByScope(userId, {
+      from,
+      to,
+      nature: EntryNature.EXPENSE,
+      source: EntrySource.TRIP,
+    });
+    return rows.reduce(
+      (sum, row) => sum.plus(row.total),
+      new Prisma.Decimal(0),
+    );
   }
 
   async create(
