@@ -160,6 +160,19 @@ export class FinancialEntryRepository {
     );
   }
 
+  findByServiceInvoice(
+    userId: string,
+    serviceInvoiceId: string,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<{ id: string } | null> {
+    return runQuery(() =>
+      db.financialEntry.findFirst({
+        where: { userId, serviceInvoiceId, deletedAt: null },
+        select: { id: true },
+      }),
+    );
+  }
+
   /** For automatic entries, whose origin decides every change. */
   async updateById(
     id: string,
@@ -168,6 +181,21 @@ export class FinancialEntryRepository {
   ): Promise<void> {
     await runQuery(() =>
       db.financialEntry.update({ where: { id }, data, select: { id: true } }),
+    );
+  }
+
+  /** Updates the note's entry, unless it was already deleted. */
+  async updateByServiceInvoice(
+    userId: string,
+    serviceInvoiceId: string,
+    data: Prisma.FinancialEntryUncheckedUpdateManyInput,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<void> {
+    await runQuery(() =>
+      db.financialEntry.updateMany({
+        where: { userId, serviceInvoiceId, deletedAt: null },
+        data,
+      }),
     );
   }
 

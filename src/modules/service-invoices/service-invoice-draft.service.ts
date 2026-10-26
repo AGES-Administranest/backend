@@ -5,10 +5,11 @@ import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
 import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
+import { ServiceInvoiceConfirmationService } from './service-invoice-confirmation.service';
 import { ServiceInvoiceReviewService } from './service-invoice-review.service';
 import { toDetail, toReviewChanges, toSummary } from './service-invoice.mapper';
 import {
-  serviceInvoiceNotEditable,
+  refusalOf,
   serviceInvoiceNotFound,
   uploadNotFinished,
 } from './service-invoices.errors';
@@ -26,6 +27,7 @@ export class ServiceInvoiceDraftService {
     private readonly documentUploads: DocumentUploads,
     private readonly clientService: ClientService,
     private readonly reviewService: ServiceInvoiceReviewService,
+    private readonly confirmationService: ServiceInvoiceConfirmationService,
   ) {}
 
   async list(
@@ -53,12 +55,17 @@ export class ServiceInvoiceDraftService {
     );
   }
 
-  /** A confirmed note is edited along with its income entry (subtask 5). */
+  /** A confirmed note is edited along with its income entry. */
   async update(
     userId: string,
     id: string,
     dto: UpdateServiceInvoiceDto,
   ): Promise<void> {
+    const invoice = await this.findOrFail(userId, id);
+    if (invoice.status === 'CONFIRMED') {
+      return this.confirmationService.update(userId, id, dto);
+    }
+
     // Someone else's client answers 404, as a missing one (ADR-11).
     if (dto.clientId) await this.clientService.findOne(dto.clientId, userId);
 
@@ -72,9 +79,15 @@ export class ServiceInvoiceDraftService {
 
   /**
    * A discarded draft stays on record as CANCELLED, with its document. Its
-   * hash is released so the same file can start a new note.
+   * hash is released so the same file can start a new note. A confirmed note
+   * is deleted along with its income entry.
    */
   async discard(userId: string, id: string): Promise<void> {
+    const invoice = await this.findOrFail(userId, id);
+    if (invoice.status === 'CONFIRMED') {
+      return this.confirmationService.remove(userId, id);
+    }
+
     const discarded = await this.repository.updateDraft(id, userId, {
       status: 'CANCELLED',
       fileHash: null,
@@ -108,8 +121,6 @@ export class ServiceInvoiceDraftService {
    */
   private async refusal(userId: string, id: string): Promise<DomainError> {
     const invoice = await this.repository.findByIdAndUser(id, userId);
-    return invoice
-      ? serviceInvoiceNotEditable(invoice)
-      : serviceInvoiceNotFound(id);
+    return refusalOf(invoice, id);
   }
 }

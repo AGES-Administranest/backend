@@ -139,6 +139,8 @@ describe('FinancialEntryService manual writes', () => {
     idIsTaken: jest.Mock;
     findOwned: jest.Mock;
     findByPurchaseInvoice: jest.Mock;
+    findByServiceInvoice: jest.Mock;
+    updateByServiceInvoice: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
   };
@@ -161,6 +163,8 @@ describe('FinancialEntryService manual writes', () => {
       idIsTaken: jest.fn().mockResolvedValue(false),
       findOwned: jest.fn(),
       findByPurchaseInvoice: jest.fn().mockResolvedValue(null),
+      findByServiceInvoice: jest.fn().mockResolvedValue(null),
+      updateByServiceInvoice: jest.fn().mockResolvedValue(true),
       create: jest.fn().mockResolvedValue(row()),
       update: jest.fn(),
     };
@@ -437,6 +441,108 @@ describe('FinancialEntryService manual writes', () => {
       }),
       undefined,
     );
+  });
+
+  describe('service invoice income', () => {
+    const income = (number: string | null = '1287') => ({
+      userId: 'user-1',
+      serviceInvoiceId: 'nfse-1',
+      number,
+      amount: new Prisma.Decimal('1500.00'),
+      issueDate: new Date('2026-10-13T00:00:00.000Z'),
+      dueDate: new Date('2026-11-12T00:00:00.000Z'),
+    });
+
+    beforeEach(() => {
+      categories.findDefault.mockResolvedValue({
+        id: 'fees',
+        defaultScope: EntryScope.PROFESSIONAL,
+      });
+    });
+
+    it('records a professional income under the note, accrued on its issue date', async () => {
+      repository.create.mockResolvedValue(row({ id: 'entry-7' }));
+
+      await expect(service.recordServiceInvoice(income())).resolves.toBe(
+        'entry-7',
+      );
+
+      expect(categories.findDefault).toHaveBeenCalledWith(
+        'Professional fees',
+        EntryNature.INCOME,
+      );
+      expect(repository.create).toHaveBeenCalledWith(
+        {
+          userId: 'user-1',
+          nature: EntryNature.INCOME,
+          scope: EntryScope.PROFESSIONAL,
+          categoryId: 'fees',
+          source: EntrySource.SERVICE_INVOICE,
+          serviceInvoiceId: 'nfse-1',
+          description: 'NFS-e 1287',
+          amount: new Prisma.Decimal('1500.00'),
+          accrualDate: new Date('2026-10-13T00:00:00.000Z'),
+          dueDate: new Date('2026-11-12T00:00:00.000Z'),
+        },
+        undefined,
+      );
+    });
+
+    it('describes a note without a number generically', async () => {
+      await service.recordServiceInvoice(income(null));
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ description: 'Service invoice' }),
+        undefined,
+      );
+    });
+
+    it('keeps the one entry of a note confirmed twice', async () => {
+      repository.findByServiceInvoice.mockResolvedValue({ id: 'entry-7' });
+
+      await expect(service.recordServiceInvoice(income())).resolves.toBe(
+        'entry-7',
+      );
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the fees category was not seeded', async () => {
+      categories.findDefault.mockResolvedValue(null);
+
+      await expect(
+        service.recordServiceInvoice(income()),
+      ).rejects.toMatchObject({ code: 'FINANCIAL_CATEGORY_NOT_SEEDED' });
+    });
+
+    it('adjusts the entry to the edited note', async () => {
+      await service.adjustServiceInvoiceEntry({
+        ...income('1288'),
+        amount: new Prisma.Decimal('1450.00'),
+      });
+
+      expect(repository.updateByServiceInvoice).toHaveBeenCalledWith(
+        'user-1',
+        'nfse-1',
+        {
+          description: 'NFS-e 1288',
+          amount: new Prisma.Decimal('1450.00'),
+          accrualDate: new Date('2026-10-13T00:00:00.000Z'),
+          dueDate: new Date('2026-11-12T00:00:00.000Z'),
+        },
+        undefined,
+      );
+    });
+
+    it('soft deletes the entry with the note', async () => {
+      await service.removeServiceInvoiceEntry('user-1', 'nfse-1');
+
+      expect(repository.updateByServiceInvoice).toHaveBeenCalledWith(
+        'user-1',
+        'nfse-1',
+        { deletedAt: expect.any(Date) as Date },
+        undefined,
+      );
+    });
   });
 
   it('refuses to delete an automatic entry and names its origin', async () => {
