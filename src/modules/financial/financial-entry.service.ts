@@ -142,8 +142,8 @@ export class FinancialEntryService {
     // Depreciation (US15) is computed here, never posted to financial_entry,
     // so the statement has no duplicate line. It is a professional expense.
     // Trips are already in the rows (US14), so nothing is added for transport.
-    // TODO: a manual "Fixed costs" entry also registered in US18 counts
-    // twice; the rule is pending alignment with the team.
+    // The fixed costs of the calculator card are these same parts: personal
+    // expenses and trips come from the rows, depreciation from here.
     const monthDepreciation = new Prisma.Decimal(depreciation);
     let professionalExpenses = monthDepreciation;
     let personalExpenses = zero;
