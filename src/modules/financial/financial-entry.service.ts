@@ -56,6 +56,35 @@ function originDetails(entry: OwnedEntry): Record<string, unknown> {
   return { type: origin.type, id: origin.id };
 }
 
+const PROFESSIONAL_FEES = 'Professional fees';
+
+/** What a confirmed NFSe dictates to its income entry (US01). */
+export type ServiceInvoiceIncome = {
+  userId: string;
+  serviceInvoiceId: string;
+  number: string | null;
+  amount: Prisma.Decimal;
+  issueDate: Date;
+  dueDate: Date | null;
+};
+
+function entryFieldsOf(income: ServiceInvoiceIncome) {
+  return {
+    description: income.number ? `NFS-e ${income.number}` : 'Service invoice',
+    amount: income.amount,
+    accrualDate: income.issueDate,
+    dueDate: income.dueDate,
+  };
+}
+
+function categoryNotSeeded(name: string): DomainError {
+  return new DomainError(
+    'INVALID_INPUT',
+    'FINANCIAL_CATEGORY_NOT_SEEDED',
+    `${name} category is not seeded`,
+  );
+}
+
 export function toStatementEntry(row: StatementRow): FinancialEntryResponse {
   const id =
     row.appointmentId ??
@@ -305,13 +334,7 @@ export class FinancialEntryService {
       'Supplies',
       EntryNature.EXPENSE,
     );
-    if (!category) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        'FINANCIAL_CATEGORY_NOT_SEEDED',
-        'Supplies category is not seeded',
-      );
-    }
+    if (!category) throw categoryNotSeeded('Supplies');
 
     await this.repository.create(
       {
@@ -388,13 +411,7 @@ export class FinancialEntryService {
       'Travel',
       EntryNature.EXPENSE,
     );
-    if (!category) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        'FINANCIAL_CATEGORY_NOT_SEEDED',
-        'Travel category is not seeded',
-      );
-    }
+    if (!category) throw categoryNotSeeded('Travel');
 
     await this.repository.create(
       {
@@ -426,6 +443,65 @@ export class FinancialEntryService {
 
     await this.repository.updateById(
       existing.id,
+      { deletedAt: new Date() },
+      db,
+    );
+  }
+
+  /** Idempotent: a note confirmed twice keeps its one entry. */
+  async recordServiceInvoice(
+    income: ServiceInvoiceIncome,
+    db?: Prisma.TransactionClient,
+  ): Promise<string> {
+    const existing = await this.repository.findByServiceInvoice(
+      income.userId,
+      income.serviceInvoiceId,
+      db,
+    );
+    if (existing) return existing.id;
+
+    const category = await this.categories.findDefault(
+      PROFESSIONAL_FEES,
+      EntryNature.INCOME,
+    );
+    if (!category) throw categoryNotSeeded(PROFESSIONAL_FEES);
+
+    const entry = await this.repository.create(
+      {
+        userId: income.userId,
+        nature: EntryNature.INCOME,
+        scope: category.defaultScope,
+        categoryId: category.id,
+        source: EntrySource.SERVICE_INVOICE,
+        serviceInvoiceId: income.serviceInvoiceId,
+        ...entryFieldsOf(income),
+      },
+      db,
+    );
+    return entry.id;
+  }
+
+  /** Amount, dates and description follow the note; the rest is the user's. */
+  async adjustServiceInvoiceEntry(
+    income: ServiceInvoiceIncome,
+    db?: Prisma.TransactionClient,
+  ): Promise<void> {
+    await this.repository.updateByServiceInvoice(
+      income.userId,
+      income.serviceInvoiceId,
+      entryFieldsOf(income),
+      db,
+    );
+  }
+
+  async removeServiceInvoiceEntry(
+    userId: string,
+    serviceInvoiceId: string,
+    db?: Prisma.TransactionClient,
+  ): Promise<void> {
+    await this.repository.updateByServiceInvoice(
+      userId,
+      serviceInvoiceId,
       { deletedAt: new Date() },
       db,
     );

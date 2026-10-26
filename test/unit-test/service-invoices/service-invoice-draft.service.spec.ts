@@ -1,8 +1,10 @@
 import { Prisma } from '@prisma/client';
 
 import {
+  confirmationService,
   draftNote,
   FakeClients,
+  FakeFinancialEntries,
   FakeServiceInvoicesRepository,
   FakeStorage,
   INVOICE_ID,
@@ -30,6 +32,7 @@ describe('ServiceInvoiceDraftService', () => {
       new DocumentUploads(new FakeStorage()),
       clients.service,
       reviewService(repository, clients),
+      confirmationService(repository, clients, new FakeFinancialEntries()),
     );
   });
 
@@ -87,7 +90,7 @@ describe('ServiceInvoiceDraftService', () => {
 
       expect(repository.invoice).toMatchObject({
         issueDate: new Date('2026-10-13T00:00:00Z'),
-        amount: 1500,
+        amount: new Prisma.Decimal(1500),
         number: null,
         clientId: CLIENT_ID,
         takerTaxId: '123',
@@ -108,8 +111,8 @@ describe('ServiceInvoiceDraftService', () => {
       expect(repository.invoice?.clientId).toBeNull();
     });
 
-    it('does not edit a confirmed note yet', async () => {
-      repository.invoice = draftNote({ status: 'CONFIRMED' });
+    it('does not edit a discarded draft', async () => {
+      repository.invoice = draftNote({ status: 'CANCELLED' });
 
       await expect(
         service.update(USER_ID, INVOICE_ID, { number: '1288' }),
@@ -129,8 +132,8 @@ describe('ServiceInvoiceDraftService', () => {
       });
     });
 
-    it('does not discard a confirmed note', async () => {
-      repository.invoice = draftNote({ status: 'CONFIRMED' });
+    it('does not discard a note twice', async () => {
+      repository.invoice = draftNote({ status: 'CANCELLED' });
 
       await expect(service.discard(USER_ID, INVOICE_ID)).rejects.toMatchObject({
         code: 'SERVICE_INVOICE_NOT_EDITABLE',
