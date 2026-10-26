@@ -37,7 +37,11 @@ describe('FinancialEntryService', () => {
 
   beforeEach(() => {
     repository = { findStatement: jest.fn().mockResolvedValue([]) };
-    service = new FinancialEntryService(repository as never, {} as never);
+    service = new FinancialEntryService(
+      repository as never,
+      {} as never,
+      {} as never,
+    );
   });
 
   it('uses the current UTC month when month and year are absent', async () => {
@@ -171,6 +175,7 @@ describe('FinancialEntryService manual writes', () => {
     service = new FinancialEntryService(
       repository as never,
       categories as never,
+      {} as never,
     );
   });
 
@@ -489,6 +494,7 @@ describe('FinancialEntryService, trip expenses', () => {
     service = new FinancialEntryService(
       repository as never,
       categories as never,
+      {} as never,
     );
   });
 

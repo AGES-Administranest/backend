@@ -1,9 +1,9 @@
 import { EntryNature, EntryScope, Prisma } from '@prisma/client';
 
-import { FinancialCategoryRepository } from './financial-category.repository';
-import { FinancialEntryRepository } from './financial-entry.repository';
-import { FinancialEntryService } from './financial-entry.service';
-import { EquipmentService } from '../equipment';
+import { EquipmentService } from '../../../src/modules/equipment';
+import { FinancialCategoryRepository } from '../../../src/modules/financial/financial-category.repository';
+import { FinancialEntryRepository } from '../../../src/modules/financial/financial-entry.repository';
+import { FinancialEntryService } from '../../../src/modules/financial/financial-entry.service';
 
 const decimal = (value: string) => new Prisma.Decimal(value);
 
