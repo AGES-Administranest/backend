@@ -135,13 +135,22 @@ describe('Hourly rate (e2e)', () => {
         ),
       ],
     });
-    await prisma.pricingSettings.createMany({
-      data: [
-        { userId, transportCostMonthly: '350.00' },
-        // the transport cost alone does not make the goals configured (US19)
-        { userId: transportOnlyId, transportCostMonthly: '120.00' },
-      ],
+    // the transport cost alone does not make the goals configured (US19)
+    await prisma.pricingSettings.create({
+      data: { userId: transportOnlyId, transportCostMonthly: '120.00' },
     });
+    // The transport is the month's trips (US14): a ride of 350.00 in March.
+    await request(server())
+      .post('/trips')
+      .set('Authorization', bearer(owner))
+      .send({
+        mode: 'RIDE',
+        occurredOn: '2026-03-20',
+        origin: 'Home',
+        destination: 'Clinic',
+        cost: 350,
+      })
+      .expect(201);
     await saveGoals(owner, {
       monthlyIncomeGoal: 8000,
       weeklyHours: 30,
@@ -173,6 +182,7 @@ describe('Hourly rate (e2e)', () => {
   afterAll(async () => {
     const ids = { in: [userId, otherId, transportOnlyId, emptyId] };
     await prisma.financialEntry.deleteMany({ where: { userId: ids } });
+    await prisma.trip.deleteMany({ where: { userId: ids } });
     await prisma.equipment.deleteMany({ where: { userId: ids } });
     await prisma.pricingSettings.deleteMany({ where: { userId: ids } });
     await prisma.user.deleteMany({ where: { id: ids } });
@@ -185,7 +195,7 @@ describe('Hourly rate (e2e)', () => {
       year: 2026,
     });
 
-    // fixed = 860 + 50 + 350; base = 1260 + 1225 + 8000 = 10485
+    // fixed = 860 + 50 + 350 (the trip); base = 1260 + 1225 + 8000 = 10485
     // margin = 20% of 10485 = 2097; total 12582 ÷ 130 h
     expect(body).toEqual({
       month: 3,
@@ -247,8 +257,8 @@ describe('Hourly rate (e2e)', () => {
     const april = await hourlyRate(owner, { month: 4, year: 2026 });
 
     expect(april.month).toBe(4);
-    // only the 33.00 personal expense, the depreciation and the transport
-    expect(april.items[0].amount).toBe('433.00');
+    // only the 33.00 personal expense and the depreciation: no trips in April
+    expect(april.items[0].amount).toBe('83.00');
     expect(april.items[1].amount).toBe('0.00');
   });
 

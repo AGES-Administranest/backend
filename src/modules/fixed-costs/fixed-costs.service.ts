@@ -1,11 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { QueryFixedCostsSummaryDto } from './dto/query-fixed-costs-summary.dto';
-import { FixedCostsSummaryResponse } from './entities/fixed-costs-summary.entity';
-import { FixedCostsRepository } from './fixed-costs.repository';
 import { EquipmentService } from '../equipment';
 import { FinancialEntryService } from '../financial';
+import { QueryFixedCostsSummaryDto } from './dto/query-fixed-costs-summary.dto';
+import { FixedCostsSummaryResponse } from './entities/fixed-costs-summary.entity';
 
 const money = (value: Prisma.Decimal): string =>
   value.toFixed(2, Prisma.Decimal.ROUND_HALF_UP);
@@ -23,7 +22,6 @@ export class FixedCostsService {
   constructor(
     private readonly entries: FinancialEntryService,
     private readonly equipment: EquipmentService,
-    private readonly repository: FixedCostsRepository,
   ) {}
 
   async getSummary(
@@ -62,26 +60,19 @@ export class FixedCostsService {
     month: number,
     now = new Date(),
   ): Promise<MonthlyCosts> {
-    // For the current month the depreciation is as of now; for any other
-    // month, as of its last day.
-    const isCurrentMonth =
-      year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
-    // day 0 of the next month = last day of the requested month
-    const asOf = isCurrentMonth
-      ? now
-      : new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
-
-    const [expenses, equipmentSummary, transport] = await Promise.all([
+    const [expenses, depreciation, transport] = await Promise.all([
       this.entries.sumExpensesByScope(userId, year, month),
-      this.equipment.summary(userId, asOf),
-      this.repository.findTransportMonthly(userId),
+      this.equipment.monthlyDepreciation(userId, year, month, now),
+      this.entries.sumTripExpenses(userId, year, month),
     ]);
 
     return {
-      professionalExpenses: expenses.professional,
+      // Trips are professional expenses; they are reported as transport, so
+      // they leave this figure instead of counting twice.
+      professionalExpenses: expenses.professional.minus(transport),
       personalExpenses: expenses.personal,
-      depreciation: new Prisma.Decimal(equipmentSummary.monthlyTotal),
-      transport: transport ?? new Prisma.Decimal(0),
+      depreciation: new Prisma.Decimal(depreciation),
+      transport,
     };
   }
 }

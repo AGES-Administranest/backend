@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EntryNature, EntryScope, Prisma } from '@prisma/client';
+import { EntryNature, EntryScope, EntrySource, Prisma } from '@prisma/client';
 
 import {
   RecordNotFoundError,
@@ -47,6 +47,7 @@ export interface StatementFilter {
   nature?: EntryNature;
   scope?: EntryScope;
   categoryId?: string;
+  source?: EntrySource;
 }
 
 @Injectable()
@@ -66,6 +67,7 @@ export class FinancialEntryRepository {
       ...(filter.nature ? { nature: filter.nature } : {}),
       ...(filter.scope ? { scope: filter.scope } : {}),
       ...(filter.categoryId ? { categoryId: filter.categoryId } : {}),
+      ...(filter.source ? { source: filter.source } : {}),
     };
   }
 

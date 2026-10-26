@@ -138,9 +138,18 @@ describe('Fixed costs summary (e2e)', () => {
         ),
       ],
     });
-    await prisma.pricingSettings.create({
-      data: { userId, transportCostMonthly: '300.00' },
-    });
+    // The transport is the month's trips (US14): a ride of 300.00 in March.
+    await request(server())
+      .post('/trips')
+      .set('Authorization', bearer(owner))
+      .send({
+        mode: 'RIDE',
+        occurredOn: '2026-03-20',
+        origin: 'Home',
+        destination: 'Clinic',
+        cost: 300,
+      })
+      .expect(201);
 
     const yearsAgo = (years: number) => {
       const date = new Date();
@@ -188,13 +197,14 @@ describe('Fixed costs summary (e2e)', () => {
   afterAll(async () => {
     const ids = { in: [userId, otherId, emptyId] };
     await prisma.financialEntry.deleteMany({ where: { userId: ids } });
+    await prisma.trip.deleteMany({ where: { userId: ids } });
     await prisma.equipment.deleteMany({ where: { userId: ids } });
     await prisma.pricingSettings.deleteMany({ where: { userId: ids } });
     await prisma.user.deleteMany({ where: { id: ids } });
     await app.close();
   });
 
-  it('sums the expenses by scope, the depreciation and the transport', async () => {
+  it('sums the expenses by scope, the depreciation and the trips as transport', async () => {
     expect(await summary(owner, { month: 3, year: 2026 })).toEqual({
       professionalExpenses: '150.25',
       personalExpenses: '80.00',
@@ -227,7 +237,8 @@ describe('Fixed costs summary (e2e)', () => {
     const before = await summary(owner, { month: 1, year: 2000 });
 
     expect(before.depreciation).toBe('0.00');
-    expect(before.transport).toBe('300.00');
+    // the trips of March 2026 are not in a month 26 years earlier
+    expect(before.transport).toBe('0.00');
   });
 
   it('matches the depreciation of the equipment summary', async () => {
@@ -252,7 +263,7 @@ describe('Fixed costs summary (e2e)', () => {
     });
   });
 
-  it('matches the Prof. and Personal sums of the statement of the same month', async () => {
+  it('matches the Prof. and Personal sums of the statement of the same month, trips included in Prof.', async () => {
     const res = await request(server())
       .get('/financial-entries')
       .query({ month: 3, year: 2026, nature: EntryNature.EXPENSE, limit: 100 })
@@ -268,9 +279,11 @@ describe('Fixed costs summary (e2e)', () => {
 
     const body = await summary(owner, { month: 3, year: 2026 });
 
-    expect(Math.round(Number(body.professionalExpenses) * 100)).toBe(
-      sumOf(EntryScope.PROFESSIONAL),
-    );
+    // the trips are professional rows of the statement, reported as transport
+    expect(
+      Math.round(Number(body.professionalExpenses) * 100) +
+        Math.round(Number(body.transport) * 100),
+    ).toBe(sumOf(EntryScope.PROFESSIONAL));
     expect(Math.round(Number(body.personalExpenses) * 100)).toBe(
       sumOf(EntryScope.PERSONAL),
     );

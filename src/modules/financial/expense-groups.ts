@@ -2,6 +2,7 @@ export const EXPENSE_GROUPS = [
   'SUPPLIES',
   'TRAVEL',
   'FIXED_COSTS',
+  'DEPRECIATION',
   'TAXES_AND_FEES',
   'OTHER',
 ] as const;

@@ -54,8 +54,9 @@ export class HourlyRateService {
     );
 
     // Personal expenses count as a fixed cost: the hour has to pay for the
-    // month the owner lives, not only for the work. Professional expenses
-    // (trips included) are the variable part.
+    // month the owner lives, not only for the work. Trips count as
+    // transport, a fixed cost; the other professional expenses are the
+    // variable part.
     const fixedCosts = costs.personalExpenses
       .plus(costs.depreciation)
       .plus(costs.transport);
