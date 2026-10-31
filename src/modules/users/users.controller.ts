@@ -18,12 +18,17 @@ import {
   ApiOperation,
   ApiParam,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ProfileEntity } from './entities/profile.entity';
 import { UserEntity } from './entities/user.entity';
 import { UsersService } from './users.service';
+import { CurrentUser } from '../../shared/auth';
+// `import type` is required by `emitDecoratorMetadata` on a decorated signature.
+import type { AuthenticatedUser } from '../../shared/auth';
 
 @ApiTags('users')
 @Controller('users')
@@ -35,6 +40,20 @@ export class UsersController {
   @ApiOkResponse({ type: UserEntity, isArray: true })
   findAll() {
     return this.usersService.findAll();
+  }
+
+  // Declared before `:id`, which would otherwise take "me" and fail the UUID pipe.
+  @Get('me')
+  @ApiOperation({
+    summary: "The signed-in user's profile",
+    description:
+      'The user comes from the token (ADR-11). Fields never filled in come ' +
+      'as null; the app calculates the age from birthDate.',
+  })
+  @ApiOkResponse({ type: ProfileEntity })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  findMe(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.findProfile(user.id);
   }
 
   @Get(':id')

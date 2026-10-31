@@ -148,6 +148,29 @@ describe('users (e2e)', () => {
     });
   });
 
+  describe('GET /users/me', () => {
+    it("returns the caller's profile, with the unfilled fields as null", async () => {
+      await create(ana).expect(201);
+
+      const response = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(200);
+
+      const { id, ...profile } = body(response);
+      expect(id).toEqual(expect.any(String));
+      expect(profile).toEqual({
+        name: 'Operator',
+        email: 'operator@example.com',
+        crmv: null,
+        birthDate: null,
+        sex: null,
+        city: null,
+        state: null,
+      });
+    });
+  });
+
   describe('GET /users/:id', () => {
     it('returns the user', async () => {
       const created = await create(ana).expect(201);
