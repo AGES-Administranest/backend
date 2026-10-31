@@ -7,6 +7,7 @@ conventions that span more than one column or table live.
 
 Profile fields shown on the Profile tab (US23). All of them are nullable: a
 `NULL` is a field never filled in, and the app shows it as "Not informed".
+They are read through `GET /users/me` — see [`profile.md`](profile.md).
 
 | Column | Rule |
 |---|---|
