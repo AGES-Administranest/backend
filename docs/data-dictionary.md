@@ -176,6 +176,7 @@ those of `purchase_invoice` instead of living in a shared table (ADR-14).
 | `taker_tax_id` | CNPJ or CPF read from the note, unmasked. It is only a lookup key: the taker is `client_id`, set when the user confirms the review. |
 | `amount` | Gross amount of the services, before deductions and withheld taxes. It is the amount of the income entry. |
 | `issue_date`, `amount` | Indexed with `user_id` for the duplicate warning: a note with the same date and amount is flagged, not refused. |
+| `client_id` | Indexed with `user_id` for the history search by taker. |
 
 ### Revenue counted twice
 

@@ -681,6 +681,8 @@ model ServiceInvoice {
   /// the duplicate warning looks up notes with the same date and amount
   @@index([userId, issueDate, amount])
   @@index([userId, number])
+  /// the history is searched by taker
+  @@index([userId, clientId])
   @@map("service_invoice")
 }
 
