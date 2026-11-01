@@ -14,7 +14,9 @@ import {
 interface SupplierBody {
   id: string;
   name: string;
+  taxId?: string | null;
   email?: string | null;
+  notes?: string | null;
 }
 
 describe('Supplier (e2e)', () => {
@@ -67,27 +69,54 @@ describe('Supplier (e2e)', () => {
       const res = await request(server())
         .post('/supplier')
         .set('Authorization', bearer(owner))
-        .send({ name: 'Distribuidora e2e', email: 'vendas@e2e.com.br' })
+        .send({
+          name: 'Distribuidora e2e',
+          email: 'vendas@e2e.com.br',
+          taxId: '11.222.333/0001-81',
+          notes: 'Order monthly',
+        })
         .expect(201);
 
       const body = res.body as SupplierBody;
       expect(body.id).toBeDefined();
       expect(body.email).toBe('vendas@e2e.com.br');
+      expect(body.taxId).toBe('11222333000181');
+      expect(body.notes).toBe('Order monthly');
       expect(body).not.toHaveProperty('userId');
     });
 
-    it('rejects a duplicated name (409)', async () => {
+    it('allows suppliers with the same name', async () => {
       await request(server())
         .post('/supplier')
         .set('Authorization', bearer(owner))
-        .send({ name: 'Duplicada e2e' })
+        .send({ name: 'Same supplier name e2e' })
         .expect(201);
 
       await request(server())
         .post('/supplier')
         .set('Authorization', bearer(owner))
-        .send({ name: 'Duplicada e2e' })
+        .send({ name: 'Same supplier name e2e' })
+        .expect(201);
+    });
+
+    it('rejects a duplicate CNPJ after normalizing its mask', async () => {
+      await request(server())
+        .post('/supplier')
+        .set('Authorization', bearer(owner))
+        .send({ name: 'First CNPJ supplier e2e', taxId: '22.333.444/0001-50' })
+        .expect(201);
+
+      await request(server())
+        .post('/supplier')
+        .set('Authorization', bearer(owner))
+        .send({ name: 'Second CNPJ supplier e2e', taxId: '22333444000150' })
         .expect(409);
+
+      await request(server())
+        .post('/supplier')
+        .set('Authorization', bearer(other))
+        .send({ name: 'Other user CNPJ supplier e2e', taxId: '22333444000150' })
+        .expect(201);
     });
 
     it('rejects an invalid payload (400)', async () => {

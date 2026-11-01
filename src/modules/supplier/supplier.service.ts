@@ -5,7 +5,10 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { QuerySupplierDto } from './dto/query-supplier.dto';
 import { SupplierEntity } from './entities/supplier.entity';
 import { SupplierRepository } from './supplier.repository';
-import { InvalidReferenceError } from '../../infra/prisma/prisma-errors';
+import {
+  InvalidReferenceError,
+  UniqueConstraintError,
+} from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 function escapeLike(term: string): string {
@@ -65,16 +68,20 @@ export class SupplierService {
     userId: string,
     dto: CreateSupplierDto,
   ): Promise<SupplierEntity> {
-    const existing = await this.supplierRepository.findByName(userId, dto.name);
-    if (existing) throw this.duplicatedName();
-
     try {
       const supplier = await this.supplierRepository.create({
         ...dto,
+        ...(dto.taxId ? { taxId: unmask(dto.taxId) } : {}),
         userId,
       });
       return this.sanitize(supplier);
     } catch (error) {
+      if (
+        error instanceof UniqueConstraintError &&
+        error.fields.some(field => field.includes('tax_id'))
+      ) {
+        throw this.duplicatedTaxId();
+      }
       if (error instanceof InvalidReferenceError)
         throw this.invalidReference(error.field);
       throw error;
@@ -90,17 +97,18 @@ export class SupplierService {
       contact: supplier.contact,
       email: supplier.email,
       phone: supplier.phone,
+      notes: supplier.notes,
       active: supplier.active,
       createdAt: supplier.createdAt,
       updatedAt: supplier.updatedAt,
     };
   }
 
-  private duplicatedName(): DomainError {
+  private duplicatedTaxId(): DomainError {
     return new DomainError(
       'CONFLICT',
-      'DUPLICATED_SUPPLIER_NAME',
-      'A supplier with this name already exists',
+      'DUPLICATED_SUPPLIER_TAX_ID',
+      'A supplier with this tax id already exists',
     );
   }
 

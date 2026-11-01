@@ -23,14 +23,6 @@ export class SupplierRepository {
     );
   }
 
-  findByName(userId: string, name: string): Promise<Supplier | null> {
-    return runQuery(() =>
-      this.prisma.supplier.findFirst({
-        where: { userId, name, active: true },
-      }),
-    );
-  }
-
   create(data: Prisma.SupplierUncheckedCreateInput): Promise<Supplier> {
     return runQuery(() => this.prisma.supplier.create({ data }));
   }

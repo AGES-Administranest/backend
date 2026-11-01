@@ -153,6 +153,13 @@ which is the fiscal document digitized via OCR.
 `status` (`purchase_order_status_enum`): `DRAFT` → `PLACED` → `RECEIVED`, or
 `CANCELLED` from `DRAFT`/`PLACED`.
 
+## Suppliers — `supplier`
+
+Supplier names are not unique. A non-null `tax_id` is stored unmasked and is
+unique per user while the supplier is not soft-deleted. Deleting a supplier
+frees its CNPJ for reuse; another user can register the same CNPJ. `notes`
+stores free-form observations.
+
 ## Revenue — `service_invoice`
 
 NFSe issued outside the app and uploaded as a PDF (US-01). The draft is born

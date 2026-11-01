@@ -26,7 +26,7 @@ export class SupplierController {
   @ApiCreatedResponse({ type: SupplierEntity })
   @ApiBadRequestResponse({ description: 'Invalid payload' })
   @ApiConflictResponse({
-    description: 'A supplier with this name already exists',
+    description: 'A supplier with this CNPJ already exists',
   })
   create(
     @CurrentUser() user: AuthenticatedUser,
