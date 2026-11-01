@@ -1,13 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TaxIdType } from '@prisma/client';
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+import { IsValidTaxIdPair } from '../../../shared/validation/tax-id';
 
 export class CreateSupplierDto {
   @ApiProperty({ example: 'Distribuidora VetSul' })
@@ -16,16 +20,26 @@ export class CreateSupplierDto {
   @MaxLength(120)
   name!: string;
 
-  @ApiPropertyOptional({ example: '12.345.678/0001-90' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  taxId?: string;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '12345678000190',
+    description:
+      'Digits only: 14 for a CNPJ. Always sent together with taxIdType; both null remove the tax id.',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string'
+      ? value.replace(/[^0-9a-z]/gi, '').toUpperCase()
+      : value,
+  )
+  @IsValidTaxIdPair()
+  taxId?: string | null;
 
-  @ApiPropertyOptional({ enum: TaxIdType })
+  @ApiPropertyOptional({ enum: [TaxIdType.CNPJ], nullable: true })
   @IsOptional()
   @IsEnum(TaxIdType)
-  taxIdType?: TaxIdType;
+  @IsIn([TaxIdType.CNPJ])
+  taxIdType?: TaxIdType | null;
 
   @ApiPropertyOptional({ example: 'Maria (comercial)' })
   @IsOptional()

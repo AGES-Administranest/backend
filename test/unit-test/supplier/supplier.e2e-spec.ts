@@ -73,6 +73,7 @@ describe('Supplier (e2e)', () => {
           name: 'Distribuidora e2e',
           email: 'vendas@e2e.com.br',
           taxId: '11.222.333/0001-81',
+          taxIdType: 'CNPJ',
           notes: 'Order monthly',
         })
         .expect(201);
@@ -103,19 +104,31 @@ describe('Supplier (e2e)', () => {
       await request(server())
         .post('/supplier')
         .set('Authorization', bearer(owner))
-        .send({ name: 'First CNPJ supplier e2e', taxId: '22.333.444/0001-50' })
+        .send({
+          name: 'First CNPJ supplier e2e',
+          taxId: '22.333.444/0001-50',
+          taxIdType: 'CNPJ',
+        })
         .expect(201);
 
       await request(server())
         .post('/supplier')
         .set('Authorization', bearer(owner))
-        .send({ name: 'Second CNPJ supplier e2e', taxId: '22333444000150' })
+        .send({
+          name: 'Second CNPJ supplier e2e',
+          taxId: '22333444000150',
+          taxIdType: 'CNPJ',
+        })
         .expect(409);
 
       await request(server())
         .post('/supplier')
         .set('Authorization', bearer(other))
-        .send({ name: 'Other user CNPJ supplier e2e', taxId: '22333444000150' })
+        .send({
+          name: 'Other user CNPJ supplier e2e',
+          taxId: '22333444000150',
+          taxIdType: 'CNPJ',
+        })
         .expect(201);
     });
 
@@ -211,6 +224,105 @@ describe('Supplier (e2e)', () => {
 
     it('requires a token (401)', async () => {
       await request(server()).get('/supplier').expect(401);
+    });
+  });
+
+  describe('GET/PATCH/DELETE /supplier/:id', () => {
+    const createSupplier = async (name: string) => {
+      const response = await request(server())
+        .post('/supplier')
+        .set('Authorization', bearer(owner))
+        .send({ name })
+        .expect(201);
+      return (response.body as SupplierBody).id;
+    };
+
+    it('reads and updates an owned supplier', async () => {
+      const id = await createSupplier('Editable supplier e2e');
+
+      const read = await request(server())
+        .get(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .expect(200);
+      expect(read.body).toMatchObject({ id, active: true });
+      expect(read.body).not.toHaveProperty('userId');
+
+      const updated = await request(server())
+        .patch(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .send({ name: 'Updated supplier e2e', notes: 'Updated notes' })
+        .expect(200);
+      expect(updated.body).toMatchObject({
+        id,
+        name: 'Updated supplier e2e',
+        notes: 'Updated notes',
+      });
+    });
+
+    it('returns 404 for another user supplier on read, update and inactivation', async () => {
+      const response = await request(server())
+        .post('/supplier')
+        .set('Authorization', bearer(other))
+        .send({ name: 'Private supplier e2e' })
+        .expect(201);
+      const id = (response.body as SupplierBody).id;
+
+      await request(server())
+        .get(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .expect(404);
+      await request(server())
+        .patch(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .send({ name: 'Attempted update' })
+        .expect(404);
+      await request(server())
+        .delete(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .expect(404);
+    });
+
+    it('inactivates idempotently and keeps the supplier readable by id', async () => {
+      const id = await createSupplier('Inactive supplier e2e');
+
+      const firstDelete = await request(server())
+        .delete(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .expect(200);
+      expect(firstDelete.body).toMatchObject({ id, active: false });
+
+      const secondDelete = await request(server())
+        .delete(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .expect(200);
+      expect(secondDelete.body).toMatchObject({ id, active: false });
+
+      const read = await request(server())
+        .get(`/supplier/${id}`)
+        .set('Authorization', bearer(owner))
+        .expect(200);
+      expect(read.body).toMatchObject({ id, active: false });
+
+      const activeList = await request(server())
+        .get('/supplier')
+        .set('Authorization', bearer(owner))
+        .expect(200);
+      expect(
+        (activeList.body as SupplierBody[]).some(
+          supplier => supplier.id === id,
+        ),
+      ).toBe(false);
+
+      const inactiveList = await request(server())
+        .get('/supplier')
+        .set('Authorization', bearer(owner))
+        .query({ active: false })
+        .expect(200);
+      expect(
+        (inactiveList.body as SupplierBody[]).some(
+          supplier => supplier.id === id,
+        ),
+      ).toBe(true);
     });
   });
 });

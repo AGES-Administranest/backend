@@ -3,10 +3,12 @@ import { Prisma, Supplier } from '@prisma/client';
 
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { QuerySupplierDto } from './dto/query-supplier.dto';
+import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupplierEntity } from './entities/supplier.entity';
 import { SupplierRepository } from './supplier.repository';
 import {
   InvalidReferenceError,
+  RecordNotFoundError,
   UniqueConstraintError,
 } from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
@@ -42,6 +44,12 @@ export class SupplierService {
       query.limit,
     );
     return suppliers.map(supplier => this.sanitize(supplier));
+  }
+
+  async findOne(id: string, userId: string): Promise<SupplierEntity> {
+    const supplier = await this.supplierRepository.findById(id, userId);
+    if (!supplier) throw this.notFound(id);
+    return this.sanitize(supplier);
   }
 
   /**
@@ -88,6 +96,38 @@ export class SupplierService {
     }
   }
 
+  async update(
+    id: string,
+    userId: string,
+    dto: UpdateSupplierDto,
+  ): Promise<SupplierEntity> {
+    try {
+      const supplier = await this.supplierRepository.update(id, userId, {
+        ...dto,
+        ...(dto.taxId ? { taxId: unmask(dto.taxId) } : {}),
+      });
+      if (!supplier) throw this.notFound(id);
+      return this.sanitize(supplier);
+    } catch (error) {
+      if (error instanceof RecordNotFoundError) throw this.notFound(id);
+      if (
+        error instanceof UniqueConstraintError &&
+        error.fields.some(field => field.includes('tax_id'))
+      ) {
+        throw this.duplicatedTaxId();
+      }
+      if (error instanceof InvalidReferenceError)
+        throw this.invalidReference(error.field);
+      throw error;
+    }
+  }
+
+  async remove(id: string, userId: string): Promise<SupplierEntity> {
+    const supplier = await this.supplierRepository.deactivate(id, userId);
+    if (!supplier) throw this.notFound(id);
+    return this.sanitize(supplier);
+  }
+
   private sanitize(supplier: Supplier): SupplierEntity {
     return {
       id: supplier.id,
@@ -109,6 +149,15 @@ export class SupplierService {
       'CONFLICT',
       'DUPLICATED_SUPPLIER_TAX_ID',
       'A supplier with this tax id already exists',
+    );
+  }
+
+  private notFound(id: string): DomainError {
+    return new DomainError(
+      'NOT_FOUND',
+      'SUPPLIER_NOT_FOUND',
+      `Supplier ${id} not found`,
+      { id },
     );
   }
 
