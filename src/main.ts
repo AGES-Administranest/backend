@@ -90,7 +90,7 @@ async function bootstrap() {
       )
       .addTag(
         'pricing',
-        'The value of the working hour, calculated part by part (US20)',
+        'The value of the working hour, part by part (US20), and its monthly history (US22)',
       )
       .addTag('auth', 'Local mirror of the Cognito account and terms consent')
       // Without this the page is unusable now that the guard is global: every

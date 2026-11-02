@@ -110,6 +110,39 @@ describe('PricingSettingsService', () => {
         DomainError,
       );
     });
+
+    it('tells the goals-saved listeners whose goals were saved, after the write', async () => {
+      const order: string[] = [];
+      repository.saveGoals.mockImplementation(() => {
+        order.push('write');
+        return Promise.resolve(row());
+      });
+      const listener = jest.fn((userId: string) => {
+        order.push(`listener:${userId}`);
+        return Promise.resolve();
+      });
+      service.onGoalsSaved(listener);
+
+      await service.save('user-1', dto);
+
+      expect(order).toEqual(['write', 'listener:user-1']);
+    });
+
+    it('fails the save when a listener fails, so the app resends it', async () => {
+      const failure = new Error('history unavailable');
+      service.onGoalsSaved(() => Promise.reject(failure));
+
+      await expect(service.save('user-1', dto)).rejects.toBe(failure);
+    });
+
+    it('does not call the listeners when the write fails', async () => {
+      repository.saveGoals.mockRejectedValue(new Error('db down'));
+      const listener = jest.fn(() => Promise.resolve());
+      service.onGoalsSaved(listener);
+
+      await expect(service.save('user-1', dto)).rejects.toThrow('db down');
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 
   describe('findTransportCost', () => {

@@ -3,3 +3,8 @@ export * from './hourly-rate.service';
 export * from './dto/query-hourly-rate.dto';
 export * from './entities/hourly-rate.entity';
 export * from './domain/hourly-rate';
+export * from './hourly-rate-history.service';
+export * from './dto/query-hourly-rate-history.dto';
+export * from './dto/hourly-rate-month-params.dto';
+export * from './entities/hourly-rate-history.entity';
+export * from './domain/hourly-rate-snapshot';
