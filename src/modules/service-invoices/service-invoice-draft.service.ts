@@ -1,13 +1,20 @@
 import { Injectable } from '@nestjs/common';
 
 import { ServiceInvoiceDownloadUrlDto } from './dto/download-url-response.dto';
+import { QueryServiceInvoiceReportDto } from './dto/query-service-invoice-report.dto';
 import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
+import { ServiceInvoiceReportItemDto } from './dto/service-invoice-report-item.dto';
 import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
 import { ServiceInvoiceConfirmationService } from './service-invoice-confirmation.service';
 import { ServiceInvoiceReviewService } from './service-invoice-review.service';
-import { toDetail, toReviewChanges, toSummary } from './service-invoice.mapper';
+import {
+  toDetail,
+  toReportItem,
+  toReviewChanges,
+  toSummary,
+} from './service-invoice.mapper';
 import {
   refusalOf,
   serviceInvoiceNotFound,
@@ -45,6 +52,33 @@ export class ServiceInvoiceDraftService {
       query.limit,
     );
     return invoices.map(toSummary);
+  }
+
+  /** The confirmed notes for the Reports tab, newest issue date first. */
+  async listForReports(
+    userId: string,
+    query: QueryServiceInvoiceReportDto,
+  ): Promise<ServiceInvoiceReportItemDto[]> {
+    if (query.startDate && query.endDate && query.startDate > query.endDate) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'INVALID_REQUEST',
+        'startDate must not be after endDate',
+        { startDate: query.startDate, endDate: query.endDate },
+      );
+    }
+
+    const notes = await this.repository.findConfirmedForReport(
+      userId,
+      {
+        ...(query.search && { search: query.search }),
+        ...(query.startDate && { issuedFrom: fromIsoDate(query.startDate) }),
+        ...(query.endDate && { issuedTo: fromIsoDate(query.endDate) }),
+      },
+      (query.page - 1) * query.limit,
+      query.limit,
+    );
+    return notes.map(toReportItem);
   }
 
   async get(userId: string, id: string): Promise<ServiceInvoiceDetailDto> {

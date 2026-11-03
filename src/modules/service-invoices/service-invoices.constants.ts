@@ -9,3 +9,6 @@ export const SERVICE_INVOICE_UPLOAD = {
 
 /** Past this a value no longer fits the `DECIMAL(14, 2)` column. */
 export const MAX_SERVICE_INVOICE_AMOUNT = 999_999_999_999.99;
+
+/** Longer than any client name worth typing into a search box. */
+export const REPORT_SEARCH_MAX_LENGTH = 120;
