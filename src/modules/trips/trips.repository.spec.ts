@@ -14,6 +14,7 @@ describe('TripsRepository', () => {
       update: jest.Mock;
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
+      groupBy: jest.Mock;
     };
     vehicle: { findFirst: jest.Mock };
     appointment: { findFirst: jest.Mock };
@@ -36,6 +37,7 @@ describe('TripsRepository', () => {
         update: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'trip-1' }),
+        groupBy: jest.fn().mockResolvedValue([]),
       },
       vehicle: { findFirst: jest.fn().mockResolvedValue(null) },
       appointment: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -111,6 +113,37 @@ describe('TripsRepository', () => {
       expect(filled.totalCost.toString()).toBe('80');
       expect(empty.totalKm.toString()).toBe('0');
       expect(empty.totalCost.toString()).toBe('0');
+    });
+  });
+
+  describe('findDailyCosts', () => {
+    it('totals the owner’s live trips to the client by day, latest days first', async () => {
+      await repository.findDailyCosts('user-1', 'client-1', 10);
+
+      expect(prisma.trip.groupBy).toHaveBeenCalledWith({
+        by: ['occurredOn'],
+        where: { userId: 'user-1', clientId: 'client-1', deletedAt: null },
+        _sum: { cost: true },
+        orderBy: { occurredOn: 'desc' },
+        take: 10,
+      });
+    });
+
+    it('returns one total per day', async () => {
+      prisma.trip.groupBy.mockResolvedValueOnce([
+        {
+          occurredOn: new Date('2026-10-20T00:00:00.000Z'),
+          _sum: { cost: new Prisma.Decimal('65.8') },
+        },
+        {
+          occurredOn: new Date('2026-10-13T00:00:00.000Z'),
+          _sum: { cost: new Prisma.Decimal('0') },
+        },
+      ]);
+
+      const totals = await repository.findDailyCosts('user-1', 'client-1', 10);
+
+      expect(totals.map(total => total.toString())).toEqual(['65.8', '0']);
     });
   });
 
