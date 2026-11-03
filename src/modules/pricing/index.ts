@@ -3,3 +3,7 @@ export * from './hourly-rate.service';
 export * from './dto/query-hourly-rate.dto';
 export * from './entities/hourly-rate.entity';
 export * from './domain/hourly-rate';
+export * from './procedure-estimate.service';
+export * from './dto/procedure-estimate.dto';
+export * from './entities/procedure-estimate.entity';
+export * from './domain/procedure-estimate';
