@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { ProfileEntity } from './entities/profile.entity';
 import { UsersRepository } from './users.repository';
 import {
   RecordNotFoundError,
@@ -26,6 +27,13 @@ export class UsersService {
     const user = await this.usersRepository.findById(id);
     if (!user) throw this.notFound(id);
     return user;
+  }
+
+  /** The caller's own profile: the id comes from the token, never the path (ADR-11). */
+  async findProfile(id: string): Promise<ProfileEntity> {
+    const { name, email, crmv, birthDate, sex, city, state } =
+      await this.findOne(id);
+    return { id, name, email, crmv, birthDate, sex, city, state };
   }
 
   async create(dto: CreateUserDto) {

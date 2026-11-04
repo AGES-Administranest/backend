@@ -148,6 +148,80 @@ describe('users (e2e)', () => {
     });
   });
 
+  describe('GET /users/me', () => {
+    it("returns the caller's profile, with the unfilled fields as null", async () => {
+      await create(ana).expect(201);
+
+      const response = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(200);
+
+      const { id, ...profile } = body(response);
+      expect(id).toEqual(expect.any(String));
+      expect(profile).toEqual({
+        name: 'Operator',
+        email: 'operator@example.com',
+        crmv: null,
+        birthDate: null,
+        sex: null,
+        city: null,
+        state: null,
+      });
+    });
+
+    it('returns the filled-in fields and nothing beyond the profile', async () => {
+      const stored = await prisma.user.update({
+        where: { cognitoSub: operator.cognitoSub },
+        data: {
+          crmv: 'RS-12345',
+          birthDate: new Date('1990-04-15'),
+          sex: 'FEMALE',
+          city: 'Porto Alegre',
+          state: 'RS',
+          taxId: '12345678900',
+          taxIdType: 'CPF',
+          termsVersion: '2026-09-01',
+        },
+      });
+
+      const response = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(200);
+
+      expect(body(response)).toEqual({
+        id: stored.id,
+        name: 'Operator',
+        email: 'operator@example.com',
+        crmv: 'RS-12345',
+        birthDate: '1990-04-15T00:00:00.000Z',
+        sex: 'FEMALE',
+        city: 'Porto Alegre',
+        state: 'RS',
+      });
+    });
+
+    it('answers 401 without a token', async () => {
+      const response = await request(http).get('/users/me').expect(401);
+
+      expect(body(response).code).toBe('UNAUTHENTICATED');
+    });
+
+    it('answers 401 for a valid token with no local mirror', async () => {
+      await prisma.user.delete({
+        where: { cognitoSub: operator.cognitoSub },
+      });
+
+      const response = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(401);
+
+      expect(body(response).code).toBe('USER_NOT_PROVISIONED');
+    });
+  });
+
   describe('GET /users/:id', () => {
     it('returns the user', async () => {
       const created = await create(ana).expect(201);
