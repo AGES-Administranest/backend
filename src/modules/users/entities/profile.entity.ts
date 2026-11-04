@@ -44,7 +44,6 @@ export class ProfileEntity {
 
   @ApiProperty({
     enum: Sex,
-    enumName: 'Sex',
     nullable: true,
     example: Sex.FEMALE,
     description:

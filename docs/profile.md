@@ -87,3 +87,10 @@ And with some fields filled in (`state` still empty):
 
 A valid token with no mirror yet answers `401 USER_NOT_PROVISIONED`: call
 `POST /auth/session` first.
+
+### 404 — account deleted
+
+`404 USER_NOT_FOUND` only happens right after the account is deleted. The guard
+keeps the token's local id for up to five minutes (`AUTH_SUB_CACHE_TTL_MS`), so
+in that window the request still reaches the service and finds no row. Once the
+entry expires, the same token answers `401 USER_NOT_PROVISIONED`.

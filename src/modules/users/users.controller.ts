@@ -52,6 +52,9 @@ export class UsersController {
   })
   @ApiOkResponse({ type: ProfileEntity })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiNotFoundResponse({
+    description: 'Account deleted while its id was still cached by the guard',
+  })
   findMe(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findProfile(user.id);
   }
