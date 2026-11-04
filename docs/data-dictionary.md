@@ -233,8 +233,9 @@ the **current** `pricing_settings`, so on its own a change to the income goal or
 the weekly hours would rewrite every past month. The history reads these rows
 instead.
 
-One row per user and month (unique `user_id`, `year`, `month`), written by an
-upsert on that key. `calculated_at` is when the stored calculation was made, the
+One row per user and month (unique `user_id`, `year`, `month`), written by a
+single statement on that key: `ON CONFLICT DO UPDATE` for the current month,
+`ON CONFLICT DO NOTHING` for a past one. `calculated_at` is when the stored calculation was made, the
 same instant its response returned. Every column is `NOT NULL`: a month is only
 calculated once the three US19 goals are configured.
 

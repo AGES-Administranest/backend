@@ -299,4 +299,26 @@ describe('Hourly rate history (e2e)', () => {
       .get('/pricing/hourly-rate/history/2026/3')
       .expect(401);
   });
+
+  // Last on purpose: it stores one more month for the owner, which the list
+  // tests above do not expect.
+  it('stores a new past month once when several calculations race on it', async () => {
+    const period = { year: 2025, month: 6 };
+
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        request(server())
+          .get('/pricing/hourly-rate')
+          .query(period)
+          .set('Authorization', bearer(owner)),
+      ),
+    );
+
+    expect(responses.map(res => res.status)).toEqual(Array(8).fill(200));
+    expect(
+      await prisma.hourlyRateSnapshot.count({
+        where: { userId: ownerId, ...period },
+      }),
+    ).toBe(1);
+  });
 });

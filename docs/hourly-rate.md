@@ -142,9 +142,13 @@ month. The history keeps the hour value of each month as it was calculated, in
 | `PUT /pricing-settings` | Current month (UTC) | Recalculated and **replaced**, so the history reflects new goals even if the calculator is not opened afterwards. |
 
 A `404 PRICING_SETTINGS_NOT_FOUND` stores nothing: without goals there is no
-hour value. The write is one upsert on the unique key (`user_id`, `year`,
-`month`); for a past month its update is empty, so two requests racing on the
-same new month cannot both insert it, and neither overwrites the other.
+hour value. Each write is a single statement on the unique key (`user_id`,
+`year`, `month`): for the current month an upsert (`INSERT ... ON CONFLICT DO
+UPDATE`), for a past month an insert that skips an existing row (`INSERT ... ON
+CONFLICT DO NOTHING`). Two requests racing on the same new month therefore
+cannot both insert it, and a past month is never overwritten. (An upsert with an
+empty update is avoided on purpose: Prisma runs it as a read followed by an
+insert, so the losing request failed with a unique violation.)
 
 The rule lives in `snapshotWriteFor`
 (`src/modules/pricing/domain/hourly-rate-snapshot.ts`). For a past month the

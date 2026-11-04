@@ -19,20 +19,37 @@ export class HourlyRateSnapshotRepository {
 
   /**
    * Inserts the month's row, or replaces it when `replace` is true. With
-   * `replace` false an existing row is left untouched: an upsert with an empty
-   * update, so two requests racing on a new month cannot both insert it.
+   * `replace` false an existing row is left untouched.
+   *
+   * Both paths are a single statement on the unique key, so requests racing on
+   * a month that has no row yet cannot both insert it:
+   * - replace: an upsert with values to update, which Prisma runs as
+   *   `INSERT ... ON CONFLICT DO UPDATE`;
+   * - keep: `createMany` with `skipDuplicates`, i.e.
+   *   `INSERT ... ON CONFLICT DO NOTHING`. An upsert with an empty `update` is
+   *   not used here: Prisma does not run it natively but as a read followed by
+   *   an insert, and the loser of the race failed with a unique violation (500).
    */
-  save(
+  async save(
     snapshot: HourlyRateSnapshotData,
     { replace }: { replace: boolean },
-  ): Promise<HourlyRateSnapshot> {
-    const { userId, year, month, ...values } = snapshot;
+  ): Promise<void> {
+    if (!replace) {
+      await runQuery(() =>
+        this.prisma.hourlyRateSnapshot.createMany({
+          data: [snapshot],
+          skipDuplicates: true,
+        }),
+      );
+      return;
+    }
 
-    return runQuery(() =>
+    const { userId, year, month, ...values } = snapshot;
+    await runQuery(() =>
       this.prisma.hourlyRateSnapshot.upsert({
         where: { userId_year_month: { userId, year, month } },
         create: snapshot,
-        update: replace ? values : {},
+        update: values,
       }),
     );
   }

@@ -26,6 +26,7 @@ describe('HourlyRateSnapshotRepository', () => {
   let prisma: {
     hourlyRateSnapshot: {
       upsert: jest.Mock;
+      createMany: jest.Mock;
       findUnique: jest.Mock;
       findMany: jest.Mock;
     };
@@ -36,6 +37,7 @@ describe('HourlyRateSnapshotRepository', () => {
     prisma = {
       hourlyRateSnapshot: {
         upsert: jest.fn().mockResolvedValue({}),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUnique: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -68,14 +70,20 @@ describe('HourlyRateSnapshotRepository', () => {
     });
   });
 
-  it('upserts with an empty update when an existing month must be kept', async () => {
+  it('inserts skipping a duplicate, without an upsert, when an existing month must be kept', async () => {
     await repository.save(snapshot, { replace: false });
 
-    expect(prisma.hourlyRateSnapshot.upsert).toHaveBeenCalledWith({
-      where,
-      create: snapshot,
-      update: {},
+    expect(prisma.hourlyRateSnapshot.createMany).toHaveBeenCalledWith({
+      data: [snapshot],
+      skipDuplicates: true,
     });
+    expect(prisma.hourlyRateSnapshot.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not insert when the month must be replaced', async () => {
+    await repository.save(snapshot, { replace: true });
+
+    expect(prisma.hourlyRateSnapshot.createMany).not.toHaveBeenCalled();
   });
 
   it('never lets the update move the row to another owner or month', async () => {
