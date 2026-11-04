@@ -17,6 +17,10 @@
 set -euo pipefail
 
 TEST_DB="${TEST_DB:-backend_test}"
+WALK_DB="${TEST_DB}_walk"
+# Migrations that only rewrite rows already in the table. Step 3 runs on an empty
+# database, so their down.sql has nothing to undo there; it still has to run.
+BACKFILLS=(20260930120000_stock_opening_balance)
 PG_SERVICE='postgres'
 PG_USER='postgres'
 export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/${TEST_DB}?schema=public"
@@ -29,9 +33,17 @@ fail() { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 psql_root() {
   docker compose exec -T "${PG_SERVICE}" psql -v ON_ERROR_STOP=1 -U "${PG_USER}" -d postgres "$@"
 }
-psql_test() {
-  docker compose exec -T "${PG_SERVICE}" psql -v ON_ERROR_STOP=1 -U "${PG_USER}" -d "${TEST_DB}" "$@"
+psql_walk() {
+  docker compose exec -T "${PG_SERVICE}" psql -v ON_ERROR_STOP=1 -U "${PG_USER}" -d "${WALK_DB}" "$@"
 }
+# `\restrict` lines carry a random token, so two dumps would never compare equal.
+dump() {
+  docker compose exec -T "${PG_SERVICE}" pg_dump -U "${PG_USER}" -d "$1" \
+    --no-owner --exclude-table=_prisma_migrations "${@:2}" |
+    grep -v '^\\\(un\)\?restrict'
+}
+schema_dump() { dump "$1" --schema-only; }
+is_backfill() { printf '%s\n' "${BACKFILLS[@]}" | grep -qx "$1"; }
 
 docker info >/dev/null 2>&1 || fail 'Docker is not running. Start it and try again.'
 
@@ -82,30 +94,44 @@ fi
 echo '    in sync'
 
 step '3/4  Reversibility of the down.sql files'
-DOWN_MIGRATIONS=$(find prisma/migrations -name down.sql | sort -r)
-if [ -z "${DOWN_MIGRATIONS}" ]; then
-  echo '    none shipped yet — skipping'
-else
-  for down in ${DOWN_MIGRATIONS}; do
-    migration=$(basename "$(dirname "${down}")")
-    printf '    %s ... ' "${migration}"
-    # Piped through stdin: the postgres container does not mount the repo.
-    psql_test -q <"${down}" >/dev/null ||
-      fail "down.sql failed for ${migration}"
-    # After undoing it, the database must now DIFFER from schema.prisma. If it
-    # still matches, the down.sql ran without actually undoing anything.
-    if schema_matches_database; then
-      fail "down.sql for ${migration} changed nothing — it does not reverse the migration"
-    fi
-    psql_test -q <"$(dirname "${down}")/migration.sql" >/dev/null ||
-      fail "re-applying ${migration} after its down.sql failed"
-    echo 'reversed and re-applied'
-  done
+# A down.sql undoes its migration from the state right after it: later
+# migrations may depend on what it drops. So each one runs at that point, in a
+# single pass over a second database, and is judged by pg_dump rather than by
+# schema.prisma, which only describes the final state and misses CHECKs. Undoing
+# is checked with the data too, since a seed migration changes nothing else;
+# re-applying only with the schema, since a seed gets new ids and timestamps.
+psql_root -c "DROP DATABASE IF EXISTS ${WALK_DB} WITH (FORCE)" >/dev/null
+psql_root -c "CREATE DATABASE ${WALK_DB}" >/dev/null
 
-  schema_matches_database ||
-    fail 'after the up/down/up cycle the schema no longer matches schema.prisma'
-  echo '    schema restored'
-fi
+for up in $(find prisma/migrations -name migration.sql | sort); do
+  down="$(dirname "${up}")/down.sql"
+  migration=$(basename "$(dirname "${up}")")
+
+  # Piped through stdin: the postgres container does not mount the repo.
+  psql_walk -q <"${up}" >/dev/null || fail "${migration} failed to apply"
+  [ -f "${down}" ] || continue
+
+  printf '    %s ... ' "${migration}"
+  applied=$(dump "${WALK_DB}")
+  applied_schema=$(schema_dump "${WALK_DB}")
+  psql_walk -q <"${down}" >/dev/null || fail "down.sql failed for ${migration}"
+  is_backfill "${migration}" || [ "$(dump "${WALK_DB}")" != "${applied}" ] ||
+    fail "down.sql for ${migration} changed nothing — it does not reverse the migration"
+  psql_walk -q <"${up}" >/dev/null ||
+    fail "re-applying ${migration} after its down.sql failed"
+  [ "$(schema_dump "${WALK_DB}")" = "${applied_schema}" ] ||
+    fail "down.sql for ${migration} left something behind — re-applying gave a different schema"
+  if is_backfill "${migration}"; then
+    echo 'ran and re-applied (backfill: no rows to undo here)'
+  else
+    echo 'reversed and re-applied'
+  fi
+done
+
+[ "$(schema_dump "${WALK_DB}")" = "$(schema_dump "${TEST_DB}")" ] ||
+  fail 'after the up/down/up cycle the schema no longer matches the migrated database'
+psql_root -c "DROP DATABASE ${WALK_DB}" >/dev/null
+echo '    schema restored'
 
 step '4/4  e2e suite'
 npx jest --config ./test/jest-e2e.json --runInBand "$@"
