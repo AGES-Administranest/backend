@@ -3,6 +3,20 @@
 Supplement to the doc-comments (`///`) in `prisma/schema.prisma`. This is where
 conventions that span more than one column or table live.
 
+## Identity — `user`
+
+Profile fields shown on the Profile tab (US23). All of them are nullable: a
+`NULL` is a field never filled in, and the app shows it as "Not informed".
+They are read through `GET /users/me` — see [`profile.md`](profile.md).
+
+| Column | Rule |
+|---|---|
+| `birth_date` | The age is calculated by the app from it; it is never stored. |
+| `sex` | `sex_enum`: `FEMALE`, `MALE`, `OTHER`, `NOT_INFORMED`. `NOT_INFORMED` is the user's explicit choice, different from `NULL`. |
+| `city` | Free text, up to 120 characters. |
+| `state` | Two-letter UF code (`RS`, `SP`…). |
+| `crmv` | Required to issue reports with professional identification (US28); while it is `NULL` the app flags it on the profile. |
+
 ## Stock — `stock_movement`
 
 `stock_movement` is the stock ledger: **append-only**, one row per event.
@@ -229,7 +243,7 @@ calculated once the three US19 goals are configured.
 | Month (UTC) | Written by | Rule |
 |---|---|---|
 | Current | `GET /pricing/hourly-rate`, `PUT /pricing-settings` | Replaced on every calculation. |
-| Past | `GET /pricing/hourly-rate` | Inserted only if the month has no row yet; an existing row is never overwritten. |
+| Past | `GET /pricing/hourly-rate` | Inserted only if the month has no row yet; an existing row is never overwritten. A past month first calculated late is recorded with the settings in force at that moment. |
 | Future | — | Never written. |
 
 The reasons and the routes that read the rows are in
