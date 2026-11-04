@@ -822,6 +822,9 @@ model FinancialCategory {
   entries FinancialEntry[]
 
   @@unique([userId, nature, name])
+  /// Defaults have no user, and Postgres treats NULLs as distinct, so the index
+  /// above does not stop two identical defaults.
+  @@unique([nature, name], map: "financial_category_default_nature_name_key", where: raw("user_id IS NULL"))
   @@map("financial_category")
 }
 

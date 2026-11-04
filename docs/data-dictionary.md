@@ -112,7 +112,7 @@ The database backs this with two unique indexes, exact on `name`:
 | Index | Covers |
 |---|---|
 | `financial_category_user_id_nature_name_key` | One account never stores the same name twice in a nature. |
-| `financial_category_default_nature_name_key` (`WHERE user_id IS NULL`, raw SQL in `20261005211500_financial_entry_integrity`) | The defaults. Postgres treats `NULL`s as distinct, so the first index does not stop two identical defaults. |
+| `financial_category_default_nature_name_key` (`WHERE user_id IS NULL`, created in `20261005211500_financial_entry_integrity`) | The defaults. Postgres treats `NULL`s as distinct, so the first index does not stop two identical defaults. |
 
 When two requests with exactly the same name race each other, the loser hits
 the first index (or the primary key, for the same id); the service reads again
