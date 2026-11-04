@@ -219,10 +219,20 @@ the **current** `pricing_settings`, so on its own a change to the income goal or
 the weekly hours would rewrite every past month. The history reads these rows
 instead.
 
-One row per user and month (unique `user_id`, `year`, `month`). A new
-calculation of the same month replaces the row; `calculated_at` is when it was
-made, the same instant the response returned. Every column is `NOT NULL`: a
-month is only calculated once the three US19 goals are configured.
+One row per user and month (unique `user_id`, `year`, `month`). Whether a new
+calculation of a month replaces its row depends on the month, in UTC like the
+month filter:
+
+- **current month**: replaced on every calculation, since its costs are still
+  coming in;
+- **past month**: written only if it has no row yet. A later calculation, made
+  with a newer `pricing_settings`, does not touch it, so the history keeps what
+  was shown at the time. A past month first calculated late is recorded with
+  the settings in force at that moment.
+
+`calculated_at` is when the stored calculation was made, the same instant the
+response returned. Every column is `NOT NULL`: a month is only calculated once
+the three US19 goals are configured.
 
 | Column | Rule (CHECK) |
 |---|---|

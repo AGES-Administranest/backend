@@ -903,8 +903,9 @@ model PricingSettings {
 /// The hour value of one month as it was calculated (US22): the four parts of
 /// the formula and the US19 goals they came from. The history reads these rows
 /// instead of recalculating, so a later change to pricing_settings does not
-/// rewrite past months. One row per user and month: a new calculation of the
-/// same month replaces it, and calculated_at says when.
+/// rewrite past months. One row per user and month (UTC): the current month is
+/// replaced on every calculation, a past month is only written if it has no
+/// row yet; calculated_at says when the stored calculation was made.
 ///
 /// Only the inputs of the formula are stored. The rest of the hourly rate
 /// response (total, productive hours, minimum hourly rate, percentages) is
