@@ -1144,6 +1144,47 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       expect(stored.termsAcceptedAt).toBeNull();
     });
 
+    it('shows each account its own profile on GET /users/me', async () => {
+      const anaRow = await prisma.user.update({
+        where: { cognitoSub: ana.cognitoSub },
+        data: {
+          crmv: 'RS-12345',
+          sex: 'FEMALE',
+          city: 'Porto Alegre',
+          state: 'RS',
+        },
+      });
+      const brunoRow = await prisma.user.update({
+        where: { cognitoSub: bruno.cognitoSub },
+        data: { crmv: 'SP-67890', sex: 'MALE', city: 'Campinas', state: 'SP' },
+      });
+
+      const profileOf = async (user: TestUser) =>
+        body(
+          await request(http)
+            .get('/users/me')
+            .set('Authorization', bearer(user))
+            .expect(200),
+        );
+
+      expect(await profileOf(ana)).toMatchObject({
+        id: anaRow.id,
+        email: ana.email,
+        crmv: 'RS-12345',
+        sex: 'FEMALE',
+        city: 'Porto Alegre',
+        state: 'RS',
+      });
+      expect(await profileOf(bruno)).toMatchObject({
+        id: brunoRow.id,
+        email: bruno.email,
+        crmv: 'SP-67890',
+        sex: 'MALE',
+        city: 'Campinas',
+        state: 'SP',
+      });
+    });
+
     // `GET /users` still returns every account, and `GET /users/:id` still
     // reads any of them. Both are behind the guard now, so this is no longer
     // open to the world — but it is open to every authenticated account, which

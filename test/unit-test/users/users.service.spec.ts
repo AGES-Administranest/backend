@@ -156,12 +156,58 @@ describe('UsersService — terms consent', () => {
   });
 });
 
+describe('UsersService — profile', () => {
+  let service: UsersService;
+  let repository: FakeUsersRepository;
+
+  beforeEach(() => {
+    repository = new FakeUsersRepository();
+    service = new UsersService(repository as unknown as UsersRepository);
+  });
+
+  it('returns only the profile fields, with the unfilled ones as null', async () => {
+    const user = await service.provisionFromCognito({
+      cognitoSub: 'sub-123',
+      email: 'ana@example.com',
+      name: 'Ana',
+    });
+    await repository.update(user.id, {
+      crmv: 'RS-12345',
+      city: 'Porto Alegre',
+    });
+
+    const profile = await service.findProfile(user.id);
+
+    expect(profile).toEqual({
+      id: user.id,
+      name: 'Ana',
+      email: 'ana@example.com',
+      crmv: 'RS-12345',
+      birthDate: null,
+      sex: null,
+      city: 'Porto Alegre',
+      state: null,
+    });
+  });
+
+  it('fails with USER_NOT_FOUND when the user does not exist', async () => {
+    await expect(service.findProfile('missing')).rejects.toMatchObject({
+      kind: 'NOT_FOUND',
+      code: 'USER_NOT_FOUND',
+    });
+  });
+});
+
 class FakeUsersRepository {
   private readonly users = new Map<string, User>();
   private sequence = 0;
 
   get size(): number {
     return this.users.size;
+  }
+
+  findById(id: string): Promise<User | null> {
+    return Promise.resolve(this.users.get(id) ?? null);
   }
 
   updateByCognitoSub(
@@ -194,6 +240,9 @@ class FakeUsersRepository {
           taxIdType: null,
           birthDate: null,
           photoUrl: null,
+          sex: null,
+          city: null,
+          state: null,
           termsAcceptedAt: null,
           privacyAcceptedAt: null,
           termsVersion: null,

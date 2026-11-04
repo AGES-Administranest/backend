@@ -30,6 +30,17 @@ enum TaxIdType {
   @@map("tax_id_type_enum")
 }
 
+/// The user's sex as shown on the profile (US23). NOT_INFORMED is an explicit
+/// choice; NULL means the field was never filled in.
+enum Sex {
+  FEMALE
+  MALE
+  OTHER
+  NOT_INFORMED
+
+  @@map("sex_enum")
+}
+
 enum Weekday {
   MON
   TUE
@@ -252,6 +263,12 @@ model User {
   taxIdType  TaxIdType? @map("tax_id_type")
   birthDate  DateTime?  @map("birth_date") @db.Date
   photoUrl   String?    @map("photo_url")
+  /// Profile field (US23). Optional; NULL until the user fills it in.
+  sex        Sex?
+  /// City where the professional works (US23). Optional, free text.
+  city       String?    @db.VarChar(120)
+  /// Brazilian state (UF) as its two-letter code, e.g. "RS" (US23). Optional.
+  state      String?    @db.VarChar(2)
 
   termsAcceptedAt   DateTime? @map("terms_accepted_at") @db.Timestamptz(6)
   privacyAcceptedAt DateTime? @map("privacy_accepted_at") @db.Timestamptz(6)

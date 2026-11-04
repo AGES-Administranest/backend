@@ -3,6 +3,20 @@
 Supplement to the doc-comments (`///`) in `prisma/schema.prisma`. This is where
 conventions that span more than one column or table live.
 
+## Identity — `user`
+
+Profile fields shown on the Profile tab (US23). All of them are nullable: a
+`NULL` is a field never filled in, and the app shows it as "Not informed".
+They are read through `GET /users/me` — see [`profile.md`](profile.md).
+
+| Column | Rule |
+|---|---|
+| `birth_date` | The age is calculated by the app from it; it is never stored. |
+| `sex` | `sex_enum`: `FEMALE`, `MALE`, `OTHER`, `NOT_INFORMED`. `NOT_INFORMED` is the user's explicit choice, different from `NULL`. |
+| `city` | Free text, up to 120 characters. |
+| `state` | Two-letter UF code (`RS`, `SP`…). |
+| `crmv` | Required to issue reports with professional identification (US28); while it is `NULL` the app flags it on the profile. |
+
 ## Stock — `stock_movement`
 
 `stock_movement` is the stock ledger: **append-only**, one row per event.
