@@ -79,6 +79,11 @@ describe('Pricing settings (e2e)', () => {
   });
 
   afterAll(async () => {
+    // Saving the goals records the current month's hourly rate (US22), and
+    // that row holds the user back from being deleted.
+    await prisma.hourlyRateSnapshot.deleteMany({
+      where: { userId: { in: [ownerId, otherId] } },
+    });
     await prisma.pricingSettings.deleteMany({
       where: { userId: { in: [ownerId, otherId] } },
     });

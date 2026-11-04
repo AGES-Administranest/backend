@@ -233,20 +233,26 @@ the **current** `pricing_settings`, so on its own a change to the income goal or
 the weekly hours would rewrite every past month. The history reads these rows
 instead.
 
-One row per user and month (unique `user_id`, `year`, `month`). Whether a new
-calculation of a month replaces its row depends on the month, in UTC like the
-month filter:
+One row per user and month (unique `user_id`, `year`, `month`), written by a
+single statement on that key: `ON CONFLICT DO UPDATE` for the current month,
+`ON CONFLICT DO NOTHING` for a past one. `calculated_at` is when the stored calculation was made, the
+same instant its response returned. Every column is `NOT NULL`: a month is only
+calculated once the three US19 goals are configured.
 
-- **current month**: replaced on every calculation, since its costs are still
-  coming in;
-- **past month**: written only if it has no row yet. A later calculation, made
-  with a newer `pricing_settings`, does not touch it, so the history keeps what
-  was shown at the time. A past month first calculated late is recorded with
-  the settings in force at that moment.
+### When a row is written
 
-`calculated_at` is when the stored calculation was made, the same instant the
-response returned. Every column is `NOT NULL`: a month is only calculated once
-the three US19 goals are configured.
+| Month (UTC) | Written by | Rule |
+|---|---|---|
+| Current | `GET /pricing/hourly-rate`, `PUT /pricing-settings` | Replaced on every calculation. |
+| Past | `GET /pricing/hourly-rate` | Inserted only if the month has no row yet; an existing row is never overwritten. A past month first calculated late is recorded with the settings in force at that moment. |
+| Future | — | Never written. |
+
+The reasons and the routes that read the rows are in
+[`hourly-rate.md`](hourly-rate.md#history). Rows are read only by owner (ADR-11):
+another account's month answers the same `404 HOURLY_RATE_SNAPSHOT_NOT_FOUND`
+as a month never calculated. There is no `deleted_at`: no route deletes a
+snapshot, and the foreign key to `user` is `ON DELETE RESTRICT`, so cleanup
+goes snapshots → users.
 
 | Column | Rule (CHECK) |
 |---|---|
@@ -262,11 +268,11 @@ break a rule the original had to follow.
 
 ### What is not stored
 
-Only the inputs of the formula are stored. The total, the productive hours, the
-minimum hourly rate and the percentages are derived from the row by
-`src/modules/pricing/domain/hourly-rate.ts`, the same code behind `GET
-/pricing/hourly-rate`, so a period opened from the history shows exactly what
-was calculated:
+Only the four parts, the hour value and the goals are stored. The total, the
+productive hours, the minimum hourly rate and the percentages are derived from
+the row by `composeHourlyRate` in `src/modules/pricing/domain/hourly-rate.ts`,
+the same code behind `GET /pricing/hourly-rate`, so a period opened from the
+history shows exactly what was calculated:
 
 - `total` = the sum of the four parts;
 - productive hours = `weekly_hours × 52 ÷ 12`;
