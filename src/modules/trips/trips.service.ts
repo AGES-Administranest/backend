@@ -10,7 +10,7 @@ import { QueryTripDto } from './dto/query-trip.dto';
 import { UpdateTripDto } from './dto/update-trip.dto';
 import { TripEntity, TripListEntity } from './entities/trip.entity';
 import { TRIP_ESTIMATE_DAYS } from './trips.constants';
-import { TripsRepository } from './trips.repository';
+import { TripPeriod, TripsRepository, TripTotals } from './trips.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
 import { DomainError } from '../../shared/errors/domain-error';
@@ -89,6 +89,14 @@ export class TripsService {
       TRIP_ESTIMATE_DAYS,
     );
     return averageDailyCost(dailyTotals);
+  }
+
+  totalsByClient(
+    userId: string,
+    clientId: string,
+    period: TripPeriod,
+  ): Promise<TripTotals> {
+    return this.tripsRepository.sumByClient(userId, clientId, period);
   }
 
   async findOne(id: string, userId: string): Promise<TripEntity> {
