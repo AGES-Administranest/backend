@@ -5,21 +5,27 @@ import { HourlyRateSnapshotRepository } from './hourly-rate-snapshot.repository'
 import { HourlyRateService } from './hourly-rate.service';
 import { PricingController } from './pricing.controller';
 import { ProcedureEstimateController } from './procedure-estimate.controller';
-import { ProcedureEstimateRepository } from './procedure-estimate.repository';
 import { ProcedureEstimateService } from './procedure-estimate.service';
+import { ClientModule } from '../client';
 import { FixedCostsModule } from '../fixed-costs';
+import { ItemModule } from '../item';
 import { PricingSettingsModule } from '../pricing-settings';
 import { TripsModule } from '../trips';
 
 @Module({
-  imports: [PricingSettingsModule, FixedCostsModule, TripsModule],
+  imports: [
+    PricingSettingsModule,
+    FixedCostsModule,
+    TripsModule,
+    ClientModule,
+    ItemModule,
+  ],
   controllers: [PricingController, ProcedureEstimateController],
   providers: [
     HourlyRateService,
     HourlyRateHistoryService,
     HourlyRateSnapshotRepository,
     ProcedureEstimateService,
-    ProcedureEstimateRepository,
   ],
   exports: [HourlyRateService],
 })
