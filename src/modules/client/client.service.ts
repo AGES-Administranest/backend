@@ -7,29 +7,34 @@ import { rankByName } from './domain/name-match';
 import { CreateClientDto } from './dto/create-client.dto';
 import { DeleteClientDto } from './dto/delete-client.dto';
 import { QueryClientAppointmentsDto } from './dto/query-client-appointments.dto';
+import { QueryClientPeriodDto } from './dto/query-client-period.dto';
 import { QueryClientDto } from './dto/query-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import {
   ClientAppointmentEntity,
   ClientAppointmentListEntity,
 } from './entities/client-appointment.entity';
+import { ClientSummaryEntity } from './entities/client-summary.entity';
 import { RecordNotFoundError } from '../../infra/prisma/prisma-errors';
 import {
   startOfBusinessDay,
   startOfNextBusinessDay,
 } from '../../shared/dates/business-day';
+import { fromIsoDate } from '../../shared/dates/iso-date';
 import { DomainError } from '../../shared/errors/domain-error';
 import {
   AppointmentPeriod,
   AppointmentsService,
   ClientAppointment,
 } from '../appointments';
+import { TripPeriod, TripsService } from '../trips';
 
 @Injectable()
 export class ClientService {
   constructor(
     private readonly clientRepository: ClientRepository,
     private readonly appointmentsService: AppointmentsService,
+    private readonly tripsService: TripsService,
   ) {}
 
   async findAll(
@@ -71,6 +76,31 @@ export class ClientService {
       total,
       page,
       limit,
+    };
+  }
+
+  async summarize(
+    id: string,
+    userId: string,
+    { from, to }: QueryClientPeriodDto,
+  ): Promise<ClientSummaryEntity> {
+    this.ensurePeriodIsOrdered(from, to);
+    await this.findOne(id, userId);
+
+    const [appointments, trips] = await Promise.all([
+      this.appointmentsService.sumCompletedByClient(
+        userId,
+        id,
+        this.toAppointmentPeriod(from, to),
+      ),
+      this.tripsService.totalsByClient(userId, id, this.toTripPeriod(from, to)),
+    ]);
+
+    return {
+      appointmentsCount: appointments.count,
+      billedTotal: appointments.amount.toFixed(2),
+      tripCost: trips.cost.toFixed(2),
+      tripCount: trips.count,
     };
   }
 
@@ -176,6 +206,14 @@ export class ClientService {
     return {
       from: from ? startOfBusinessDay(from) : undefined,
       before: to ? startOfNextBusinessDay(to) : undefined,
+    };
+  }
+
+  /** A trip day is a calendar date, so it needs no timezone. */
+  private toTripPeriod(from?: string, to?: string): TripPeriod {
+    return {
+      from: from ? fromIsoDate(from) : undefined,
+      to: to ? fromIsoDate(to) : undefined,
     };
   }
 

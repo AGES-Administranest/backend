@@ -77,6 +77,9 @@ describe('Client (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.trip.deleteMany({
+      where: { userId: { in: [userId, otherId] } },
+    });
     await prisma.appointment.deleteMany({
       where: { userId: { in: [userId, otherId] } },
     });
@@ -301,6 +304,168 @@ describe('Client (e2e)', () => {
       await request(server())
         .get(`/client/${randomUUID()}/appointments`)
         .expect(401);
+    });
+  });
+
+  describe('GET /client/:id/summary', () => {
+    interface SummaryBody {
+      appointmentsCount: number;
+      billedTotal: string;
+      tripCost: string;
+      tripCount: number;
+    }
+
+    const newClinic = async () =>
+      (await createClient(owner, { type: 'CLINIC', name: randomUUID() })).id;
+
+    const appointment = (
+      clientId: string,
+      startsAt: string,
+      overrides: Partial<{
+        status: 'SCHEDULED' | 'COMPLETED' | 'CANCELED';
+        amount: string | null;
+        deletedAt: Date;
+      }> = {},
+    ) =>
+      prisma.appointment.create({
+        data: {
+          userId,
+          clientId,
+          startsAt: new Date(startsAt),
+          status: 'COMPLETED',
+          amount: '620.00',
+          ...overrides,
+        },
+      });
+
+    const ride = (
+      clientId: string,
+      occurredOn: string,
+      cost: string,
+      overrides: Partial<{ deletedAt: Date }> = {},
+    ) =>
+      prisma.trip.create({
+        data: {
+          userId,
+          clientId,
+          mode: 'RIDE',
+          occurredOn: new Date(`${occurredOn}T00:00:00.000Z`),
+          origin: 'Casa',
+          destination: 'Clínica',
+          cost,
+          ...overrides,
+        },
+      });
+
+    const november = { from: '2026-11-01', to: '2026-11-30' };
+
+    const summary = async (
+      clientId: string,
+      query: Record<string, string> = november,
+    ) => {
+      const res = await request(server())
+        .get(`/client/${clientId}/summary`)
+        .set('Authorization', bearer(owner))
+        .query(query)
+        .expect(200);
+      return res.body as SummaryBody;
+    };
+
+    it('counts and adds up what the history lists, with the trips of the period', async () => {
+      const clinic = await newClinic();
+      const anotherClinic = await newClinic();
+      await appointment(clinic, '2026-11-03T13:00:00.000Z', {
+        amount: '620.00',
+      });
+      await appointment(clinic, '2026-11-08T13:00:00.000Z', {
+        amount: '780.00',
+      });
+      await appointment(clinic, '2026-11-12T13:00:00.000Z', { amount: null });
+      await appointment(clinic, '2026-11-15T13:00:00.000Z', {
+        status: 'CANCELED',
+      });
+      await appointment(clinic, '2026-11-16T13:00:00.000Z', {
+        deletedAt: new Date(),
+      });
+      await appointment(clinic, '2026-10-31T22:00:00.000-03:00');
+      await appointment(anotherClinic, '2026-11-03T13:00:00.000Z');
+      await ride(clinic, '2026-11-03', '48.00');
+      await ride(clinic, '2026-11-08', '16.50');
+      await ride(clinic, '2026-11-10', '30.00', { deletedAt: new Date() });
+      await ride(clinic, '2026-10-31', '30.00');
+      await ride(anotherClinic, '2026-11-03', '30.00');
+
+      const totals = await summary(clinic);
+      const history = await request(server())
+        .get(`/client/${clinic}/appointments`)
+        .set('Authorization', bearer(owner))
+        .query(november)
+        .expect(200);
+      const listed = (history.body as { items: { amount: string | null }[] })
+        .items;
+
+      expect(totals).toEqual({
+        appointmentsCount: 3,
+        billedTotal: '1400.00',
+        tripCost: '64.50',
+        tripCount: 2,
+      });
+      expect(listed).toHaveLength(totals.appointmentsCount);
+      expect(
+        listed.reduce((sum, item) => sum + Number(item.amount ?? 0), 0),
+      ).toBe(Number(totals.billedTotal));
+    });
+
+    it('answers zeros for a client with nothing in the period', async () => {
+      expect(await summary(await newClinic())).toEqual({
+        appointmentsCount: 0,
+        billedTotal: '0.00',
+        tripCost: '0.00',
+        tripCount: 0,
+      });
+    });
+
+    it('adds up everything without a period', async () => {
+      const clinic = await newClinic();
+      await appointment(clinic, '2025-03-10T13:00:00.000Z');
+      await appointment(clinic, '2026-11-03T13:00:00.000Z');
+      await ride(clinic, '2025-03-10', '10.00');
+
+      expect(await summary(clinic, {})).toEqual({
+        appointmentsCount: 2,
+        billedTotal: '1240.00',
+        tripCost: '10.00',
+        tripCount: 1,
+      });
+    });
+
+    it("answers 404 for someone else's client", async () => {
+      const clinic = await newClinic();
+
+      const res = await request(server())
+        .get(`/client/${clinic}/summary`)
+        .set('Authorization', bearer(other))
+        .expect(404);
+
+      expect((res.body as { code: string }).code).toBe('CLIENT_NOT_FOUND');
+    });
+
+    it('answers 400 for a period that ends before it starts', async () => {
+      const res = await request(server())
+        .get(`/client/${await newClinic()}/summary`)
+        .set('Authorization', bearer(owner))
+        .query({ from: '2026-11-30', to: '2026-11-01' })
+        .expect(400);
+
+      expect((res.body as { code: string }).code).toBe('INVALID_REQUEST');
+    });
+
+    it('answers 400 for a date that does not exist', async () => {
+      await request(server())
+        .get(`/client/${await newClinic()}/summary`)
+        .set('Authorization', bearer(owner))
+        .query({ to: '2026-02-30' })
+        .expect(400);
     });
   });
 

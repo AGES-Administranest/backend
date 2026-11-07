@@ -44,7 +44,11 @@ describe('ClientService', () => {
     update: jest.Mock;
     delete: jest.Mock;
   };
-  let appointments: { findCompletedByClient: jest.Mock };
+  let appointments: {
+    findCompletedByClient: jest.Mock;
+    sumCompletedByClient: jest.Mock;
+  };
+  let trips: { totalsByClient: jest.Mock };
   let service: ClientService;
 
   beforeEach(() => {
@@ -52,6 +56,14 @@ describe('ClientService', () => {
       findCompletedByClient: jest
         .fn()
         .mockResolvedValue({ appointments: [], total: 0 }),
+      sumCompletedByClient: jest
+        .fn()
+        .mockResolvedValue({ count: 0, amount: new Prisma.Decimal(0) }),
+    };
+    trips = {
+      totalsByClient: jest
+        .fn()
+        .mockResolvedValue({ count: 0, cost: new Prisma.Decimal(0) }),
     };
     repository = {
       findMany: jest.fn().mockResolvedValue([]),
@@ -62,7 +74,101 @@ describe('ClientService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     };
-    service = new ClientService(repository as never, appointments as never);
+    service = new ClientService(
+      repository as never,
+      appointments as never,
+      trips as never,
+    );
+  });
+
+  describe('summarize', () => {
+    const period = { from: '2026-11-01', to: '2026-11-30' };
+
+    beforeEach(() => repository.findById.mockResolvedValue(client()));
+
+    it('reads appointments by São Paulo instant and trips by calendar day', async () => {
+      await service.summarize('client-1', 'user-1', period);
+
+      expect(appointments.sumCompletedByClient).toHaveBeenCalledWith(
+        'user-1',
+        'client-1',
+        {
+          from: new Date('2026-11-01T03:00:00.000Z'),
+          before: new Date('2026-12-01T03:00:00.000Z'),
+        },
+      );
+      expect(trips.totalsByClient).toHaveBeenCalledWith('user-1', 'client-1', {
+        from: new Date('2026-11-01T00:00:00.000Z'),
+        to: new Date('2026-11-30T00:00:00.000Z'),
+      });
+    });
+
+    it('reads everything without a period', async () => {
+      await service.summarize('client-1', 'user-1', {});
+
+      expect(appointments.sumCompletedByClient).toHaveBeenCalledWith(
+        'user-1',
+        'client-1',
+        { from: undefined, before: undefined },
+      );
+      expect(trips.totalsByClient).toHaveBeenCalledWith('user-1', 'client-1', {
+        from: undefined,
+        to: undefined,
+      });
+    });
+
+    it('sends the money as strings with cents', async () => {
+      appointments.sumCompletedByClient.mockResolvedValue({
+        count: 6,
+        amount: new Prisma.Decimal(3420),
+      });
+      trips.totalsByClient.mockResolvedValue({
+        count: 4,
+        cost: new Prisma.Decimal('96.5'),
+      });
+
+      await expect(
+        service.summarize('client-1', 'user-1', period),
+      ).resolves.toEqual({
+        appointmentsCount: 6,
+        billedTotal: '3420.00',
+        tripCost: '96.50',
+        tripCount: 4,
+      });
+    });
+
+    it('answers zeros for a period without anything', async () => {
+      await expect(
+        service.summarize('client-1', 'user-1', period),
+      ).resolves.toEqual({
+        appointmentsCount: 0,
+        billedTotal: '0.00',
+        tripCost: '0.00',
+        tripCount: 0,
+      });
+    });
+
+    it('refuses a period that ends before it starts', async () => {
+      await expectDomainError(
+        service.summarize('client-1', 'user-1', {
+          from: '2026-11-30',
+          to: '2026-11-01',
+        }),
+        'INVALID_REQUEST',
+      );
+      expect(appointments.sumCompletedByClient).not.toHaveBeenCalled();
+    });
+
+    it("reports someone else's client as not found, reading nothing", async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expectDomainError(
+        service.summarize('client-1', 'user-2', period),
+        'CLIENT_NOT_FOUND',
+      );
+      expect(appointments.sumCompletedByClient).not.toHaveBeenCalled();
+      expect(trips.totalsByClient).not.toHaveBeenCalled();
+    });
   });
 
   describe('findAppointments', () => {
