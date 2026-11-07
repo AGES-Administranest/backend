@@ -24,8 +24,10 @@ import { ClientEntity } from './client.entity';
 import { ClientService } from './client.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { DeleteClientDto } from './dto/delete-client.dto';
+import { QueryClientAppointmentsDto } from './dto/query-client-appointments.dto';
 import { QueryClientDto } from './dto/query-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { ClientAppointmentListEntity } from './entities/client-appointment.entity';
 import { CurrentUser } from '../../shared/auth';
 // `import type` is required by `emitDecoratorMetadata` on a decorated signature.
 import type { AuthenticatedUser } from '../../shared/auth';
@@ -74,6 +76,31 @@ export class ClientController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.clientService.findOne(id, user.id);
+  }
+
+  @Get(':id/appointments')
+  @ApiOperation({
+    summary: "List a client's completed appointments in a period",
+    description:
+      'Latest first. total covers the whole period, not only the page. from ' +
+      'and to are São Paulo calendar days, both inclusive.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ClientAppointmentListEntity })
+  @ApiBadRequestResponse({
+    description:
+      'A date that is not YYYY-MM-DD or does not exist, a page out of range ' +
+      '(VALIDATION_ERROR), or from after to (INVALID_REQUEST)',
+  })
+  @ApiNotFoundResponse({
+    description: 'Client not found, deleted or owned by someone else',
+  })
+  findAppointments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryClientAppointmentsDto,
+  ) {
+    return this.clientService.findAppointments(id, user.id, query);
   }
 
   @Patch(':id')
