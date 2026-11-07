@@ -1130,6 +1130,133 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('procedure estimate', () => {
+    // Trips post their expense under the default Travel category, which
+    // resetDatabase's TRUNCATE ... CASCADE wipes with everything else.
+    beforeEach(async () => {
+      await ensureDefaultFinancialCategories(prisma);
+    });
+
+    const saveGoals = (user: TestUser) =>
+      request(http)
+        .put('/pricing-settings')
+        .set('Authorization', bearer(user))
+        .send({ monthlyIncomeGoal: 6000, weeklyHours: 40, safetyMarginPct: 10 })
+        .expect(200);
+
+    const createClient = async (user: TestUser, name: string) =>
+      body(
+        await request(http)
+          .post('/client')
+          .set('Authorization', bearer(user))
+          .send({ type: 'CLINIC', name })
+          .expect(201),
+      ).id as string;
+
+    const estimate = (user: TestUser, payload: Record<string, unknown>) =>
+      request(http)
+        .post('/pricing/procedure-estimate')
+        .set('Authorization', bearer(user))
+        .send(payload);
+
+    it("refuses another account's client or item with 422", async () => {
+      await saveGoals(bruno);
+      const anaClient = await createClient(ana, 'Clinica da Ana');
+      const anaItem = await createItem(ana, 'Seringa da Ana');
+
+      const byClient = await estimate(bruno, {
+        durationMinutes: 60,
+        clientId: anaClient,
+      }).expect(422);
+      const byItem = await estimate(bruno, {
+        durationMinutes: 60,
+        supplies: [{ itemId: anaItem, quantity: 1 }],
+      }).expect(422);
+
+      expect(body(byClient)).toMatchObject({ code: 'CLIENT_NOT_FOUND' });
+      expect(body(byItem)).toMatchObject({ code: 'ITEM_NOT_FOUND' });
+    });
+
+    it("answers 404 without one's own goals, whatever another account saved", async () => {
+      await saveGoals(ana);
+
+      const response = await estimate(bruno, { durationMinutes: 60 }).expect(
+        404,
+      );
+
+      expect(body(response)).toMatchObject({
+        code: 'PRICING_SETTINGS_NOT_FOUND',
+      });
+    });
+
+    it("prices the hours from one's own expenses, not another account's", async () => {
+      await saveGoals(ana);
+      await saveGoals(bruno);
+      // A trip this month is a transport expense in Ana's hourly rate. The
+      // estimate takes the month in Brasília, so the trip is dated there.
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(new Date());
+      await request(http)
+        .post('/trips')
+        .set('Authorization', bearer(ana))
+        .send({
+          mode: 'RIDE',
+          occurredOn: today,
+          origin: 'Casa',
+          destination: 'Clinica',
+          cost: 500,
+        })
+        .expect(201);
+
+      const anaEstimate = await estimate(ana, { durationMinutes: 60 }).expect(
+        200,
+      );
+      const brunoEstimate = await estimate(bruno, {
+        durationMinutes: 60,
+      }).expect(200);
+
+      expect(body(brunoEstimate)).toMatchObject({ hourlyRateUsed: '38.08' });
+      expect(body(anaEstimate).hourlyRateUsed).not.toBe('38.08');
+    });
+
+    it("leaves another account's trips out of the trip estimate", async () => {
+      await saveGoals(bruno);
+      const brunoClient = await createClient(bruno, 'Clinica do Bruno');
+      const anaRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: ana.cognitoSub },
+      });
+      // Written straight to the table: the API never lets a trip point at
+      // another account's client, so only a leak in the query could count it.
+      // A state the API cannot produce, so it is removed even if this fails.
+      const leaked = await prisma.trip.create({
+        data: {
+          userId: anaRow.id,
+          mode: 'RIDE',
+          clientId: brunoClient,
+          occurredOn: new Date('2025-03-10T00:00:00.000Z'),
+          origin: 'Casa',
+          destination: 'Clinica',
+          cost: '80.00',
+        },
+      });
+
+      try {
+        const response = await estimate(bruno, {
+          durationMinutes: 60,
+          clientId: brunoClient,
+        }).expect(200);
+
+        expect(body(response)).toMatchObject({
+          tripCost: '0.00',
+          tripEstimateAvailable: false,
+        });
+      } finally {
+        await prisma.trip.delete({ where: { id: leaked.id } });
+      }
+    });
+  });
+
   describe('users', () => {
     it('keeps each account terms consent to itself', async () => {
       await request(http)

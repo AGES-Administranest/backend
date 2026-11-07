@@ -69,6 +69,21 @@ export class ItemService {
     return this.itemRepository.findActiveIds(userId, ids);
   }
 
+  /**
+   * The unit cost of each of `ids` that is this user's and not deleted, in
+   * one query; the others are simply absent. `defaultUnitCost` is null for an
+   * item without a cost recorded. For the procedure estimate (US21).
+   */
+  async findUnitCosts(
+    userId: string,
+    ids: readonly string[],
+  ): Promise<Map<string, Prisma.Decimal | null>> {
+    if (ids.length === 0) return new Map();
+
+    const items = await this.itemRepository.findUnitCosts(userId, ids);
+    return new Map(items.map(item => [item.id, item.defaultUnitCost]));
+  }
+
   async findOne(id: string, userId: string): Promise<ItemEntity> {
     const item = await this.getOrThrow(id, userId);
     return this.sanitize(item);

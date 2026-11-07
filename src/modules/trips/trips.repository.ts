@@ -70,6 +70,28 @@ export class TripsRepository {
     };
   }
 
+  /**
+   * What each of the latest `days` days with trips to the client cost, latest
+   * first: one total per date, so the way there and back add up.
+   */
+  async findDailyCosts(
+    userId: string,
+    clientId: string,
+    days: number,
+  ): Promise<Prisma.Decimal[]> {
+    const rows = await runQuery(() =>
+      this.prisma.trip.groupBy({
+        by: ['occurredOn'],
+        where: { userId, clientId, deletedAt: null },
+        _sum: { cost: true },
+        orderBy: { occurredOn: 'desc' },
+        take: days,
+      }),
+    );
+    // `cost` is NOT NULL, so every group has a sum.
+    return rows.map(row => row._sum.cost ?? new Prisma.Decimal(0));
+  }
+
   findById(id: string, userId: string, db: Db = this.prisma) {
     return runQuery(() =>
       db.trip.findFirst({ where: { id, userId, deletedAt: null } }),
