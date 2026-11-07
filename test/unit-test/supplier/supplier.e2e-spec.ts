@@ -6,6 +6,7 @@ import { App } from 'supertest/types';
 import { PrismaService } from '../../../src/infra/prisma/prisma.service';
 import {
   bearer,
+  body,
   createTestApp,
   mintTokens,
   TestUser,
@@ -57,6 +58,9 @@ describe('Supplier (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.purchaseInvoice.deleteMany({
+      where: { userId: { in: [userId, otherId] } },
+    });
     await prisma.supplier.deleteMany({
       where: { userId: { in: [userId, otherId] } },
     });
@@ -323,6 +327,115 @@ describe('Supplier (e2e)', () => {
           supplier => supplier.id === id,
         ),
       ).toBe(true);
+    });
+  });
+
+  describe('GET /supplier/:id/purchase-invoices', () => {
+    const createSupplier = async (name: string) => {
+      const response = await request(server())
+        .post('/supplier')
+        .set('Authorization', bearer(owner))
+        .send({ name })
+        .expect(201);
+      return (response.body as SupplierBody).id;
+    };
+
+    const createInvoice = (
+      supplierId: string,
+      values: {
+        issueDate: string;
+        number: string;
+        totalAmount: number;
+        status?: 'CONFIRMED' | 'DRAFT' | 'CANCELLED';
+      },
+    ) =>
+      prisma.purchaseInvoice.create({
+        data: {
+          userId,
+          supplierId,
+          issueDate: new Date(`${values.issueDate}T00:00:00.000Z`),
+          number: values.number,
+          totalAmount: values.totalAmount,
+          status: values.status ?? 'CONFIRMED',
+        },
+      });
+
+    it('lists confirmed invoices by issue date with inclusive filters and pagination, including inactive suppliers', async () => {
+      const supplierId = await createSupplier('Invoice history supplier e2e');
+      const februaryInvoice = await createInvoice(supplierId, {
+        issueDate: '2026-02-01',
+        number: '200',
+        totalAmount: 34.5,
+      });
+      const marchInvoice = await createInvoice(supplierId, {
+        issueDate: '2026-03-31',
+        number: '300',
+        totalAmount: 80,
+      });
+      await createInvoice(supplierId, {
+        issueDate: '2026-04-01',
+        number: '400',
+        totalAmount: 99,
+      });
+      await createInvoice(supplierId, {
+        issueDate: '2026-03-15',
+        number: 'draft',
+        totalAmount: 1,
+        status: 'DRAFT',
+      });
+      await createInvoice(supplierId, {
+        issueDate: '2026-03-20',
+        number: 'cancelled',
+        totalAmount: 2,
+        status: 'CANCELLED',
+      });
+
+      await request(server())
+        .delete(`/supplier/${supplierId}`)
+        .set('Authorization', bearer(owner))
+        .expect(200);
+
+      const firstPage = await request(server())
+        .get(`/supplier/${supplierId}/purchase-invoices`)
+        .set('Authorization', bearer(owner))
+        .query({ from: '2026-02-01', to: '2026-03-31', page: 1, limit: 1 })
+        .expect(200);
+      expect(body(firstPage)).toEqual([
+        {
+          id: marchInvoice.id,
+          issueDate: '2026-03-31',
+          number: '300',
+          totalAmount: 80,
+        },
+      ]);
+
+      const secondPage = await request(server())
+        .get(`/supplier/${supplierId}/purchase-invoices`)
+        .set('Authorization', bearer(owner))
+        .query({ from: '2026-02-01', to: '2026-03-31', page: 2, limit: 1 })
+        .expect(200);
+      expect(body(secondPage)).toEqual([
+        {
+          id: februaryInvoice.id,
+          issueDate: '2026-02-01',
+          number: '200',
+          totalAmount: 34.5,
+        },
+      ]);
+    });
+
+    it('does not expose another user supplier invoice history', async () => {
+      const response = await request(server())
+        .post('/supplier')
+        .set('Authorization', bearer(other))
+        .send({ name: 'Private invoice supplier e2e' })
+        .expect(201);
+      const supplierId = (response.body as SupplierBody).id;
+
+      await request(server())
+        .get(`/supplier/${supplierId}/purchase-invoices`)
+        .set('Authorization', bearer(owner))
+        .expect(404);
     });
   });
 });
