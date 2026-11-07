@@ -1192,13 +1192,17 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     it("prices the hours from one's own expenses, not another account's", async () => {
       await saveGoals(ana);
       await saveGoals(bruno);
-      // A trip this month is a transport expense in Ana's hourly rate.
+      // A trip this month is a transport expense in Ana's hourly rate. The
+      // estimate takes the month in Brasília, so the trip is dated there.
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+      }).format(new Date());
       await request(http)
         .post('/trips')
         .set('Authorization', bearer(ana))
         .send({
           mode: 'RIDE',
-          occurredOn: new Date().toISOString().slice(0, 10),
+          occurredOn: today,
           origin: 'Casa',
           destination: 'Clinica',
           cost: 500,

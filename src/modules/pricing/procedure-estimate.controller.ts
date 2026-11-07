@@ -53,8 +53,11 @@ const DESCRIPTION = [
   'minimumPrice = hoursCost + tripCost + suppliesCost. Each part is rounded ' +
     'half-up to cents and the price is the sum of the rounded parts.',
   '- hoursCost = hourlyRateUsed × durationMinutes ÷ 60. The hourly rate is ' +
-    "the current UTC month's, with the safety margin, exactly as GET " +
-    '/pricing/hourly-rate (US20) returns it.',
+    'the one GET /pricing/hourly-rate (US20) returns, with the safety margin, ' +
+    'for the current month in Brasília (America/Sao_Paulo). GET ' +
+    '/pricing/hourly-rate without month and year uses the UTC month, so from ' +
+    '21:00 to midnight on the last day of a month the estimate uses that ' +
+    "month's rate while the hourly-rate screen already shows the next one's.",
   '- tripCost = the average of what each of the latest 10 days with trips to ' +
     'the client added up to (US14). Summing by day counts the way there and ' +
     'back as one visit. Only trips marked with the client count: a way back ' +

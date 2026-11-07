@@ -5,10 +5,12 @@ import { ClientService } from '../client';
 import { ItemService } from '../item';
 import { TripsService } from '../trips';
 import { formatHourlyRateValue } from './domain/hourly-rate';
+import { monthIn } from './domain/local-month';
 import { estimateProcedure } from './domain/procedure-estimate';
 import { ProcedureEstimateDto } from './dto/procedure-estimate.dto';
 import { ProcedureEstimateResponse } from './entities/procedure-estimate.entity';
 import { HourlyRateService } from './hourly-rate.service';
+import { PRICING_TIME_ZONE } from './procedure-estimate.constants';
 import { DomainError } from '../../shared/errors/domain-error';
 
 @Injectable()
@@ -21,9 +23,9 @@ export class ProcedureEstimateService {
   ) {}
 
   /**
-   * The minimum price of a procedure (US21), from the current month's hourly
-   * rate (US20), the trip cost at the client (US14) and the supplies' unit
-   * costs. Nothing is stored.
+   * The minimum price of a procedure (US21), from the hourly rate (US20) of
+   * the current month in Brasília, the trip cost at the client (US14) and the
+   * supplies' unit costs. Nothing is stored.
    *
    * Without the pricing goals it answers 404 PRICING_SETTINGS_NOT_FOUND, as
    * GET /pricing/hourly-rate does, before reading anything else, so the app
@@ -33,7 +35,13 @@ export class ProcedureEstimateService {
     userId: string,
     dto: ProcedureEstimateDto,
   ): Promise<ProcedureEstimateResponse> {
-    const rate = await this.hourlyRate.calculate(userId, {});
+    // The current month in Brasília, not UTC: GET /pricing/hourly-rate without
+    // month and year uses UTC, so from 21:00 to midnight on the last day of a
+    // month the two show different months' rates.
+    const rate = await this.hourlyRate.calculate(
+      userId,
+      monthIn(PRICING_TIME_ZONE, new Date()),
+    );
 
     const clientId = dto.clientId ?? null;
     if (clientId !== null) await this.assertClient(userId, clientId);

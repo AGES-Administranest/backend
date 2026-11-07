@@ -12,6 +12,7 @@ import {
   TestUser,
 } from './helpers/test-app';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
+import { monthIn } from '../src/modules/pricing/domain/local-month';
 
 /**
  * POST /pricing/procedure-estimate (US21) end to end. The goals give an exact
@@ -115,7 +116,7 @@ describe('procedure estimate (e2e)', () => {
       ],
     }).expect(200);
 
-    const now = new Date();
+    const { year, month } = monthIn('America/Sao_Paulo', new Date());
     expect(body(response)).toEqual({
       // 38.08 × 1.5 + (65.80 + 32.90) ÷ 2 + 2 × 12.50
       minimumPrice: '131.47',
@@ -130,17 +131,21 @@ describe('procedure estimate (e2e)', () => {
       tripEstimateDays: 2,
       suppliesWithoutCost: [unpriced],
       durationMinutes: 90,
-      month: now.getUTCMonth() + 1,
-      year: now.getUTCFullYear(),
+      month,
+      year,
     });
   });
 
   it('uses the same hourly rate as GET /pricing/hourly-rate', async () => {
     await saveGoals();
 
+    // The estimate takes the month in Brasília; asked for that same month,
+    // the hourly-rate route gives the same figures.
+    const { year, month } = monthIn('America/Sao_Paulo', new Date());
     const [rate, estimated] = await Promise.all([
       request(http)
         .get('/pricing/hourly-rate')
+        .query({ year, month })
         .set('Authorization', bearer(ana))
         .expect(200),
       estimate({ durationMinutes: 60 }).expect(200),

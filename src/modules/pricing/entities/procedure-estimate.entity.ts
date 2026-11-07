@@ -48,7 +48,7 @@ export class ProcedureEstimateResponse {
     example: '38.08',
     description:
       'The hourly rate with the margin, as GET /pricing/hourly-rate returns it ' +
-      'for the current UTC month',
+      'for the current month in Brasília',
   })
   hourlyRateUsed!: string;
 
@@ -89,7 +89,8 @@ export class ProcedureEstimateResponse {
     maximum: 12,
     example: 11,
     description:
-      'The month the hourly rate comes from: the current one, in UTC',
+      'The month the hourly rate comes from: the current one in Brasília ' +
+      '(America/Sao_Paulo)',
   })
   month!: number;
 

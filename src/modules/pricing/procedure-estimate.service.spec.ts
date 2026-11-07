@@ -20,6 +20,8 @@ describe('ProcedureEstimateService', () => {
   let service: ProcedureEstimateService;
 
   beforeEach(() => {
+    // A fixed clock: the month of the hourly rate depends on it.
+    jest.useFakeTimers({ now: new Date('2026-11-18T12:00:00.000Z') });
     hourlyRate = { calculate: jest.fn().mockResolvedValue(rate) };
     trips = {
       estimateCostPerDay: jest.fn().mockResolvedValue({
@@ -45,6 +47,10 @@ describe('ProcedureEstimateService', () => {
     );
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('prices the hours, the trip at the client and the supplies', async () => {
     const result = await service.estimate('user-1', {
       durationMinutes: 120,
@@ -55,7 +61,10 @@ describe('ProcedureEstimateService', () => {
       ],
     });
 
-    expect(hourlyRate.calculate).toHaveBeenCalledWith('user-1', {});
+    expect(hourlyRate.calculate).toHaveBeenCalledWith('user-1', {
+      year: 2026,
+      month: 11,
+    });
     expect(trips.estimateCostPerDay).toHaveBeenCalledWith('user-1', 'client-1');
     expect(clients.findOne).toHaveBeenCalledWith('client-1', 'user-1');
     expect(items.findUnitCosts).toHaveBeenCalledWith('user-1', [
@@ -78,6 +87,26 @@ describe('ProcedureEstimateService', () => {
       year: 2026,
     });
   });
+
+  it.each([
+    // 21:00 on the last day of November in Brasília, December in UTC.
+    ['2026-12-01T00:00:00.000Z', 2026, 11],
+    ['2026-12-01T02:59:59.000Z', 2026, 11],
+    ['2026-12-01T03:00:00.000Z', 2026, 12],
+    ['2027-01-01T01:00:00.000Z', 2026, 12],
+  ])(
+    'at %s prices the hours with the hourly rate of %i-%i, the month in Brasília',
+    async (at, year, month) => {
+      jest.setSystemTime(new Date(at));
+
+      await service.estimate('user-1', { durationMinutes: 60 });
+
+      expect(hourlyRate.calculate).toHaveBeenCalledWith('user-1', {
+        year,
+        month,
+      });
+    },
+  );
 
   it('prices only the hours without a client or supplies', async () => {
     const result = await service.estimate('user-1', { durationMinutes: 60 });
