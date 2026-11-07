@@ -11,7 +11,9 @@ import {
 
 import {
   ActiveSupply,
+  AppointmentPeriod,
   AppointmentsRepository,
+  ClientAppointmentPage,
   ItemUsage,
   ItemWithLots,
   RecordedItemUsage,
@@ -60,6 +62,22 @@ export class AppointmentsService {
   constructor(
     private readonly appointmentsRepository: AppointmentsRepository,
   ) {}
+
+  findCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+    skip: number,
+    take: number,
+  ): Promise<ClientAppointmentPage> {
+    return this.appointmentsRepository.findCompletedPageByClient(
+      userId,
+      clientId,
+      period,
+      skip,
+      take,
+    );
+  }
 
   async findAll(
     userId: string,
