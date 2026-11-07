@@ -184,6 +184,7 @@ describe('Hourly rate (e2e)', () => {
     await prisma.financialEntry.deleteMany({ where: { userId: ids } });
     await prisma.trip.deleteMany({ where: { userId: ids } });
     await prisma.equipment.deleteMany({ where: { userId: ids } });
+    await prisma.hourlyRateSnapshot.deleteMany({ where: { userId: ids } });
     await prisma.pricingSettings.deleteMany({ where: { userId: ids } });
     await prisma.user.deleteMany({ where: { id: ids } });
     await app.close();

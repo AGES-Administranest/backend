@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 
 import {
   calculateHourlyRate,
+  composeHourlyRate,
   formatHourlyRateValue,
   HourlyRateInput,
   percentagesOf,
@@ -176,6 +177,57 @@ describe('calculateHourlyRate', () => {
     expect(() => calculateHourlyRate({ ...october, safetyMarginPct })).toThrow(
       RangeError,
     );
+  });
+});
+
+describe('composeHourlyRate', () => {
+  it('answers what calculateHourlyRate did, from its rounded parts alone', () => {
+    const calculated = calculateHourlyRate(october);
+    const [fixedCosts, variableCosts, ownerDraw, safetyMargin] =
+      calculated.parts.map(part => part.amount);
+
+    const composed = composeHourlyRate(
+      { fixedCosts, variableCosts, ownerDraw, safetyMargin },
+      october.weeklyHours,
+    );
+
+    expect(composed).toEqual(calculated);
+  });
+
+  it('takes the parts as the strings or Decimals a stored row holds', () => {
+    const result = composeHourlyRate(
+      {
+        fixedCosts: '1399.08',
+        variableCosts: dec('1225.00'),
+        ownerDraw: '8000.00',
+        safetyMargin: '2124.82',
+      },
+      dec('30.00'),
+    );
+
+    expect(result.total.toFixed(2)).toBe('12748.90');
+    expect(result.hourlyRate.toFixed(2)).toBe('98.07');
+    expect(result.minimumHourlyRate.toFixed(2)).toBe('81.72');
+    expect(strings(result.parts.map(part => part.percentOfTotal))).toEqual([
+      '10.97',
+      '9.61',
+      '62.75',
+      '16.67',
+    ]);
+  });
+
+  it.each(['0', '-1'])('refuses %s weekly hours', weeklyHours => {
+    expect(() =>
+      composeHourlyRate(
+        {
+          fixedCosts: '0',
+          variableCosts: '0',
+          ownerDraw: '1',
+          safetyMargin: '0',
+        },
+        weeklyHours,
+      ),
+    ).toThrow(RangeError);
   });
 });
 

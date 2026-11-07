@@ -230,6 +230,204 @@ describe('service-invoices (e2e)', () => {
     expect(await listIds('?to=2026-09-30')).toEqual([september]);
   });
 
+  describe('reports list', () => {
+    const REPORTS = '/service-invoices/reports';
+
+    /** A confirmed note written straight to the table, with its taker. */
+    const confirmedNote = async (
+      owner: string,
+      takerName: string,
+      issueDate: string,
+      fields: Partial<Prisma.ServiceInvoiceUncheckedCreateInput> = {},
+    ): Promise<string> => {
+      const client = await prisma.client.create({
+        data: { userId: owner, type: 'CLINIC', name: takerName },
+      });
+      const note = await prisma.serviceInvoice.create({
+        data: {
+          userId: owner,
+          clientId: client.id,
+          status: 'CONFIRMED',
+          issueDate: new Date(`${issueDate}T00:00:00Z`),
+          amount: 1500,
+          fileUrl: `users/${owner}/service-invoices/${randomUUID()}/original`,
+          ...fields,
+        },
+      });
+      return note.id;
+    };
+
+    const reports = async (query = '') => {
+      const response = await request(http)
+        .get(`${REPORTS}${query}`)
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      return response.body as {
+        id: string;
+        issueDate: string;
+        takerName: string;
+        hasFile: boolean;
+      }[];
+    };
+
+    const reportIds = async (query = '') =>
+      (await reports(query)).map(note => note.id);
+
+    it('lists the issue date, the taker name and the file indicator', async () => {
+      const withFile = await confirmedNote(
+        userId,
+        'Clínica Exemplo',
+        '2026-10-13',
+      );
+      const withoutFile = await confirmedNote(
+        userId,
+        'Ana Souza',
+        '2026-10-01',
+        { fileUrl: null },
+      );
+
+      expect(await reports()).toEqual([
+        {
+          id: withFile,
+          issueDate: '2026-10-13',
+          takerName: 'Clínica Exemplo',
+          hasFile: true,
+        },
+        {
+          id: withoutFile,
+          issueDate: '2026-10-01',
+          takerName: 'Ana Souza',
+          hasFile: false,
+        },
+      ]);
+    });
+
+    it('orders by issue date, latest first, whatever the order they were recorded', async () => {
+      const middle = await confirmedNote(userId, 'B', '2026-10-10');
+      const oldest = await confirmedNote(userId, 'A', '2026-09-01');
+      const latest = await confirmedNote(userId, 'C', '2026-11-05');
+
+      expect(await reportIds()).toEqual([latest, middle, oldest]);
+    });
+
+    it('leaves out drafts, discarded drafts and deleted notes', async () => {
+      const confirmed = await confirmedNote(userId, 'Confirmed', '2026-10-13');
+      await confirmedNote(userId, 'Draft', '2026-10-14', { status: 'DRAFT' });
+      await confirmedNote(userId, 'Cancelled', '2026-10-15', {
+        status: 'CANCELLED',
+      });
+      await confirmedNote(userId, 'Deleted', '2026-10-16', {
+        deletedAt: new Date(),
+      });
+
+      expect(await reportIds()).toEqual([confirmed]);
+    });
+
+    it('searches the taker name, in part and in any letter case', async () => {
+      const clinic = await confirmedNote(
+        userId,
+        'Clínica Veterinária Sul',
+        '2026-10-13',
+      );
+      await confirmedNote(userId, 'Ana Souza', '2026-10-12');
+
+      expect(await reportIds('?search=VETERIN')).toEqual([clinic]);
+      expect(await reportIds('?search=sul')).toEqual([clinic]);
+      expect(await reportIds('?search=nobody')).toEqual([]);
+      expect(await reportIds('?search=%20%20')).toHaveLength(2);
+    });
+
+    it('takes % and _ in the search as plain characters', async () => {
+      await confirmedNote(userId, 'Clínica Sul', '2026-10-13');
+
+      expect(await reportIds('?search=%25')).toEqual([]);
+      expect(await reportIds('?search=_')).toEqual([]);
+    });
+
+    it('filters by period, both ends included, and either one alone', async () => {
+      const september = await confirmedNote(userId, 'A', '2026-09-30');
+      const october = await confirmedNote(userId, 'B', '2026-10-01');
+      const november = await confirmedNote(userId, 'C', '2026-11-01');
+
+      expect(
+        await reportIds('?startDate=2026-10-01&endDate=2026-10-31'),
+      ).toEqual([october]);
+      expect(await reportIds('?startDate=2026-10-01')).toEqual([
+        november,
+        october,
+      ]);
+      expect(await reportIds('?endDate=2026-10-01')).toEqual([
+        october,
+        september,
+      ]);
+      expect(
+        await reportIds('?startDate=2026-10-01&endDate=2026-10-01'),
+      ).toEqual([october]);
+    });
+
+    it('combines the search with the period', async () => {
+      await confirmedNote(userId, 'Clínica Sul', '2026-09-10');
+      const match = await confirmedNote(userId, 'Clínica Norte', '2026-10-10');
+      await confirmedNote(userId, 'Ana Souza', '2026-10-11');
+
+      expect(await reportIds('?search=clínica&startDate=2026-10-01')).toEqual([
+        match,
+      ]);
+    });
+
+    it('pages the list, for the few cards and for "see all"', async () => {
+      const first = await confirmedNote(userId, 'A', '2026-10-03');
+      const second = await confirmedNote(userId, 'B', '2026-10-02');
+      const third = await confirmedNote(userId, 'C', '2026-10-01');
+
+      expect(await reportIds('?limit=2')).toEqual([first, second]);
+      expect(await reportIds('?limit=2&page=2')).toEqual([third]);
+    });
+
+    it('refuses a start date after the end date', async () => {
+      const response = await request(http)
+        .get(`${REPORTS}?startDate=2026-11-01&endDate=2026-10-31`)
+        .set('Authorization', bearer(ana))
+        .expect(400);
+
+      expect(body(response)).toMatchObject({ code: 'INVALID_REQUEST' });
+    });
+
+    it.each([
+      '?startDate=2026-02-30',
+      '?endDate=13/10/2026',
+      '?page=0',
+      '?limit=101',
+      '?userId=someone-else',
+    ])('refuses %s', async query => {
+      const response = await request(http)
+        .get(`${REPORTS}${query}`)
+        .set('Authorization', bearer(ana))
+        .expect(400);
+
+      expect(body(response)).toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it("never shows another account's notes", async () => {
+      const other = await prisma.user.create({
+        data: {
+          cognitoSub: 'sub-nfse-bruno',
+          email: 'bruno.nfse@example.com',
+          name: 'Bruno Lima',
+        },
+      });
+      await confirmedNote(other.id, 'Clínica do Bruno', '2026-10-13');
+      const mine = await confirmedNote(userId, 'Clínica da Ana', '2026-10-12');
+
+      expect(await reportIds()).toEqual([mine]);
+      expect(await reportIds('?search=bruno')).toEqual([]);
+    });
+
+    it('requires a token', async () => {
+      await request(http).get(REPORTS).expect(401);
+    });
+  });
+
   describe('review', () => {
     const TAKER_TAX_ID = '12345678000195';
     const ISSUED = '2026-10-13';
