@@ -7,6 +7,7 @@ describe('AppointmentsRepository', () => {
     appointment: {
       findMany: jest.Mock;
       count: jest.Mock;
+      aggregate: jest.Mock;
       findFirst: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
@@ -39,6 +40,9 @@ describe('AppointmentsRepository', () => {
       appointment: {
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
+        aggregate: jest
+          .fn()
+          .mockResolvedValue({ _count: { _all: 0 }, _sum: { amount: null } }),
         findFirst: jest.fn().mockResolvedValue(storedAppointment),
         create: jest.fn().mockResolvedValue(storedAppointment),
         update: jest
@@ -155,6 +159,40 @@ describe('AppointmentsRepository', () => {
           take: 10,
         }),
       );
+    });
+
+    it('sums with the same conditions the page lists', async () => {
+      const from = new Date('2026-11-01T03:00:00.000Z');
+      const before = new Date('2026-12-01T03:00:00.000Z');
+      prisma.appointment.aggregate.mockResolvedValue({
+        _count: { _all: 2 },
+        _sum: { amount: new Prisma.Decimal('1400.00') },
+      });
+
+      const totals = await repository.sumCompletedByClient(
+        'user-1',
+        'client-1',
+        { from, before },
+      );
+
+      expect(prisma.appointment.aggregate).toHaveBeenCalledWith({
+        where: { ...baseWhere, startsAt: { gte: from, lt: before } },
+        _count: { _all: true },
+        _sum: { amount: true },
+      });
+      expect(totals.count).toBe(2);
+      expect(totals.amount.toFixed(2)).toBe('1400.00');
+    });
+
+    it('adds up to zero when nothing has an amount', async () => {
+      const totals = await repository.sumCompletedByClient(
+        'user-1',
+        'client-1',
+        {},
+      );
+
+      expect(totals.count).toBe(0);
+      expect(totals.amount.toFixed(2)).toBe('0.00');
     });
 
     it('returns the page with the total of the whole period', async () => {
