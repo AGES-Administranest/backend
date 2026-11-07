@@ -38,6 +38,7 @@ describe('SupplierService', () => {
   let repository: {
     findMany: jest.Mock;
     findById: jest.Mock;
+    isActiveAndOwned: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
     deactivate: jest.Mock;
@@ -48,6 +49,7 @@ describe('SupplierService', () => {
     repository = {
       findMany: jest.fn(),
       findById: jest.fn(),
+      isActiveAndOwned: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       deactivate: jest.fn(),
@@ -121,6 +123,20 @@ describe('SupplierService', () => {
       await expect(
         service.findIdByTaxId('user-1', '44555666000199'),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('isActiveAndOwned', () => {
+    it('checks that a supplier is active and belongs to the user', async () => {
+      repository.isActiveAndOwned.mockResolvedValue(true);
+
+      await expect(
+        service.isActiveAndOwned('user-1', 'supplier-1'),
+      ).resolves.toBe(true);
+      expect(repository.isActiveAndOwned).toHaveBeenCalledWith(
+        'user-1',
+        'supplier-1',
+      );
     });
   });
 

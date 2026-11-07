@@ -48,6 +48,22 @@ describe('SupplierRepository', () => {
     });
   });
 
+  it('checks active supplier ownership without selecting other fields', async () => {
+    await expect(
+      repository.isActiveAndOwned('user-1', 'supplier-1'),
+    ).resolves.toBe(true);
+
+    expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'supplier-1',
+        userId: 'user-1',
+        active: true,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+  });
+
   it('does not update a supplier owned by another user', async () => {
     prisma.supplier.findFirst.mockResolvedValue(null);
 

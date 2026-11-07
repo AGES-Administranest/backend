@@ -31,6 +31,17 @@ export class SupplierRepository {
     );
   }
 
+  isActiveAndOwned(userId: string, supplierId: string): Promise<boolean> {
+    return runQuery(async () =>
+      Boolean(
+        await this.prisma.supplier.findFirst({
+          where: { id: supplierId, userId, active: true, deletedAt: null },
+          select: { id: true },
+        }),
+      ),
+    );
+  }
+
   create(data: Prisma.SupplierUncheckedCreateInput): Promise<Supplier> {
     return runQuery(() => this.prisma.supplier.create({ data }));
   }

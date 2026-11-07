@@ -52,6 +52,10 @@ export class SupplierService {
     return this.sanitize(supplier);
   }
 
+  isActiveAndOwned(userId: string, supplierId: string): Promise<boolean> {
+    return this.supplierRepository.isActiveAndOwned(userId, supplierId);
+  }
+
   /**
    * The supplier a document names by its CNPJ. Compared without the mask: a
    * tax id typed before the digits-only rule may still carry one.
