@@ -8,9 +8,23 @@ import { TransportCostEntity } from './entities/transport-cost.entity';
 import { PricingSettingsRepository } from './pricing-settings.repository';
 import { DomainError } from '../../shared/errors/domain-error';
 
+/** Called with the owner's id once the goals are saved. */
+export type GoalsSavedListener = (userId: string) => Promise<void>;
+
 @Injectable()
 export class PricingSettingsService {
+  private readonly goalsSavedListeners: GoalsSavedListener[] = [];
+
   constructor(private readonly repository: PricingSettingsRepository) {}
+
+  /**
+   * Lets a module react to PUT /pricing-settings without this one importing
+   * it. The hourly rate history (US22) records the current month here, and
+   * `pricing` already imports this module, so a direct call would be a cycle.
+   */
+  onGoalsSaved(listener: GoalsSavedListener): void {
+    this.goalsSavedListeners.push(listener);
+  }
 
   /**
    * The saved goals, or null while they are not configured — no row yet, or a
@@ -39,6 +53,9 @@ export class PricingSettingsService {
     if (!settings) {
       throw new Error('Pricing settings were saved without their goals');
     }
+    // Awaited, so a failure answers 500 and the app resends the PUT, which is
+    // idempotent, instead of leaving the history behind the goals unnoticed.
+    for (const listener of this.goalsSavedListeners) await listener(userId);
     return settings;
   }
 

@@ -11,6 +11,7 @@ const query = (plain: Partial<QueryHourlyRateDto> = {}) =>
 describe('HourlyRateService', () => {
   let pricingSettings: { find: jest.Mock };
   let fixedCosts: { getMonthlyCosts: jest.Mock };
+  let snapshots: { save: jest.Mock };
   let service: HourlyRateService;
 
   beforeEach(() => {
@@ -31,9 +32,11 @@ describe('HourlyRateService', () => {
         transport: dec('350'),
       }),
     };
+    snapshots = { save: jest.fn().mockResolvedValue({}) };
     service = new HourlyRateService(
       pricingSettings as never,
       fixedCosts as never,
+      snapshots as never,
     );
   });
 
@@ -137,6 +140,7 @@ describe('HourlyRateService', () => {
       notConfigured,
     );
     expect(fixedCosts.getMonthlyCosts).not.toHaveBeenCalled();
+    expect(snapshots.save).not.toHaveBeenCalled();
   });
 
   it('still answers the hour value, from the goals alone, in a month without costs', async () => {
@@ -175,5 +179,117 @@ describe('HourlyRateService', () => {
     );
 
     expect(hundredths).toBe(10_000);
+  });
+
+  describe('history snapshot (US22)', () => {
+    const NOW = new Date('2026-10-19T20:42:00.000Z');
+
+    beforeEach(() => {
+      jest.useFakeTimers({ now: NOW });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('stores what it answered, with the goals it used', async () => {
+      const response = await service.calculate(
+        'user-1',
+        query({ month: 10, year: 2026 }),
+      );
+
+      expect(snapshots.save).toHaveBeenCalledTimes(1);
+      const [snapshot] = snapshots.save.mock.calls[0] as [
+        Record<string, unknown>,
+      ];
+      const asStrings = Object.fromEntries(
+        Object.entries(snapshot).map(([key, value]) => [
+          key,
+          value instanceof Prisma.Decimal ? value.toFixed(2) : value,
+        ]),
+      );
+      expect(asStrings).toEqual({
+        userId: 'user-1',
+        year: 2026,
+        month: 10,
+        hourlyRate: response.hourlyRate,
+        fixedCosts: '1399.08',
+        variableCosts: '1225.00',
+        ownerDraw: '8000.00',
+        safetyMargin: '2124.82',
+        monthlyIncomeGoal: '8000.00',
+        weeklyHours: '30.00',
+        safetyMarginPct: '20.00',
+        calculatedAt: response.calculatedAt,
+      });
+      expect(response.calculatedAt).toEqual(NOW);
+    });
+
+    it.each([
+      ['the current month', {}],
+      ['the current month, named', { month: 10, year: 2026 }],
+    ])('replaces the stored snapshot for %s', async (_case, plain) => {
+      await service.calculate('user-1', query(plain));
+
+      expect(snapshots.save).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', year: 2026, month: 10 }),
+        { replace: true },
+      );
+    });
+
+    it.each([
+      ['the month before', { month: 9, year: 2026 }],
+      ['December of the year before', { month: 12, year: 2025 }],
+    ])(
+      'stores %s only if it has no snapshot yet',
+      async (_case, plain: { month: number; year: number }) => {
+        await service.calculate('user-1', query(plain));
+
+        expect(snapshots.save).toHaveBeenCalledWith(
+          expect.objectContaining({ year: plain.year, month: plain.month }),
+          { replace: false },
+        );
+      },
+    );
+
+    it.each([
+      ['the month after', { month: 11, year: 2026 }],
+      ['a month of the next year', { month: 1, year: 2027 }],
+    ])('does not store %s', async (_case, plain) => {
+      const result = await service.calculate('user-1', query(plain));
+
+      expect(result.hourlyRate).toBe('98.07');
+      expect(snapshots.save).not.toHaveBeenCalled();
+    });
+
+    it('records the current month when the goals are saved', async () => {
+      let listener: ((userId: string) => Promise<void>) | undefined;
+      const settings = {
+        ...pricingSettings,
+        onGoalsSaved: jest.fn((registered: typeof listener) => {
+          listener = registered;
+        }),
+      };
+      service = new HourlyRateService(
+        settings as never,
+        fixedCosts as never,
+        snapshots as never,
+      );
+
+      service.onModuleInit();
+      await listener?.('user-1');
+
+      expect(settings.onGoalsSaved).toHaveBeenCalledTimes(1);
+      expect(fixedCosts.getMonthlyCosts).toHaveBeenCalledWith(
+        'user-1',
+        2026,
+        10,
+        NOW,
+      );
+      expect(snapshots.save).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', year: 2026, month: 10 }),
+        { replace: true },
+      );
+    });
   });
 });

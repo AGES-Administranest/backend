@@ -7,9 +7,10 @@ import {
   NfseReviewDto,
 } from './dto/nfse-review.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
+import { ServiceInvoiceReportItemDto } from './dto/service-invoice-report-item.dto';
 import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
-import { DuplicateNote } from './service-invoices.repository';
+import { DuplicateNote, ReportNote } from './service-invoices.repository';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
 import { ClientEntity } from '../client';
 import { NfseResult } from '../extraction';
@@ -58,6 +59,16 @@ export function toSummary(invoice: ServiceInvoice): ServiceInvoiceSummaryDto {
     ...(invoice.failureReason && { failureReason: invoice.failureReason }),
     ...(invoice.uploadedAt && { uploadedAt: invoice.uploadedAt.toISOString() }),
     createdAt: invoice.createdAt.toISOString(),
+  };
+}
+
+/** A confirmed note always has its issue date and client; the type does not. */
+export function toReportItem(note: ReportNote): ServiceInvoiceReportItemDto {
+  return {
+    id: note.id,
+    issueDate: toIsoDate(note.issueDate!),
+    takerName: note.client!.name,
+    hasFile: note.fileUrl !== null,
   };
 }
 

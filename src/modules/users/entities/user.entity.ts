@@ -1,4 +1,4 @@
-import { TaxIdType, User } from '@prisma/client';
+import { Sex, TaxIdType, User } from '@prisma/client';
 
 export class UserEntity implements User {
   /** Identificador único do usuário */
@@ -27,6 +27,15 @@ export class UserEntity implements User {
 
   /** URL da foto de perfil */
   photoUrl!: string | null;
+
+  /** Sex as informed by the user. Null = not filled in */
+  sex!: Sex | null;
+
+  /** City where the professional works */
+  city!: string | null;
+
+  /** State (UF), two-letter code */
+  state!: string | null;
 
   /** When the terms of use were accepted. Null = not accepted yet */
   termsAcceptedAt!: Date | null;

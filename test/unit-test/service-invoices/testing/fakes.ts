@@ -12,6 +12,8 @@ import { ServiceInvoiceReviewService } from '../../../../src/modules/service-inv
 import {
   DuplicateNote,
   IncomeWrite,
+  ReportFilters,
+  ReportNote,
   ServiceInvoicesRepository,
 } from '../../../../src/modules/service-invoices/service-invoices.repository';
 
@@ -60,6 +62,14 @@ export class FakeServiceInvoicesRepository {
   /** The confirmed note `findDuplicate` answers with, whatever is asked. */
   duplicate: DuplicateNote | null = null;
   readonly duplicateQueries: DuplicateCriteria[] = [];
+  /** What `findConfirmedForReport` answers with, and how it was asked. */
+  reportNotes: ReportNote[] = [];
+  readonly reportQueries: {
+    userId: string;
+    filters: ReportFilters;
+    skip: number;
+    take: number;
+  }[] = [];
 
   findByIdAndUser(id: string, userId: string) {
     const { invoice } = this;
@@ -68,6 +78,16 @@ export class FakeServiceInvoicesRepository {
         ? invoice
         : null,
     );
+  }
+
+  findConfirmedForReport(
+    userId: string,
+    filters: ReportFilters,
+    skip: number,
+    take: number,
+  ) {
+    this.reportQueries.push({ userId, filters, skip, take });
+    return Promise.resolve(this.reportNotes);
   }
 
   findIdByFileHash(_userId: string, fileHash: string) {

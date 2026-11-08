@@ -21,6 +21,26 @@ export type ServiceInvoiceFilters = {
   issuedTo?: Date;
 };
 
+/** A confirmed note with what the Reports list shows of its taker. */
+export type ReportNote = Pick<
+  ServiceInvoice,
+  'id' | 'issueDate' | 'fileUrl'
+> & {
+  client: { name: string } | null;
+};
+
+export type ReportFilters = {
+  search?: string;
+  issuedFrom?: Date;
+  issuedTo?: Date;
+};
+
+/**
+ * Prisma passes `contains` through to LIKE as is, so a typed `%` or `_`
+ * would match anything. Postgres reads `\` as the escape character.
+ */
+const escapeLike = (text: string): string => text.replace(/[\\%_]/g, '\\$&');
+
 /** The module's only point of contact with the database (ADR-01). */
 @Injectable()
 export class ServiceInvoicesRepository {
@@ -53,6 +73,48 @@ export class ServiceInvoicesRepository {
           }),
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+    );
+  }
+
+  /**
+   * Confirmed notes only: they are the ones with an issue date and a taker the
+   * user picked. Latest issue date first; the rest keeps the order stable
+   * between pages.
+   */
+  findConfirmedForReport(
+    userId: string,
+    filters: ReportFilters,
+    skip: number,
+    take: number,
+  ): Promise<ReportNote[]> {
+    return runQuery(() =>
+      this.prisma.serviceInvoice.findMany({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          ...((filters.issuedFrom || filters.issuedTo) && {
+            issueDate: { gte: filters.issuedFrom, lte: filters.issuedTo },
+          }),
+          ...(filters.search && {
+            client: {
+              name: {
+                contains: escapeLike(filters.search),
+                mode: 'insensitive',
+              },
+            },
+          }),
+        },
+        select: {
+          id: true,
+          issueDate: true,
+          fileUrl: true,
+          client: { select: { name: true } },
+        },
+        orderBy: [{ issueDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         skip,
         take,
       }),

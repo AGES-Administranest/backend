@@ -129,6 +129,12 @@ export const ERROR_CODES = [
   // field, not an error.
   'TRANSPORT_COST_NOT_FOUND',
 
+  // pricing (hourly rate history, US22)
+  // The month has no stored calculation: it was never calculated, it is a
+  // future month, or it belongs to another account. The app shows the month
+  // as empty in the history, not as an error.
+  'HOURLY_RATE_SNAPSHOT_NOT_FOUND',
+
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
   'INVOICE_NOT_EDITABLE',

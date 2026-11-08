@@ -3,6 +3,20 @@
 Supplement to the doc-comments (`///`) in `prisma/schema.prisma`. This is where
 conventions that span more than one column or table live.
 
+## Identity — `user`
+
+Profile fields shown on the Profile tab (US23). All of them are nullable: a
+`NULL` is a field never filled in, and the app shows it as "Not informed".
+They are read through `GET /users/me` — see [`profile.md`](profile.md).
+
+| Column | Rule |
+|---|---|
+| `birth_date` | The age is calculated by the app from it; it is never stored. |
+| `sex` | `sex_enum`: `FEMALE`, `MALE`, `OTHER`, `NOT_INFORMED`. `NOT_INFORMED` is the user's explicit choice, different from `NULL`. |
+| `city` | Free text, up to 120 characters. |
+| `state` | Two-letter UF code (`RS`, `SP`…). |
+| `crmv` | Required to issue reports with professional identification (US28); while it is `NULL` the app flags it on the profile. |
+
 ## Stock — `stock_movement`
 
 `stock_movement` is the stock ledger: **append-only**, one row per event.
@@ -217,3 +231,62 @@ initial state, asking for the goals before any hour value.
 Every column is nullable so that either story can create the row first. A CHECK
 on a `NULL` value passes, so each range rule only applies once the column is
 filled in.
+
+## Pricing — `hourly_rate_snapshot`
+
+The hour value of each month as it was calculated (US22). `GET
+/pricing/hourly-rate` (US20) recalculates any month on request, but always with
+the **current** `pricing_settings`, so on its own a change to the income goal or
+the weekly hours would rewrite every past month. The history reads these rows
+instead.
+
+One row per user and month (unique `user_id`, `year`, `month`), written by a
+single statement on that key: `ON CONFLICT DO UPDATE` for the current month,
+`ON CONFLICT DO NOTHING` for a past one. `calculated_at` is when the stored calculation was made, the
+same instant its response returned. Every column is `NOT NULL`: a month is only
+calculated once the three US19 goals are configured.
+
+### When a row is written
+
+| Month (UTC) | Written by | Rule |
+|---|---|---|
+| Current | `GET /pricing/hourly-rate`, `PUT /pricing-settings` | Replaced on every calculation. |
+| Past | `GET /pricing/hourly-rate` | Inserted only if the month has no row yet; an existing row is never overwritten. A past month first calculated late is recorded with the settings in force at that moment. |
+| Future | — | Never written. |
+
+The reasons and the routes that read the rows are in
+[`hourly-rate.md`](hourly-rate.md#history). Rows are read only by owner (ADR-11):
+another account's month answers the same `404 HOURLY_RATE_SNAPSHOT_NOT_FOUND`
+as a month never calculated. There is no `deleted_at`: no route deletes a
+snapshot, and the foreign key to `user` is `ON DELETE RESTRICT`, so cleanup
+goes snapshots → users.
+
+| Column | Rule (CHECK) |
+|---|---|
+| `year`, `month` | `2000`–`2100` and `1`–`12`, the range `GET /pricing/hourly-rate` accepts. |
+| `hourly_rate` | `>= 0`. `total ÷ productive hours`, rounded to cents, as the response returned it. |
+| `fixed_costs`, `variable_costs`, `owner_draw`, `safety_margin` | `>= 0`. The four parts (`FIXED_COSTS`, `VARIABLE_COSTS`, `OWNER_DRAW`, `SAFETY_MARGIN`) in R$, already rounded to cents. `safety_margin` is the amount, not the percentage. |
+| `monthly_income_goal` | `> 0`. Copy of `pricing_settings.monthly_income_goal` at calculation time. |
+| `weekly_hours` | `> 0` and `<= 168`. Copy of `pricing_settings.weekly_hours`. |
+| `safety_margin_pct` | Between `0` and `100`, inclusive. Copy of `pricing_settings.safety_margin_pct`. |
+
+The goal CHECKs repeat those of `pricing_settings`, so a copied goal can never
+break a rule the original had to follow.
+
+### What is not stored
+
+Only the four parts, the hour value and the goals are stored. The total, the
+productive hours, the minimum hourly rate and the percentages are derived from
+the row by `composeHourlyRate` in `src/modules/pricing/domain/hourly-rate.ts`,
+the same code behind `GET /pricing/hourly-rate`, so a period opened from the
+history shows exactly what was calculated:
+
+- `total` = the sum of the four parts;
+- productive hours = `weekly_hours × 52 ÷ 12`;
+- `minimumHourlyRate` = (`fixed_costs` + `variable_costs` + `owner_draw`) ÷
+  productive hours;
+- `percentOfTotal` = each part's share of the total (largest remainder method).
+
+`owner_draw` and `monthly_income_goal` hold the same value today: the owner's
+draw part is the income goal. They are kept apart because one is a part of the
+result and the other a parameter, and the formula may stop equating them.
