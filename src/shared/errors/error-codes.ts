@@ -45,7 +45,9 @@ export const ERROR_CODES = [
   'ITEM_LOT_UNIT_COST_REQUIRED',
 
   // supplier
+  // Legacy code retained for clients; supplier names are no longer unique.
   'DUPLICATED_SUPPLIER_NAME',
+  'DUPLICATED_SUPPLIER_TAX_ID',
 
   // client
   'CLIENT_NOT_FOUND',

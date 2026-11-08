@@ -21,6 +21,9 @@ export class SupplierEntity {
   @ApiProperty({ type: String, nullable: true })
   phone!: string | null;
 
+  @ApiProperty({ type: String, nullable: true })
+  notes!: string | null;
+
   active!: boolean;
 
   createdAt!: Date;

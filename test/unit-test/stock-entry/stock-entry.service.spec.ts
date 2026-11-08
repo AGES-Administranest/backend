@@ -59,6 +59,7 @@ describe('StockEntryService', () => {
       repository as unknown as StockEntryRepository,
       new DocumentUploads(storage),
       reading,
+      { findOne: jest.fn() } as unknown as SupplierService,
     );
   });
 

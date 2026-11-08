@@ -12,6 +12,13 @@ const orderDateErrors = async (orderDate: unknown) => {
   return errors.filter(error => error.property === 'orderDate');
 };
 
+const supplierIdErrors = async (supplierId: unknown) => {
+  const errors = await validate(
+    plainToInstance(UpdateDraftHeaderDto, { supplierId }),
+  );
+  return errors.filter(error => error.property === 'supplierId');
+};
+
 const expirationDateErrors = async (expirationDate: unknown) => {
   const [linesError] = await validate(
     plainToInstance(ReplaceDraftLinesDto, {
@@ -51,6 +58,19 @@ describe('draft dates', () => {
       ['text that is not a date', 'tomorrow'],
     ])('refuses %s', async (_label, value) => {
       expect(await errorsFor(value)).not.toHaveLength(0);
+    });
+  });
+
+  describe('supplierId', () => {
+    it('accepts a UUID and null to clear the supplier', async () => {
+      expect(
+        await supplierIdErrors('5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a'),
+      ).toHaveLength(0);
+      expect(await supplierIdErrors(null)).toHaveLength(0);
+    });
+
+    it('refuses a value that is not a UUID', async () => {
+      expect(await supplierIdErrors('not-a-uuid')).not.toHaveLength(0);
     });
   });
 

@@ -21,6 +21,7 @@ import {
   ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
+  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
@@ -82,6 +83,10 @@ export class StockEntryController {
   @ApiBadRequestResponse({ description: 'Invalid payload' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({ description: 'Missing, or another account (ADR-11)' })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'The supplier does not exist, is inactive, or belongs to another account',
+  })
   @ApiConflictResponse({ description: 'The entry is no longer a draft' })
   updateHeader(
     @CurrentUser() user: AuthenticatedUser,

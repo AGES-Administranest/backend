@@ -455,6 +455,7 @@ model Supplier {
   contact   String?
   email     String?
   phone     String?
+  notes     String?
   active    Boolean    @default(true)
   createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -467,6 +468,7 @@ model Supplier {
   purchaseInvoices PurchaseInvoice[]
   stockMovements   StockMovement[]
 
+  @@unique([userId, taxId], where: raw("deleted_at IS NULL AND tax_id IS NOT NULL"))
   @@index([userId, active])
   @@map("supplier")
 }

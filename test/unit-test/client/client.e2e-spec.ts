@@ -382,14 +382,14 @@ describe('Client (e2e)', () => {
       await createClient(owner, {
         type: 'CLINIC',
         name: 'Primeira com o CNPJ e2e',
-        taxId: '22333444000192',
+        taxId: '22333444000181',
         taxIdType: 'CNPJ',
       });
 
       const res = await post(owner, {
         type: 'CLINIC',
         name: 'Segunda com o CNPJ e2e',
-        taxId: '22333444000192',
+        taxId: '22333444000181',
         taxIdType: 'CNPJ',
       }).expect(409);
 
@@ -400,14 +400,14 @@ describe('Client (e2e)', () => {
       await createClient(owner, {
         type: 'CLINIC',
         name: 'Clinica compartilhada e2e',
-        taxId: '33444555000103',
+        taxId: '33444555000181',
         taxIdType: 'CNPJ',
       });
 
       await createClient(other, {
         type: 'CLINIC',
         name: 'Clinica compartilhada e2e',
-        taxId: '33444555000103',
+        taxId: '33444555000181',
         taxIdType: 'CNPJ',
       });
     });
@@ -416,7 +416,7 @@ describe('Client (e2e)', () => {
       const first = await createClient(owner, {
         type: 'CLINIC',
         name: 'CNPJ liberado e2e',
-        taxId: '44555666000114',
+        taxId: '44555666000181',
         taxIdType: 'CNPJ',
       });
       await request(server())
@@ -427,7 +427,7 @@ describe('Client (e2e)', () => {
       await createClient(owner, {
         type: 'CLINIC',
         name: 'CNPJ recadastrado e2e',
-        taxId: '44555666000114',
+        taxId: '44555666000181',
         taxIdType: 'CNPJ',
       });
     });
@@ -457,12 +457,12 @@ describe('Client (e2e)', () => {
       const created = await createClient(owner, {
         type: 'CLINIC',
         name: 'Mantem o CNPJ e2e',
-        taxId: '55666777000125',
+        taxId: '55666777000181',
         taxIdType: 'CNPJ',
       });
 
       await patch(created.id, {
-        taxId: '55666777000125',
+        taxId: '55666777000181',
         taxIdType: 'CNPJ',
         city: 'Canoas',
       }).expect(200);
@@ -472,7 +472,7 @@ describe('Client (e2e)', () => {
       const created = await createClient(owner, {
         type: 'CLINIC',
         name: 'Remove o CNPJ e2e',
-        taxId: '66777888000136',
+        taxId: '66777888000181',
         taxIdType: 'CNPJ',
       });
 
@@ -487,14 +487,14 @@ describe('Client (e2e)', () => {
       const created = await createClient(owner, {
         type: 'CLINIC',
         name: 'CNPJ pela metade e2e',
-        taxId: '77888999000147',
+        taxId: '77888999000181',
         taxIdType: 'CNPJ',
       });
 
       const res = await patch(created.id, { taxId: null }).expect(400);
 
       expect(errorOf(res).details?.fields).toEqual([TOGETHER]);
-      expect((await stored(created.id)).taxId).toBe('77888999000147');
+      expect((await stored(created.id)).taxId).toBe('77888999000181');
     });
   });
 });

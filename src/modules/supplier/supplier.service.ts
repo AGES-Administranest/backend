@@ -3,9 +3,14 @@ import { Prisma, Supplier } from '@prisma/client';
 
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { QuerySupplierDto } from './dto/query-supplier.dto';
+import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupplierEntity } from './entities/supplier.entity';
 import { SupplierRepository } from './supplier.repository';
-import { InvalidReferenceError } from '../../infra/prisma/prisma-errors';
+import {
+  InvalidReferenceError,
+  RecordNotFoundError,
+  UniqueConstraintError,
+} from '../../infra/prisma/prisma-errors';
 import { DomainError } from '../../shared/errors/domain-error';
 
 function escapeLike(term: string): string {
@@ -41,6 +46,16 @@ export class SupplierService {
     return suppliers.map(supplier => this.sanitize(supplier));
   }
 
+  async findOne(id: string, userId: string): Promise<SupplierEntity> {
+    const supplier = await this.supplierRepository.findById(id, userId);
+    if (!supplier) throw this.notFound(id);
+    return this.sanitize(supplier);
+  }
+
+  isActiveAndOwned(userId: string, supplierId: string): Promise<boolean> {
+    return this.supplierRepository.isActiveAndOwned(userId, supplierId);
+  }
+
   /**
    * The supplier a document names by its CNPJ. Compared without the mask: a
    * tax id typed before the digits-only rule may still carry one.
@@ -65,20 +80,56 @@ export class SupplierService {
     userId: string,
     dto: CreateSupplierDto,
   ): Promise<SupplierEntity> {
-    const existing = await this.supplierRepository.findByName(userId, dto.name);
-    if (existing) throw this.duplicatedName();
-
     try {
       const supplier = await this.supplierRepository.create({
         ...dto,
+        ...(dto.taxId ? { taxId: unmask(dto.taxId) } : {}),
         userId,
       });
       return this.sanitize(supplier);
     } catch (error) {
+      if (
+        error instanceof UniqueConstraintError &&
+        error.fields.some(field => field.includes('tax_id'))
+      ) {
+        throw this.duplicatedTaxId();
+      }
       if (error instanceof InvalidReferenceError)
         throw this.invalidReference(error.field);
       throw error;
     }
+  }
+
+  async update(
+    id: string,
+    userId: string,
+    dto: UpdateSupplierDto,
+  ): Promise<SupplierEntity> {
+    try {
+      const supplier = await this.supplierRepository.update(id, userId, {
+        ...dto,
+        ...(dto.taxId ? { taxId: unmask(dto.taxId) } : {}),
+      });
+      if (!supplier) throw this.notFound(id);
+      return this.sanitize(supplier);
+    } catch (error) {
+      if (error instanceof RecordNotFoundError) throw this.notFound(id);
+      if (
+        error instanceof UniqueConstraintError &&
+        error.fields.some(field => field.includes('tax_id'))
+      ) {
+        throw this.duplicatedTaxId();
+      }
+      if (error instanceof InvalidReferenceError)
+        throw this.invalidReference(error.field);
+      throw error;
+    }
+  }
+
+  async remove(id: string, userId: string): Promise<SupplierEntity> {
+    const supplier = await this.supplierRepository.deactivate(id, userId);
+    if (!supplier) throw this.notFound(id);
+    return this.sanitize(supplier);
   }
 
   private sanitize(supplier: Supplier): SupplierEntity {
@@ -90,17 +141,27 @@ export class SupplierService {
       contact: supplier.contact,
       email: supplier.email,
       phone: supplier.phone,
+      notes: supplier.notes,
       active: supplier.active,
       createdAt: supplier.createdAt,
       updatedAt: supplier.updatedAt,
     };
   }
 
-  private duplicatedName(): DomainError {
+  private duplicatedTaxId(): DomainError {
     return new DomainError(
       'CONFLICT',
-      'DUPLICATED_SUPPLIER_NAME',
-      'A supplier with this name already exists',
+      'DUPLICATED_SUPPLIER_TAX_ID',
+      'A supplier with this tax id already exists',
+    );
+  }
+
+  private notFound(id: string): DomainError {
+    return new DomainError(
+      'NOT_FOUND',
+      'SUPPLIER_NOT_FOUND',
+      `Supplier ${id} not found`,
+      { id },
     );
   }
 
