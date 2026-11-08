@@ -22,7 +22,7 @@ describe.each([
   it('accepts a valid CNPJ and normalizes its mask', async () => {
     const body = {
       name: 'Test supplier',
-      taxId: '12.345.678/0001-90',
+      taxId: '22.333.444/0001-81',
       taxIdType: 'CNPJ',
     };
 
@@ -30,12 +30,12 @@ describe.each([
     expect(
       plainToInstance<object, Record<string, unknown>>(dto, body),
     ).toMatchObject({
-      taxId: '12345678000190',
+      taxId: '22333444000181',
     });
   });
 
   it('requires the tax id and its type together', async () => {
-    expect(await messagesFor(dto, { taxId: '12345678000190' })).toContain(
+    expect(await messagesFor(dto, { taxId: '22333444000181' })).toContain(
       'taxId and taxIdType must be sent together: both set, or both null to remove the tax id',
     );
   });

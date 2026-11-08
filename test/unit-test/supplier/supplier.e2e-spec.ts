@@ -110,7 +110,7 @@ describe('Supplier (e2e)', () => {
         .set('Authorization', bearer(owner))
         .send({
           name: 'First CNPJ supplier e2e',
-          taxId: '22.333.444/0001-50',
+          taxId: '22.333.444/0001-81',
           taxIdType: 'CNPJ',
         })
         .expect(201);
@@ -120,7 +120,7 @@ describe('Supplier (e2e)', () => {
         .set('Authorization', bearer(owner))
         .send({
           name: 'Second CNPJ supplier e2e',
-          taxId: '22333444000150',
+          taxId: '22333444000181',
           taxIdType: 'CNPJ',
         })
         .expect(409);
@@ -130,7 +130,7 @@ describe('Supplier (e2e)', () => {
         .set('Authorization', bearer(other))
         .send({
           name: 'Other user CNPJ supplier e2e',
-          taxId: '22333444000150',
+          taxId: '22333444000181',
           taxIdType: 'CNPJ',
         })
         .expect(201);
