@@ -58,7 +58,7 @@ export class CreateSupplierDto {
   @MaxLength(20)
   phone?: string;
 
-  @ApiPropertyOptional({ example: 'Preferir pedidos até o dia 10.' })
+  @ApiPropertyOptional({ example: 'Please place orders by the 10th.' })
   @IsOptional()
   @IsString()
   notes?: string;
