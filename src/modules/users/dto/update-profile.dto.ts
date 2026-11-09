@@ -52,7 +52,13 @@ function IsPlausibleBirthDate(): PropertyDecorator {
 }
 
 export class UpdateProfileDto {
-  @ApiPropertyOptional({ example: 'Ana Souza', minLength: 2, maxLength: 120 })
+  @ApiPropertyOptional({
+    example: 'Ana Souza',
+    minLength: 2,
+    maxLength: 120,
+    description:
+      'Full name, trimmed before validation. Cannot be null: the name is required',
+  })
   @Transform(trim)
   @ValidateIf((_dto, value) => value !== undefined)
   @IsString()
@@ -64,7 +70,10 @@ export class UpdateProfileDto {
     type: String,
     nullable: true,
     example: 'RS-12345',
-    description: 'UF that issued it, a hyphen and up to 6 digits',
+    pattern: '^[A-Z]{2}-\\d{1,6}$',
+    description:
+      'UF that issued it, a hyphen and up to 6 digits. Trimmed and ' +
+      'upper-cased, so "rs-12345" is stored as "RS-12345". Null clears it',
   })
   @Transform(trimUpper)
   @IsOptional()
@@ -79,13 +88,23 @@ export class UpdateProfileDto {
     format: 'date',
     nullable: true,
     example: '1990-04-15',
+    description:
+      'Written as YYYY-MM-DD, from 1900-01-01 on and at least ' +
+      `${MIN_PROFILE_AGE} years ago. GET returns it as a UTC date-time ` +
+      '(1990-04-15T00:00:00.000Z). Null clears it',
   })
   @IsOptional()
   @IsIsoDate()
   @IsPlausibleBirthDate()
   birthDate?: string | null;
 
-  @ApiPropertyOptional({ enum: Sex, nullable: true })
+  @ApiPropertyOptional({
+    enum: Sex,
+    nullable: true,
+    example: Sex.FEMALE,
+    description:
+      "NOT_INFORMED is the user's explicit choice; null clears the field",
+  })
   @IsOptional()
   @IsEnum(Sex)
   sex?: Sex | null;
@@ -95,6 +114,7 @@ export class UpdateProfileDto {
     nullable: true,
     example: 'Porto Alegre',
     maxLength: 120,
+    description: 'Trimmed; blank is refused. Null clears it',
   })
   @Transform(trim)
   @IsOptional()
@@ -107,6 +127,7 @@ export class UpdateProfileDto {
     enum: BRAZILIAN_STATES,
     nullable: true,
     example: 'RS',
+    description: 'Two-letter UF code, trimmed and upper-cased. Null clears it',
   })
   @Transform(trimUpper)
   @IsOptional()
