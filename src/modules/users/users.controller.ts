@@ -10,6 +10,7 @@ import {
   Post,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiNoContentResponse,
@@ -22,6 +23,7 @@ import {
 } from '@nestjs/swagger';
 
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ProfileEntity } from './entities/profile.entity';
 import { UserEntity } from './entities/user.entity';
@@ -57,6 +59,26 @@ export class UsersController {
   })
   findMe(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findProfile(user.id);
+  }
+
+  @Patch('me')
+  @ApiOperation({
+    summary: "Updates the signed-in user's profile",
+    description:
+      'Only the fields sent change; null clears a field. E-mail is not ' +
+      'editable here. Idempotent: the offline queue can resend the same body.',
+  })
+  @ApiOkResponse({ type: ProfileEntity })
+  @ApiBadRequestResponse({ description: 'Invalid or non-editable field' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiNotFoundResponse({
+    description: 'Account deleted while its id was still cached by the guard',
+  })
+  updateMe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.usersService.updateProfile(user.id, dto);
   }
 
   @Get(':id')
