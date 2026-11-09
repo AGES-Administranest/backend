@@ -10,7 +10,10 @@ import {
 } from 'class-validator';
 
 import { IsIsoDate } from '../../../shared/dates/iso-date';
-import { MAX_SERVICE_INVOICE_AMOUNT } from '../service-invoices.constants';
+import {
+  MAX_LOCATION_LENGTH,
+  MAX_SERVICE_INVOICE_AMOUNT,
+} from '../service-invoices.constants';
 
 /** An absent field is left as it is; `null` clears it. */
 export class UpdateServiceInvoiceDto {
@@ -44,4 +47,10 @@ export class UpdateServiceInvoiceDto {
   @IsOptional()
   @IsUUID()
   clientId?: string | null;
+
+  @ApiPropertyOptional({ example: 'Campinas, SP', nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_LOCATION_LENGTH)
+  location?: string | null;
 }

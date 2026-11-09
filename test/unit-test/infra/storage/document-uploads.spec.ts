@@ -89,7 +89,7 @@ describe('DocumentUploads', () => {
   });
 
   it('signs a download under the original file name', async () => {
-    await uploads.createDownloadUrl(KEY, 'nota-123.pdf');
+    await uploads.createDownloadUrl(KEY, { fileName: 'nota-123.pdf' });
 
     expect(createPresignedGet).toHaveBeenCalledWith({
       key: KEY,

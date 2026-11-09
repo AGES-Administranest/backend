@@ -641,6 +641,9 @@ model ServiceInvoice {
   /// gross amount of the services, before deductions and withheld taxes
   amount      Decimal?  @db.Decimal(14, 2)
   description String?
+  /// where the service was rendered, shown in the list ("São Paulo, SP");
+  /// filled from the taker's city and state when the note is confirmed
+  location    String?   @db.VarChar(120)
   /// CNPJ or CPF of the taker as read from the note, unmasked; used to find
   /// the client, and to pre-fill a new one when none matches
   takerTaxId  String?   @map("taker_tax_id") @db.VarChar(14)

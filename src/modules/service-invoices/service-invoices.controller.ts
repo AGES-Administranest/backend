@@ -26,10 +26,13 @@ import {
 import { ConfirmServiceInvoiceDto } from './dto/confirm-service-invoice.dto';
 import { ServiceInvoiceConfirmationDto } from './dto/confirmation-response.dto';
 import { CreateServiceInvoiceUploadUrlDto } from './dto/create-upload-url.dto';
-import { ServiceInvoiceDownloadUrlDto } from './dto/download-url-response.dto';
+import {
+  ServiceInvoiceDownloadDto,
+  ServiceInvoiceDownloadUrlDto,
+} from './dto/download-url-response.dto';
 import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
-import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
+import { ServiceInvoicePageDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
 import { ServiceInvoiceUploadConfirmationDto } from './dto/upload-confirmation-response.dto';
 import { ServiceInvoiceUploadUrlResponseDto } from './dto/upload-url-response.dto';
@@ -51,23 +54,27 @@ export class ServiceInvoicesController {
 
   @Get()
   @ApiOperation({
-    summary: 'Lists the NFSe, most recently created first',
-    description: 'Discarded drafts only come back when asked for by status',
+    summary: 'Lists the confirmed NFSe, newest issue date first',
+    description:
+      'Drafts never come back. The search matches the taker name, the number ' +
+      'or the issue date (DD/MM/YYYY, in part), without accents or case.',
   })
-  @ApiOkResponse({ type: [ServiceInvoiceSummaryDto] })
-  @ApiBadRequestResponse({ description: 'Invalid filter' })
+  @ApiOkResponse({ type: ServiceInvoicePageDto })
+  @ApiBadRequestResponse({ description: 'Invalid or missing filter' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryServiceInvoiceDto,
-  ): Promise<ServiceInvoiceSummaryDto[]> {
+  ): Promise<ServiceInvoicePageDto> {
     return this.draftService.list(user.id, query);
   }
 
   @Get(':id')
   @ApiOperation({
     summary: 'Reads an NFSe back for review',
-    description: 'The reading and the review as last saved',
+    description:
+      'The reading and the review as last saved. A confirmed note also ' +
+      'carries `invoice`, with its values as they stand',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: ServiceInvoiceDetailDto })
@@ -83,19 +90,22 @@ export class ServiceInvoicesController {
   }
 
   @Patch(':id')
-  @HttpCode(204)
   @ApiOperation({
     summary: 'Saves the review of a draft, or edits a confirmed note',
     description:
-      'An absent field is left as it is; null clears it. On a confirmed note ' +
-      'the income entry follows the amount, the issue date and the due date, ' +
-      'and the issue date, the amount and the client cannot be cleared.',
+      'On a draft an absent field is left as it is and null clears it. A ' +
+      'confirmed note needs the issue date, the amount and the client every ' +
+      'time (the number is ignored); its income entry follows them in the ' +
+      'same transaction, and the due date follows the client.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiNoContentResponse({ description: 'Saved' })
+  @ApiOkResponse({
+    type: ServiceInvoiceDetailDto,
+    description: 'The note as saved, in the shape of the read',
+  })
   @ApiBadRequestResponse({
     description:
-      'Invalid payload, or a required field cleared on a confirmed note (SERVICE_INVOICE_NOT_READY)',
+      'Invalid payload, or a field a confirmed note needs is missing (SERVICE_INVOICE_NOT_READY)',
   })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
   @ApiNotFoundResponse({
@@ -109,7 +119,7 @@ export class ServiceInvoicesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateServiceInvoiceDto,
-  ): Promise<void> {
+  ): Promise<ServiceInvoiceDetailDto> {
     return this.draftService.update(user.id, id, dto);
   }
 
@@ -119,8 +129,8 @@ export class ServiceInvoicesController {
     summary: 'Discards a draft, or deletes a confirmed note',
     description:
       'A draft stays on record as CANCELLED, with its document. A confirmed ' +
-      'note is deleted with its income entry. Either way the same file can ' +
-      'start a new note.',
+      'note is deleted with its income entry and its PDF. Either way the same ' +
+      'file can start a new note. Deleting again answers 404.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Discarded or deleted' })
@@ -173,6 +183,29 @@ export class ServiceInvoicesController {
     @Body() dto: ConfirmServiceInvoiceDto,
   ): Promise<ServiceInvoiceConfirmationDto> {
     return this.confirmationService.confirm(user.id, id, dto);
+  }
+
+  @Get(':id/download-url')
+  @ApiOperation({
+    summary: 'Issues a short-lived URL to download the PDF of a confirmed note',
+    description:
+      'The URL answers as an attachment named `filename`, as application/pdf.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ServiceInvoiceDownloadDto })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiNotFoundResponse({
+    description:
+      'Missing, another account, or without a file (SERVICE_INVOICE_FILE_NOT_FOUND)',
+  })
+  @ApiConflictResponse({
+    description: 'Still a draft (SERVICE_INVOICE_NOT_CONFIRMED)',
+  })
+  downloadFile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ServiceInvoiceDownloadDto> {
+    return this.draftService.downloadFile(user.id, id);
   }
 
   @Get(':id/file')

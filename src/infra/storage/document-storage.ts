@@ -25,6 +25,9 @@ export abstract class DocumentStorage {
   abstract createPresignedGet(
     request: PresignedGetRequest,
   ): Promise<PresignedGet>;
+
+  /** Idempotent: nothing at the key is not an error, so a retry is safe. */
+  abstract deleteDocument(key: string): Promise<void>;
 }
 
 export type PresignedPostRequest = {
@@ -46,6 +49,8 @@ export type PresignedGetRequest = {
   expiresInMs: number;
   /** The key has no extension, so without this the file saves as `original`. */
   fileName?: string;
+  /** Pinned in the signature, so the browser does not sniff the type. */
+  contentType?: string;
 };
 
 export type PresignedGet = {

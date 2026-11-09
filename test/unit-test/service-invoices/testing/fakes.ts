@@ -1,6 +1,7 @@
 import { Prisma, ServiceInvoice } from '@prisma/client';
 
 import { UniqueConstraintError } from '../../../../src/infra/prisma/prisma-errors';
+import { DocumentUploads } from '../../../../src/infra/storage';
 import { ClientEntity, ClientService } from '../../../../src/modules/client';
 import {
   FinancialEntryService,
@@ -10,12 +11,14 @@ import { DuplicateCriteria } from '../../../../src/modules/service-invoices/doma
 import { ServiceInvoiceConfirmationService } from '../../../../src/modules/service-invoices/service-invoice-confirmation.service';
 import { ServiceInvoiceReviewService } from '../../../../src/modules/service-invoices/service-invoice-review.service';
 import {
+  ClientSummary,
   DuplicateNote,
   IncomeWrite,
   ServiceInvoicesRepository,
 } from '../../../../src/modules/service-invoices/service-invoices.repository';
+import { FakeStorage } from '../../stock-entry/testing/fakes';
 
-export { FakeStorage } from '../../stock-entry/testing/fakes';
+export { FakeStorage };
 
 export const USER_ID = '0b9f6c1e-7d2a-4f3b-8c5d-1a2b3c4d5e6f';
 export const INVOICE_ID = '5f3b7d0c-2a1e-4c7b-9a11-1f2e3d4c5b6a';
@@ -32,6 +35,7 @@ export function draftNote(
     issueDate: null,
     amount: null,
     description: null,
+    location: null,
     takerTaxId: null,
     status: 'DRAFT',
     extractionStatus: 'PENDING',
@@ -68,6 +72,13 @@ export class FakeServiceInvoicesRepository {
         ? invoice
         : null,
     );
+  }
+
+  /** The taker as the detail shows it, whatever the id. */
+  clientSummary: ClientSummary | null = null;
+
+  findClientSummary() {
+    return Promise.resolve(this.clientSummary);
   }
 
   findIdByFileHash(_userId: string, fileHash: string) {
@@ -128,9 +139,11 @@ export class FakeServiceInvoicesRepository {
   async confirmDraft(
     id: string,
     userId: string,
+    changes: Prisma.ServiceInvoiceUncheckedUpdateManyInput,
     recordIncome: IncomeWrite<string>,
   ): Promise<string | null> {
     const confirmed = await this.updateInStatus(id, userId, 'DRAFT', {
+      ...changes,
       status: 'CONFIRMED',
       reviewedAt: new Date(),
     });
@@ -312,12 +325,14 @@ export function confirmationService(
   repository: FakeServiceInvoicesRepository,
   clients: FakeClients,
   financialEntries: FakeFinancialEntries,
+  storage: FakeStorage = new FakeStorage(),
 ): ServiceInvoiceConfirmationService {
   return new ServiceInvoiceConfirmationService(
     repository as unknown as ServiceInvoicesRepository,
     reviewService(repository, clients),
     clients.service,
     financialEntries.service,
+    new DocumentUploads(storage),
   );
 }
 

@@ -75,14 +75,6 @@ describe('service-invoices (e2e)', () => {
     return id;
   };
 
-  const listIds = async (query = ''): Promise<string[]> => {
-    const response = await request(http)
-      .get(`/service-invoices${query}`)
-      .set('Authorization', bearer(ana))
-      .expect(200);
-    return (response.body as { id: string }[]).map(note => note.id);
-  };
-
   const saveReview = (id: string, review: Record<string, unknown>) =>
     request(http)
       .patch(`/service-invoices/${id}`)
@@ -168,7 +160,7 @@ describe('service-invoices (e2e)', () => {
       amount: 1500.5,
       number: '1287',
       clientId: client.id,
-    }).expect(204);
+    }).expect(200);
 
     const response = await request(http)
       .get(`/service-invoices/${id}`)
@@ -203,31 +195,6 @@ describe('service-invoices (e2e)', () => {
     const id = await newDraft();
 
     await saveReview(id, { amount: 0 }).expect(400);
-  });
-
-  it('lists the notes newest first, hiding discarded drafts unless asked', async () => {
-    const older = await newDraft();
-    const newer = await newDraft();
-    const discarded = await newDraft();
-    await discard(discarded).expect(204);
-
-    expect(await listIds()).toEqual([newer, older]);
-    expect(await listIds('?status=CANCELLED')).toEqual([discarded]);
-    expect(await listIds('?limit=1&page=2')).toEqual([older]);
-  });
-
-  it('filters the list by issue date, both ends included', async () => {
-    const [september, october, november] = [
-      await newDraft(),
-      await newDraft(),
-      await newDraft(),
-    ];
-    await saveReview(september, { issueDate: '2026-09-30' }).expect(204);
-    await saveReview(october, { issueDate: '2026-10-01' }).expect(204);
-    await saveReview(november, { issueDate: '2026-11-01' }).expect(204);
-
-    expect(await listIds('?from=2026-10-01&to=2026-10-31')).toEqual([october]);
-    expect(await listIds('?to=2026-09-30')).toEqual([september]);
   });
 
   describe('review', () => {
@@ -316,7 +283,7 @@ describe('service-invoices (e2e)', () => {
     it('stops suggesting once the user picked a client', async () => {
       const client = await createClient('Clínica Exemplo', TAKER_TAX_ID);
       const id = await readDraft();
-      await saveReview(id, { clientId: client.id }).expect(204);
+      await saveReview(id, { clientId: client.id }).expect(200);
 
       const review = await readReview(id);
 
@@ -402,7 +369,7 @@ describe('service-invoices (e2e)', () => {
         amount: 1500,
         number: '1287',
         clientId: client.id,
-      }).expect(204);
+      }).expect(200);
       return id;
     };
 
@@ -454,7 +421,7 @@ describe('service-invoices (e2e)', () => {
 
     it('lists what is missing before confirming', async () => {
       const id = await newDraft();
-      await saveReview(id, { amount: 1500 }).expect(204);
+      await saveReview(id, { amount: 1500 }).expect(200);
 
       const response = await confirm(id).expect(400);
 
@@ -500,10 +467,15 @@ describe('service-invoices (e2e)', () => {
     it('takes the entry along when a confirmed note is edited', async () => {
       const id = await reviewedDraft();
       await confirm(id).expect(200);
+      const { clientId } = await prisma.serviceInvoice.findUniqueOrThrow({
+        where: { id },
+      });
 
-      await saveReview(id, { amount: 1450, issueDate: '2026-10-20' }).expect(
-        204,
-      );
+      await saveReview(id, {
+        amount: 1450,
+        issueDate: '2026-10-20',
+        clientId,
+      }).expect(200);
 
       await expect(entryOf(id)).resolves.toMatchObject({
         amount: new Prisma.Decimal(1450),
@@ -575,5 +547,598 @@ describe('service-invoices (e2e)', () => {
     expect(body(response).url).toContain(
       `users/${userId}/service-invoices/${id}/original`,
     );
+  });
+
+  describe('consulting, correcting and deleting a confirmed note (US02)', () => {
+    type Page = {
+      items: {
+        id: string;
+        number: string | null;
+        issueDate: string;
+        amount: number;
+        client: { id: string; name: string };
+        location: string | null;
+        hasFile: boolean;
+      }[];
+      total: number;
+    };
+
+    const makeClient = (
+      name: string,
+      fields: Prisma.ClientUncheckedCreateInput | object = {},
+    ) =>
+      prisma.client.create({
+        data: { userId, type: 'CLINIC', name, ...fields },
+      });
+
+    /** A confirmed note, with the income entry the confirmation records. */
+    const confirmedNote = async (
+      fields: {
+        issueDate?: string;
+        number?: string | null;
+        amount?: number;
+        clientId?: string;
+        uploaded?: boolean;
+      } = {},
+    ): Promise<string> => {
+      const clientId =
+        fields.clientId ?? (await makeClient('Clínica Exemplo')).id;
+      const id = await newDraft();
+      await saveReview(id, {
+        issueDate: fields.issueDate ?? '2026-04-22',
+        amount: fields.amount ?? 1284.5,
+        clientId,
+        ...(fields.number !== null && { number: fields.number ?? '000458' }),
+      }).expect(200);
+      if (fields.uploaded !== false) {
+        await prisma.serviceInvoice.update({
+          where: { id },
+          data: { uploadedAt: new Date() },
+        });
+      }
+      await request(http)
+        .post(`/service-invoices/${id}/confirm`)
+        .set('Authorization', bearer(ana))
+        .send({ allowDuplicate: true })
+        .expect(200);
+      return id;
+    };
+
+    const list = async (query: Record<string, string | number> = {}) => {
+      const response = await request(http)
+        .get('/service-invoices')
+        .query({
+          status: 'CONFIRMED',
+          sort: 'issueDate:desc',
+          page: 1,
+          pageSize: 20,
+          ...query,
+        })
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      return body(response) as unknown as Page;
+    };
+
+    const idsOf = async (query: Record<string, string | number> = {}) =>
+      (await list(query)).items.map(note => note.id);
+
+    const entryOf = (serviceInvoiceId: string) =>
+      prisma.financialEntry.findFirst({ where: { serviceInvoiceId } });
+
+    describe('listing', () => {
+      it('lists only confirmed notes, newest issue date first, with the total', async () => {
+        const april = await confirmedNote({ issueDate: '2026-04-22' });
+        const june = await confirmedNote({ issueDate: '2026-06-01' });
+        const may = await confirmedNote({ issueDate: '2026-05-10' });
+        await newDraft();
+        const discarded = await newDraft();
+        await discard(discarded).expect(204);
+
+        const page = await list();
+
+        expect(page.items.map(note => note.id)).toEqual([june, may, april]);
+        expect(page.total).toBe(3);
+        expect(page.items[0]).toEqual({
+          id: june,
+          number: '000458',
+          issueDate: '2026-06-01',
+          amount: 1284.5,
+          client: { id: expect.any(String) as string, name: 'Clínica Exemplo' },
+          location: null,
+          hasFile: true,
+        });
+      });
+
+      it('pages the result, breaking ties by id, and totals every match', async () => {
+        const ids = [
+          await confirmedNote(),
+          await confirmedNote(),
+          await confirmedNote(),
+          await confirmedNote(),
+          await confirmedNote(),
+        ];
+        const sameDay = [...ids].sort().reverse();
+
+        const first = await list({ page: 1, pageSize: 2 });
+        const second = await list({ page: 2, pageSize: 2 });
+        const last = await list({ page: 3, pageSize: 2 });
+
+        expect(first.total).toBe(5);
+        expect(
+          [...first.items, ...second.items, ...last.items].map(n => n.id),
+        ).toEqual(sameDay);
+        expect(last.items).toHaveLength(1);
+        expect(await idsOf({ page: 4, pageSize: 2 })).toEqual([]);
+      });
+
+      it('says whether the PDF is kept', async () => {
+        const withFile = await confirmedNote();
+        const withoutFile = await confirmedNote({ uploaded: false });
+
+        const hasFile = Object.fromEntries(
+          (await list()).items.map(note => [note.id, note.hasFile]),
+        );
+
+        expect(hasFile).toEqual({ [withFile]: true, [withoutFile]: false });
+      });
+
+      describe('search', () => {
+        let sul: string;
+        let norte: string;
+
+        beforeEach(async () => {
+          const hospvet = await makeClient('HospVet Sul');
+          const clinica = await makeClient('Clínica São José');
+          sul = await confirmedNote({
+            clientId: hospvet.id,
+            number: '000458',
+            issueDate: '2026-04-22',
+          });
+          norte = await confirmedNote({
+            clientId: clinica.id,
+            number: '7731',
+            issueDate: '2026-11-03',
+          });
+        });
+
+        it.each([
+          ['part of the taker name', 'hospvet', 'sul'],
+          ['the name without accents or case', 'CLINICA SAO JOSE', 'norte'],
+          ['the accented name typed with accents', 'clínica são', 'norte'],
+          ['the number', '458', 'sul'],
+          ['a partial date with the slash', '22/04', 'sul'],
+          ['a partial date with digits only', '2204', 'sul'],
+          ['the month and year', '11/2026', 'norte'],
+          ['the whole date', '03/11/2026', 'norte'],
+        ])('finds by %s', async (_what, search, expected) => {
+          const found = await idsOf({ search });
+
+          expect(found).toEqual([expected === 'sul' ? sul : norte]);
+        });
+
+        it('totals the matches, not the page', async () => {
+          const page = await list({ search: 'hospvet', pageSize: 1 });
+
+          expect(page.total).toBe(1);
+          const everyone = await list({ pageSize: 1 });
+          expect(everyone.total).toBe(2);
+          expect(everyone.items).toHaveLength(1);
+        });
+
+        it('finds nothing for a name nobody has', async () => {
+          expect(await list({ search: 'zzz' })).toEqual({
+            items: [],
+            total: 0,
+          });
+        });
+
+        it('takes % and _ as letters', async () => {
+          expect(await list({ search: '%' })).toMatchObject({ total: 0 });
+          expect(await list({ search: 'hosp_et' })).toMatchObject({ total: 0 });
+        });
+
+        it('does not take a single digit as a date', async () => {
+          const found = await idsOf({ search: '2' });
+
+          expect(found).toEqual([]);
+        });
+      });
+
+      it.each([
+        ['without a status', { status: undefined }],
+        ['for drafts', { status: 'DRAFT' }],
+        ['for discarded drafts', { status: 'CANCELLED' }],
+        ['without a sort', { sort: undefined }],
+        ['with another sort', { sort: 'amount:asc' }],
+        ['without a page', { page: undefined }],
+        ['with page 0', { page: 0 }],
+        ['with a page beyond any list', { page: 1e300 }],
+        ['without a page size', { pageSize: undefined }],
+        ['with a page size over 100', { pageSize: 101 }],
+        ['with a user id', { userId: randomUUID() }],
+      ])('refuses a listing %s', async (_what, override) => {
+        await request(http)
+          .get('/service-invoices')
+          .query({
+            status: 'CONFIRMED',
+            sort: 'issueDate:desc',
+            page: 1,
+            pageSize: 20,
+            ...override,
+          })
+          .set('Authorization', bearer(ana))
+          .expect(400);
+      });
+    });
+
+    describe('details', () => {
+      const detail = async (id: string) =>
+        body(
+          await request(http)
+            .get(`/service-invoices/${id}`)
+            .set('Authorization', bearer(ana))
+            .expect(200),
+        );
+
+      it('carries the invoice of a confirmed note beside the review', async () => {
+        const client = await makeClient('HospVet Sul', {
+          taxId: '12345678000190',
+          taxIdType: 'CNPJ',
+          city: 'São Paulo',
+          state: 'SP',
+        });
+        const id = await confirmedNote({ clientId: client.id });
+
+        expect(await detail(id)).toMatchObject({
+          status: 'CONFIRMED',
+          uploadedAt: expect.any(String) as string,
+          review: expect.objectContaining({ status: 'PENDING' }) as object,
+          invoice: {
+            id,
+            number: '000458',
+            issueDate: '2026-04-22',
+            amount: 1284.5,
+            client: {
+              id: client.id,
+              name: 'HospVet Sul',
+              taxId: '12345678000190',
+            },
+            location: 'São Paulo, SP',
+            hasFile: true,
+            file: { name: 'nfse-1287.pdf', bytesSize: 184320 },
+          },
+        });
+      });
+
+      it('has a null tax id, a null location and no file when there are none', async () => {
+        const id = await confirmedNote({ uploaded: false });
+
+        expect((await detail(id)).invoice).toMatchObject({
+          client: { taxId: null },
+          location: null,
+          hasFile: false,
+          file: null,
+        });
+      });
+
+      it('has no invoice on a draft, which is still read back for review', async () => {
+        const id = await newDraft();
+
+        const draft = await detail(id);
+
+        expect(draft).toMatchObject({
+          status: 'DRAFT',
+          review: { status: 'PENDING' },
+        });
+        expect(draft).not.toHaveProperty('invoice');
+      });
+
+      it('still shows the client of a note after the client was deleted', async () => {
+        const client = await makeClient('Clínica Antiga');
+        const id = await confirmedNote({ clientId: client.id });
+        await prisma.client.update({
+          where: { id: client.id },
+          data: { deletedAt: new Date() },
+        });
+
+        expect((await detail(id)).invoice).toMatchObject({
+          client: { name: 'Clínica Antiga' },
+        });
+      });
+    });
+
+    describe('confirming', () => {
+      const confirmWith = async (
+        client: { city?: string; state?: string },
+        location?: string,
+      ) => {
+        const { id: clientId } = await makeClient('Clínica', client);
+        const id = await newDraft();
+        await saveReview(id, {
+          issueDate: '2026-04-22',
+          amount: 100,
+          clientId,
+          ...(location && { location }),
+        }).expect(200);
+        await request(http)
+          .post(`/service-invoices/${id}/confirm`)
+          .set('Authorization', bearer(ana))
+          .send({})
+          .expect(200);
+        return (
+          await prisma.serviceInvoice.findUniqueOrThrow({ where: { id } })
+        ).location;
+      };
+
+      it("fills the location with the taker's city and state", async () => {
+        expect(await confirmWith({ city: 'Campinas', state: 'SP' })).toBe(
+          'Campinas, SP',
+        );
+      });
+
+      it('leaves it null when the taker has only one of them', async () => {
+        expect(await confirmWith({ city: 'Campinas' })).toBeNull();
+      });
+
+      it('keeps the one the user typed', async () => {
+        expect(
+          await confirmWith({ city: 'Campinas', state: 'SP' }, 'Santos, SP'),
+        ).toBe('Santos, SP');
+      });
+    });
+
+    describe('correcting', () => {
+      const correction = (
+        clientId: string,
+        over: Record<string, unknown> = {},
+      ) => ({
+        issueDate: '2026-04-23',
+        amount: 1300,
+        clientId,
+        location: 'Campinas, SP',
+        ...over,
+      });
+
+      it('changes the note and its income entry together, keeping the link', async () => {
+        const id = await confirmedNote({ issueDate: '2026-04-22' });
+        const before = await entryOf(id);
+        const other = await makeClient('Outra Clínica', {
+          paymentTermsDays: 10,
+        });
+
+        const response = await saveReview(id, correction(other.id)).expect(200);
+
+        expect(body(response)).toMatchObject({
+          status: 'CONFIRMED',
+          invoice: {
+            id,
+            number: '000458',
+            issueDate: '2026-04-23',
+            amount: 1300,
+            client: { id: other.id, name: 'Outra Clínica' },
+            location: 'Campinas, SP',
+          },
+        });
+        const after = await entryOf(id);
+        expect(after).toMatchObject({
+          id: before?.id,
+          serviceInvoiceId: id,
+          amount: new Prisma.Decimal(1300),
+          accrualDate: new Date('2026-04-23T00:00:00Z'),
+          dueDate: new Date('2026-05-03T00:00:00Z'),
+        });
+        await expect(
+          prisma.financialEntry.count({ where: { serviceInvoiceId: id } }),
+        ).resolves.toBe(1);
+      });
+
+      it('clears the location with null, and ignores the number', async () => {
+        const id = await confirmedNote();
+        const { clientId } = await prisma.serviceInvoice.findUniqueOrThrow({
+          where: { id },
+        });
+
+        const response = await saveReview(
+          id,
+          correction(clientId as string, { location: null, number: '999999' }),
+        ).expect(200);
+
+        expect(body(response).invoice).toMatchObject({
+          location: null,
+          number: '000458',
+        });
+      });
+
+      it('does not run the duplicate check again', async () => {
+        const first = await confirmedNote();
+        const second = await confirmedNote({
+          issueDate: '2026-04-30',
+          amount: 10,
+          number: '2',
+        });
+        const { clientId } = await prisma.serviceInvoice.findUniqueOrThrow({
+          where: { id: second },
+        });
+
+        await saveReview(
+          second,
+          correction(clientId as string, {
+            issueDate: '2026-04-22',
+            amount: 1284.5,
+          }),
+        ).expect(200);
+
+        expect(first).not.toBe(second);
+      });
+
+      it.each([
+        ['an amount of zero', { amount: 0 }],
+        ['a negative amount', { amount: -5 }],
+        ['an amount with three decimals', { amount: 10.123 }],
+        ['a date that does not exist', { issueDate: '2026-02-30' }],
+        ['a date not written YYYY-MM-DD', { issueDate: '23/04/2026' }],
+        ['a location over 120 characters', { location: 'x'.repeat(121) }],
+        ['a client id that is not a UUID', { clientId: 'abc' }],
+        ['a user id', { userId: randomUUID() }],
+      ])(
+        'refuses %s, leaving note and entry as they were',
+        async (_what, over) => {
+          const id = await confirmedNote();
+          const { clientId } = await prisma.serviceInvoice.findUniqueOrThrow({
+            where: { id },
+          });
+
+          await saveReview(id, correction(clientId as string, over)).expect(
+            400,
+          );
+
+          expect(await entryOf(id)).toMatchObject({
+            amount: new Prisma.Decimal(1284.5),
+          });
+          expect(
+            await prisma.serviceInvoice.findUniqueOrThrow({ where: { id } }),
+          ).toMatchObject({ amount: new Prisma.Decimal(1284.5) });
+        },
+      );
+
+      it.each(['issueDate', 'amount', 'clientId'])(
+        'refuses a correction without %s',
+        async field => {
+          const id = await confirmedNote();
+          const { clientId } = await prisma.serviceInvoice.findUniqueOrThrow({
+            where: { id },
+          });
+          const payload = correction(clientId as string);
+          delete (payload as Record<string, unknown>)[field];
+
+          const response = await saveReview(id, payload).expect(400);
+
+          expect(body(response)).toMatchObject({
+            code: 'SERVICE_INVOICE_NOT_READY',
+            details: { missing: [field] },
+          });
+        },
+      );
+
+      it('leaves everything as it was when the income entry cannot follow', async () => {
+        const id = await confirmedNote();
+        const { clientId } = await prisma.serviceInvoice.findUniqueOrThrow({
+          where: { id },
+        });
+        await prisma.client.update({
+          where: { id: clientId as string },
+          data: { deletedAt: new Date() },
+        });
+
+        await saveReview(id, correction(clientId as string)).expect(404);
+
+        expect(
+          await prisma.serviceInvoice.findUniqueOrThrow({ where: { id } }),
+        ).toMatchObject({ amount: new Prisma.Decimal(1284.5), location: null });
+        expect(await entryOf(id)).toMatchObject({
+          amount: new Prisma.Decimal(1284.5),
+        });
+      });
+    });
+
+    describe('downloading', () => {
+      const downloadUrl = (id: string, user: TestUser = ana) =>
+        request(http)
+          .get(`/service-invoices/${id}/download-url`)
+          .set('Authorization', bearer(user));
+
+      it('signs a short-lived URL that names the file', async () => {
+        const id = await confirmedNote();
+
+        const response = await downloadUrl(id).expect(200);
+
+        const { url, filename, expiresAt } = body(response) as {
+          url: string;
+          filename: string;
+          expiresAt: string;
+        };
+        const signed = new URL(url);
+        expect(signed.pathname).toContain(
+          `users/${userId}/service-invoices/${id}/original`,
+        );
+        expect(
+          signed.searchParams.get('response-content-disposition'),
+        ).toContain(`attachment; filename="${filename}"`);
+        expect(signed.searchParams.get('response-content-type')).toBe(
+          'application/pdf',
+        );
+        expect(filename).toBe('nfse-1287.pdf');
+        const ttlMs = new Date(expiresAt).getTime() - Date.now();
+        expect(ttlMs).toBeGreaterThan(4 * 60_000);
+        expect(ttlMs).toBeLessThanOrEqual(10 * 60_000);
+      });
+
+      it('answers 404 FILE_NOT_FOUND for an unknown note and for one without a file', async () => {
+        const withoutFile = await confirmedNote({ uploaded: false });
+
+        for (const id of [randomUUID(), withoutFile]) {
+          const response = await downloadUrl(id).expect(404);
+          expect(body(response)).toMatchObject({
+            code: 'SERVICE_INVOICE_FILE_NOT_FOUND',
+          });
+        }
+      });
+
+      it('answers 409 for a draft', async () => {
+        const id = await newDraft();
+        await prisma.serviceInvoice.update({
+          where: { id },
+          data: { uploadedAt: new Date() },
+        });
+
+        const response = await downloadUrl(id).expect(409);
+
+        expect(body(response)).toMatchObject({
+          code: 'SERVICE_INVOICE_NOT_CONFIRMED',
+        });
+      });
+    });
+
+    describe('deleting', () => {
+      it('removes the note and its income entry, and answers 404 the second time', async () => {
+        const id = await confirmedNote();
+
+        await discard(id).expect(204);
+
+        expect(await entryOf(id)).toMatchObject({
+          deletedAt: expect.any(Date) as Date,
+        });
+        expect(await idsOf()).toEqual([]);
+        expect(await statementTotal()).toBe(0);
+        const again = await discard(id).expect(404);
+        expect(body(again)).toMatchObject({
+          code: 'SERVICE_INVOICE_NOT_FOUND',
+        });
+        await request(http)
+          .get(`/service-invoices/${id}`)
+          .set('Authorization', bearer(ana))
+          .expect(404);
+      });
+
+      it('answers 204 once and 404 for the rest when the app resends it at the same time', async () => {
+        const id = await confirmedNote();
+
+        const answers = await Promise.all(
+          [1, 2, 3].map(async () => (await discard(id)).status),
+        );
+
+        expect(answers.filter(status => status === 204)).toHaveLength(1);
+        expect(answers.filter(status => status === 404)).toHaveLength(2);
+      });
+
+      const statementTotal = async () => {
+        const response = await request(http)
+          .get('/financial-entries')
+          .query({ year: 2026, month: 4 })
+          .set('Authorization', bearer(ana))
+          .expect(200);
+        return (response.body as unknown[]).length;
+      };
+    });
   });
 });
