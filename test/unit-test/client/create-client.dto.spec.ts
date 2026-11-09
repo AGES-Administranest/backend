@@ -27,7 +27,7 @@ describe('CreateClientDto — tax id', () => {
   });
 
   it.each([
-    ['a CNPJ with 14 digits', '12345678000190', 'CNPJ'],
+    ['a CNPJ with 14 digits', '22333444000181', 'CNPJ'],
     ['a CPF with 11 digits', '12345678901', 'CPF'],
   ])('accepts %s', async (_case, taxId, taxIdType) => {
     expect(await messagesFor({ taxId, taxIdType })).toEqual([]);

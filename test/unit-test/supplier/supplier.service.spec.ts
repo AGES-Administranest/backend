@@ -1,9 +1,13 @@
-import { Supplier } from '@prisma/client';
+import { Supplier, TaxIdType } from '@prisma/client';
 
+import {
+  RecordNotFoundError,
+  UniqueConstraintError,
+} from '../../../src/infra/prisma/prisma-errors';
 import { CreateSupplierDto } from '../../../src/modules/supplier/dto/create-supplier.dto';
 import { QuerySupplierDto } from '../../../src/modules/supplier/dto/query-supplier.dto';
+import { UpdateSupplierDto } from '../../../src/modules/supplier/dto/update-supplier.dto';
 import { SupplierService } from '../../../src/modules/supplier/supplier.service';
-import { DomainError } from '../../../src/shared/errors/domain-error';
 
 const supplier = (overrides: Partial<Supplier> = {}): Supplier => ({
   id: 'supplier-1',
@@ -14,6 +18,7 @@ const supplier = (overrides: Partial<Supplier> = {}): Supplier => ({
   contact: null,
   email: null,
   phone: null,
+  notes: null,
   active: true,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -32,16 +37,22 @@ const query = (overrides: Partial<QuerySupplierDto> = {}) =>
 describe('SupplierService', () => {
   let repository: {
     findMany: jest.Mock;
-    findByName: jest.Mock;
+    findById: jest.Mock;
+    isActiveAndOwned: jest.Mock;
     create: jest.Mock;
+    update: jest.Mock;
+    deactivate: jest.Mock;
   };
   let service: SupplierService;
 
   beforeEach(() => {
     repository = {
       findMany: jest.fn(),
-      findByName: jest.fn().mockResolvedValue(null),
+      findById: jest.fn(),
+      isActiveAndOwned: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
+      deactivate: jest.fn(),
     };
     service = new SupplierService(repository as never);
   });
@@ -115,6 +126,20 @@ describe('SupplierService', () => {
     });
   });
 
+  describe('isActiveAndOwned', () => {
+    it('checks that a supplier is active and belongs to the user', async () => {
+      repository.isActiveAndOwned.mockResolvedValue(true);
+
+      await expect(
+        service.isActiveAndOwned('user-1', 'supplier-1'),
+      ).resolves.toBe(true);
+      expect(repository.isActiveAndOwned).toHaveBeenCalledWith(
+        'user-1',
+        'supplier-1',
+      );
+    });
+  });
+
   describe('create', () => {
     const dto = (overrides: Partial<CreateSupplierDto> = {}) =>
       Object.assign(new CreateSupplierDto(), {
@@ -122,24 +147,155 @@ describe('SupplierService', () => {
         ...overrides,
       });
 
-    it('creates the supplier when the name is free', async () => {
-      repository.create.mockResolvedValue(supplier());
+    it('allows repeated names and stores the CNPJ unmasked', async () => {
+      repository.create.mockResolvedValue(
+        supplier({ taxId: '11222333000181', notes: 'Order monthly' }),
+      );
 
-      const result = await service.create('user-1', dto());
+      const result = await service.create(
+        'user-1',
+        dto({
+          taxId: '11.222.333/0001-81',
+          taxIdType: TaxIdType.CNPJ,
+          notes: 'Order monthly',
+        }),
+      );
 
       expect(result.name).toBe('Distribuidora VetSul');
       expect(repository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'user-1' }),
+        expect.objectContaining({
+          userId: 'user-1',
+          taxId: '11222333000181',
+          taxIdType: TaxIdType.CNPJ,
+          notes: 'Order monthly',
+        }),
       );
     });
 
-    it('refuses a name the user already registered', async () => {
-      repository.findByName.mockResolvedValue(supplier());
-
-      await expect(service.create('user-1', dto())).rejects.toBeInstanceOf(
-        DomainError,
+    it('maps a duplicate CNPJ to the supplier tax id error', async () => {
+      repository.create.mockRejectedValue(
+        new UniqueConstraintError(['supplier_user_id_tax_id_key']),
       );
-      expect(repository.create).not.toHaveBeenCalled();
+
+      await expect(
+        service.create(
+          'user-1',
+          dto({ taxId: '11222333000181', taxIdType: TaxIdType.CNPJ }),
+        ),
+      ).rejects.toMatchObject({ code: 'DUPLICATED_SUPPLIER_TAX_ID' });
+    });
+  });
+
+  describe('findOne', () => {
+    it('returns inactive suppliers and sanitizes owner fields', async () => {
+      repository.findById.mockResolvedValue(
+        supplier({ active: false, notes: 'Call before delivery' }),
+      );
+
+      const result = await service.findOne('supplier-1', 'user-1');
+
+      expect(result).toMatchObject({
+        id: 'supplier-1',
+        active: false,
+        notes: 'Call before delivery',
+      });
+      expect(result).not.toHaveProperty('userId');
+      expect(result).not.toHaveProperty('deletedAt');
+      expect(repository.findById).toHaveBeenCalledWith('supplier-1', 'user-1');
+    });
+
+    it('reports a supplier owned by someone else as not found', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.findOne('supplier-1', 'user-2'),
+      ).rejects.toMatchObject({
+        code: 'SUPPLIER_NOT_FOUND',
+        kind: 'NOT_FOUND',
+      });
+    });
+  });
+
+  describe('update', () => {
+    it('normalizes the CNPJ and passes notes through', async () => {
+      const dto = Object.assign(new UpdateSupplierDto(), {
+        taxId: '11.222.333/0001-81',
+        taxIdType: TaxIdType.CNPJ,
+        notes: 'Call before delivery',
+      });
+      repository.update.mockResolvedValue(
+        supplier({
+          taxId: '11222333000181',
+          taxIdType: TaxIdType.CNPJ,
+          notes: dto.notes,
+        }),
+      );
+
+      const result = await service.update('supplier-1', 'user-1', dto);
+
+      expect(repository.update).toHaveBeenCalledWith('supplier-1', 'user-1', {
+        ...dto,
+        taxId: '11222333000181',
+      });
+      expect(result.notes).toBe('Call before delivery');
+    });
+
+    it('maps missing and cross-owner suppliers to not found', async () => {
+      repository.update.mockResolvedValue(null);
+
+      await expect(
+        service.update('supplier-1', 'user-2', {
+          name: 'New name',
+        }),
+      ).rejects.toMatchObject({
+        code: 'SUPPLIER_NOT_FOUND',
+        kind: 'NOT_FOUND',
+      });
+    });
+
+    it('maps a row disappearing before update to not found', async () => {
+      repository.update.mockRejectedValue(new RecordNotFoundError());
+
+      await expect(
+        service.update('supplier-1', 'user-1', { name: 'New name' }),
+      ).rejects.toMatchObject({
+        code: 'SUPPLIER_NOT_FOUND',
+        kind: 'NOT_FOUND',
+      });
+    });
+
+    it('maps duplicate CNPJ on update', async () => {
+      repository.update.mockRejectedValue(
+        new UniqueConstraintError(['supplier_user_id_tax_id_key']),
+      );
+
+      await expect(
+        service.update('supplier-1', 'user-1', {
+          taxId: '11222333000181',
+          taxIdType: TaxIdType.CNPJ,
+        }),
+      ).rejects.toMatchObject({ code: 'DUPLICATED_SUPPLIER_TAX_ID' });
+    });
+  });
+
+  describe('remove', () => {
+    it('returns the supplier inactivated by the repository', async () => {
+      repository.deactivate.mockResolvedValue(supplier({ active: false }));
+
+      await expect(
+        service.remove('supplier-1', 'user-1'),
+      ).resolves.toMatchObject({ id: 'supplier-1', active: false });
+    });
+
+    it('reports a missing or another user supplier as not found', async () => {
+      repository.deactivate.mockResolvedValue(null);
+
+      await expect(
+        service.remove('supplier-1', 'user-2'),
+      ).rejects.toMatchObject({
+        code: 'SUPPLIER_NOT_FOUND',
+        kind: 'NOT_FOUND',
+      });
     });
   });
 });

@@ -42,7 +42,7 @@ describe('taxIdPairProblem', () => {
     ['neither field sent', {}],
     ['both null, to remove the tax id', { taxId: null, taxIdType: null }],
     ['a valid CPF', { taxId: '12345678901', taxIdType: 'CPF' }],
-    ['a valid CNPJ', { taxId: '12345678000190', taxIdType: 'CNPJ' }],
+    ['a valid CNPJ', { taxId: '11222333000181', taxIdType: 'CNPJ' }],
   ])('accepts %s', (_case, pair) => {
     expect(taxIdPairProblem(pair)).toBeNull();
   });
@@ -70,6 +70,15 @@ describe('taxIdPairProblem', () => {
       `taxId must have exactly ${digits} digits, with no punctuation, when taxIdType is ${taxIdType}`,
     );
   });
+
+  it.each(['11111111111111', '11222333000100'])(
+    'rejects a CNPJ with invalid check digits: %s',
+    taxId => {
+      expect(taxIdPairProblem({ taxId, taxIdType: 'CNPJ' })).toBe(
+        'taxId must be a valid CNPJ',
+      );
+    },
+  );
 
   it('rejects a taxId that is not a string', () => {
     expect(taxIdPairProblem({ taxId: 12345678901, taxIdType: 'CPF' })).toBe(
@@ -108,7 +117,7 @@ describe('@IsValidTaxIdPair', () => {
 
   it('passes a valid pair', async () => {
     expect(
-      await messagesFor({ taxId: '12345678000190', taxIdType: 'CNPJ' }),
+      await messagesFor({ taxId: '11222333000181', taxIdType: 'CNPJ' }),
     ).toEqual([]);
   });
 
