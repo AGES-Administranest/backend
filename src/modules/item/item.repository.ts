@@ -76,6 +76,19 @@ export class ItemRepository {
     return items.map(item => item.id);
   }
 
+  /** The owner's items among `ids`, deleted ones left out, active or not. */
+  findUnitCosts(
+    userId: string,
+    ids: readonly string[],
+  ): Promise<Pick<Item, 'id' | 'defaultUnitCost'>[]> {
+    return runQuery(() =>
+      this.prisma.item.findMany({
+        where: { id: { in: [...ids] }, userId, deletedAt: null },
+        select: { id: true, defaultUnitCost: true },
+      }),
+    );
+  }
+
   findCatalog(userId: string): Promise<Pick<Item, 'id' | 'name' | 'unit'>[]> {
     return runQuery(() =>
       this.prisma.item.findMany({

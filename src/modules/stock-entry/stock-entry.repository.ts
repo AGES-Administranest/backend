@@ -28,6 +28,11 @@ export type DraftLineRow = Omit<
   'purchaseInvoiceId'
 >;
 
+export type SupplierInvoiceFilters = {
+  issuedFrom?: Date;
+  issuedTo?: Date;
+};
+
 /** The module's only point of contact with the database (ADR-01). */
 @Injectable()
 export class StockEntryRepository {
@@ -48,6 +53,34 @@ export class StockEntryRepository {
         where: { userId, status: 'DRAFT', deletedAt: null },
         include: WITH_SUPPLIER_NAME,
         orderBy: { updatedAt: 'desc' },
+      }),
+    );
+  }
+
+  findConfirmedBySupplier(
+    userId: string,
+    supplierId: string,
+    filters: SupplierInvoiceFilters,
+    skip: number,
+    take: number,
+  ): Promise<PurchaseInvoice[]> {
+    return runQuery(() =>
+      this.prisma.purchaseInvoice.findMany({
+        where: {
+          userId,
+          supplierId,
+          status: 'CONFIRMED',
+          deletedAt: null,
+          ...((filters.issuedFrom || filters.issuedTo) && {
+            issueDate: { gte: filters.issuedFrom, lte: filters.issuedTo },
+          }),
+        },
+        orderBy: [
+          { issueDate: { sort: 'desc', nulls: 'last' } },
+          { id: 'desc' },
+        ],
+        skip,
+        take,
       }),
     );
   }

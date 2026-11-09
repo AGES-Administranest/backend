@@ -27,6 +27,22 @@ describe('ItemRepository', () => {
     repository = new ItemRepository(prisma as never);
   });
 
+  describe('findUnitCosts', () => {
+    it('reads the cost of the owner’s live items among the ids, in one query', async () => {
+      await repository.findUnitCosts('user-1', ['item-1', 'item-2']);
+
+      expect(prisma.item.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.item.findMany).toHaveBeenCalledWith({
+        where: {
+          id: { in: ['item-1', 'item-2'] },
+          userId: 'user-1',
+          deletedAt: null,
+        },
+        select: { id: true, defaultUnitCost: true },
+      });
+    });
+  });
+
   describe('nearest lot', () => {
     it('asks only for the first lot still holding stock, earliest first', async () => {
       await repository.findMany();

@@ -93,6 +93,7 @@ export function toHeaderChanges(
   dto: UpdateDraftHeaderDto,
 ): Prisma.PurchaseInvoiceUncheckedUpdateManyInput {
   return {
+    ...(dto.supplierId !== undefined && { supplierId: dto.supplierId }),
     ...(dto.invoiceNumber !== undefined && { number: dto.invoiceNumber }),
     ...(dto.orderDate !== undefined && {
       issueDate: dto.orderDate ? fromIsoDate(dto.orderDate) : null,

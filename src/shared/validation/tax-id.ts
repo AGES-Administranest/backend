@@ -6,6 +6,8 @@ import {
   ValidationOptions,
 } from 'class-validator';
 
+import { isValidCnpj } from './cnpj';
+
 /** How many digits each Brazilian tax id has, written with no punctuation. */
 export const TAX_ID_DIGITS: Record<TaxIdType, number> = {
   CPF: 11,
@@ -56,6 +58,9 @@ export function taxIdPairProblem({
   const type = taxIdType as TaxIdType;
   if (!hasTaxIdFormat(taxId, type)) {
     return `taxId must have exactly ${TAX_ID_DIGITS[type]} digits, with no punctuation, when taxIdType is ${type}`;
+  }
+  if (type === TaxIdType.CNPJ && !isValidCnpj(taxId)) {
+    return 'taxId must be a valid CNPJ';
   }
   return null;
 }
