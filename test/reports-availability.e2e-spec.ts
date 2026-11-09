@@ -58,9 +58,7 @@ describe('Reports availability (e2e)', () => {
 
   // One record of every section inside October for `ownerId`, plus the ones
   // that must be left out: deleted, outside the period and, for the invoices,
-  // not confirmed. Stock movements are covered by the unit specs, which pin the
-  // same `userId` + `deletedAt` + period filter, because creating one here
-  // would need an item and a lot as well.
+  // not confirmed.
   const seed = async (ownerId: string, deleted: boolean) => {
     const deletedAt = deleted ? new Date() : null;
 
@@ -143,6 +141,37 @@ describe('Reports availability (e2e)', () => {
         },
       ],
     });
+    const item = await prisma.item.create({
+      data: {
+        userId: ownerId,
+        category: 'MEDICATION',
+        unit: 'UNIT',
+        name: 'Dipyrone',
+      },
+    });
+    await prisma.stockMovement.createMany({
+      data: [
+        {
+          userId: ownerId,
+          itemId: item.id,
+          type: 'INBOUND',
+          source: 'MANUAL_PURCHASE',
+          quantity: '5',
+          unitCost: '2',
+          occurredAt: new Date('2026-10-12T12:00:00Z'),
+          deletedAt,
+        },
+        {
+          userId: ownerId,
+          itemId: item.id,
+          type: 'INBOUND',
+          source: 'MANUAL_PURCHASE',
+          quantity: '5',
+          unitCost: '2',
+          occurredAt: new Date('2026-11-01T00:00:00Z'),
+        },
+      ],
+    });
     await prisma.equipment.createMany({
       data: [
         {
@@ -195,10 +224,10 @@ describe('Reports availability (e2e)', () => {
       financialEntries: 1,
       serviceInvoices: 1,
       purchaseInvoices: 1,
-      stockMovements: 0,
+      stockMovements: 1,
       trips: 1,
       equipments: 1,
-      total: 6,
+      total: 8,
     } satisfies AvailabilityBody);
   });
 
