@@ -1,4 +1,4 @@
-import { EntryNature, EntryScope, Prisma } from '@prisma/client';
+import { EntryNature, EntryScope, EntrySource, Prisma } from '@prisma/client';
 
 import { FinancialEntryRepository } from '../../../src/modules/financial/financial-entry.repository';
 import { FinancialEntryService } from '../../../src/modules/financial/financial-entry.service';
@@ -98,7 +98,11 @@ describe('FinancialEntryService.sumExpensesByScope', () => {
     const repository = { sumByScope: jest.fn().mockResolvedValue(rows) };
     return {
       repository,
-      service: new FinancialEntryService(repository as never, {} as never),
+      service: new FinancialEntryService(
+        repository as never,
+        {} as never,
+        {} as never,
+      ),
     };
   };
 
@@ -129,6 +133,32 @@ describe('FinancialEntryService.sumExpensesByScope', () => {
   });
 });
 
+describe('FinancialEntryService.sumTripExpenses', () => {
+  it('sums the trip expenses of the UTC month across scopes', async () => {
+    const repository = {
+      sumByScope: jest.fn().mockResolvedValue([
+        { scope: EntryScope.PROFESSIONAL, total: new Prisma.Decimal('40') },
+        { scope: EntryScope.PERSONAL, total: new Prisma.Decimal('2.5') },
+      ]),
+    };
+    const service = new FinancialEntryService(
+      repository as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.sumTripExpenses('user-1', 2026, 3);
+
+    expect(result.toFixed(2)).toBe('42.50');
+    expect(repository.sumByScope).toHaveBeenCalledWith('user-1', {
+      from: new Date('2026-03-01T00:00:00Z'),
+      to: new Date('2026-04-01T00:00:00Z'),
+      nature: EntryNature.EXPENSE,
+      source: EntrySource.TRIP,
+    });
+  });
+});
+
 describe('FinancialEntryService.getBalance', () => {
   const dec = (value: string) => new Prisma.Decimal(value);
   const emptyGroups = {
@@ -136,6 +166,7 @@ describe('FinancialEntryService.getBalance', () => {
       { category: 'SUPPLIES', subtotal: '0.00' },
       { category: 'TRAVEL', subtotal: '0.00' },
       { category: 'FIXED_COSTS', subtotal: '0.00' },
+      { category: 'DEPRECIATION', subtotal: '0.00' },
       { category: 'TAXES_AND_FEES', subtotal: '0.00' },
       { category: 'OTHER', subtotal: '0.00' },
     ],
@@ -150,17 +181,23 @@ describe('FinancialEntryService.getBalance', () => {
       total: Prisma.Decimal;
     }[],
     names: { id: string; name: string }[] = [],
+    depreciation = 0,
   ) => {
     const repository = {
       sumByNatureScopeCategory: jest.fn().mockResolvedValue(rows),
     };
     const categories = { findNames: jest.fn().mockResolvedValue(names) };
+    const equipment = {
+      monthlyDepreciation: jest.fn().mockResolvedValue(depreciation),
+    };
     return {
       repository,
       categories,
+      equipment,
       service: new FinancialEntryService(
         repository as never,
         categories as never,
+        equipment as never,
       ),
     };
   };
@@ -267,6 +304,7 @@ describe('FinancialEntryService.getBalance', () => {
           { category: 'SUPPLIES', subtotal: '100.10' },
           { category: 'TRAVEL', subtotal: '40.00' },
           { category: 'FIXED_COSTS', subtotal: '30.00' },
+          { category: 'DEPRECIATION', subtotal: '0.00' },
           { category: 'TAXES_AND_FEES', subtotal: '20.00' },
           { category: 'OTHER', subtotal: '9.15' },
         ],
@@ -318,6 +356,46 @@ describe('FinancialEntryService.getBalance', () => {
       subtotal: '10.03',
     });
     expect(result.expensesByCategory.total).toBe('10.03');
+  });
+
+  it("adds the month's depreciation as a professional expense and as its own group", async () => {
+    const { equipment, service } = build(
+      [
+        {
+          nature: EntryNature.INCOME,
+          scope: EntryScope.PROFESSIONAL,
+          categoryId: 'fees',
+          total: dec('1000.00'),
+        },
+        {
+          nature: EntryNature.EXPENSE,
+          scope: EntryScope.PERSONAL,
+          categoryId: 'fixed',
+          total: dec('250.50'),
+        },
+      ],
+      [{ id: 'fixed', name: 'Fixed costs' }],
+      100,
+    );
+
+    const result = await service.getBalance('user-1', {
+      month: 3,
+      year: 2026,
+    });
+
+    expect(equipment.monthlyDepreciation).toHaveBeenCalledWith(
+      'user-1',
+      2026,
+      3,
+    );
+    expect(result.professionalExpenses).toBe('100.00');
+    expect(result.personalExpenses).toBe('250.50');
+    expect(result.totalExpenses).toBe('350.50');
+    expect(result.netBalance).toBe('649.50');
+    expect(
+      result.expensesByCategory.items.find(i => i.category === 'DEPRECIATION'),
+    ).toEqual({ category: 'DEPRECIATION', subtotal: '100.00' });
+    expect(result.expensesByCategory.total).toBe(result.totalExpenses);
   });
 
   it('returns a negative net balance when expenses exceed income', async () => {

@@ -32,6 +32,26 @@ export class EquipmentService {
     return equipment.map(item => this.sanitize(item, asOf));
   }
 
+  /**
+   * The month's depreciation: as of now for the current UTC month, as of the
+   * month's last day for any other. Shared by the fixed-costs summary and the
+   * balance so the two cannot disagree.
+   */
+  async monthlyDepreciation(
+    userId: string,
+    year: number,
+    month: number,
+    now = new Date(),
+  ): Promise<number> {
+    const isCurrentMonth =
+      year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
+    // day 0 of the next month = last day of the requested month
+    const asOf = isCurrentMonth
+      ? now
+      : new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+    return (await this.summary(userId, asOf)).monthlyTotal;
+  }
+
   async summary(
     userId: string,
     asOf = new Date(),

@@ -4,7 +4,8 @@ export class FixedCostsSummaryResponse {
   @ApiProperty({
     type: String,
     example: '1250.00',
-    description: 'Professional expenses of the month, as a decimal string',
+    description:
+      'Professional expenses of the month, trips excluded, as a decimal string',
   })
   professionalExpenses!: string;
 
@@ -21,7 +22,7 @@ export class FixedCostsSummaryResponse {
   @ApiProperty({
     type: String,
     example: '300.00',
-    description: '0.00 when the user has no pricing settings',
+    description: "The month's trip expenses (US14); 0.00 without trips",
   })
   transport!: string;
 

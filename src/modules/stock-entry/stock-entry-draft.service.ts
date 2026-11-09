@@ -23,6 +23,7 @@ import { StockEntryRepository } from './stock-entry.repository';
 import { DomainError } from '../../shared/errors/domain-error';
 import { FinancialEntryService } from '../financial';
 import { ItemService } from '../item';
+import { SupplierService } from '../supplier';
 
 /** The review of a draft: reading it back, saving it and discarding it. */
 @Injectable()
@@ -32,6 +33,7 @@ export class StockEntryDraftService {
     private readonly purchaseReadingService: PurchaseReadingService,
     private readonly itemService: ItemService,
     private readonly financialEntries: FinancialEntryService,
+    private readonly supplierService: SupplierService,
   ) {}
 
   async listDrafts(userId: string): Promise<DraftSummaryDto[]> {
@@ -50,6 +52,7 @@ export class StockEntryDraftService {
     id: string,
     dto: UpdateDraftHeaderDto,
   ): Promise<void> {
+    await this.ensureSupplierIsOwned(userId, dto.supplierId);
     const saved = await this.stockEntryRepository.updateDraft(
       id,
       userId,
@@ -128,5 +131,19 @@ export class StockEntryDraftService {
     );
     const missing = itemIds.find(itemId => !owned.has(itemId));
     if (missing) throw lineItemNotFound(missing);
+  }
+
+  private async ensureSupplierIsOwned(
+    userId: string,
+    supplierId?: string | null,
+  ): Promise<void> {
+    if (!supplierId) return;
+    if (await this.supplierService.isActiveAndOwned(userId, supplierId)) return;
+    throw new DomainError(
+      'INVALID_REFERENCE',
+      'INVALID_REFERENCE',
+      'The provided supplier does not exist or is invalid',
+      { field: 'supplierId' },
+    );
   }
 }

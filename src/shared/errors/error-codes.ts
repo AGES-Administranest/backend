@@ -45,7 +45,9 @@ export const ERROR_CODES = [
   'ITEM_LOT_UNIT_COST_REQUIRED',
 
   // supplier
+  // Legacy code retained for clients; supplier names are no longer unique.
   'DUPLICATED_SUPPLIER_NAME',
+  'DUPLICATED_SUPPLIER_TAX_ID',
 
   // client
   'CLIENT_NOT_FOUND',
@@ -127,6 +129,12 @@ export const ERROR_CODES = [
   // field, not an error.
   'TRANSPORT_COST_NOT_FOUND',
 
+  // pricing (hourly rate history, US22)
+  // The month has no stored calculation: it was never calculated, it is a
+  // future month, or it belongs to another account. The app shows the month
+  // as empty in the history, not as an error.
+  'HOURLY_RATE_SNAPSHOT_NOT_FOUND',
+
   // stock-entry (purchase invoices)
   'INVOICE_NOT_FOUND',
   'INVOICE_NOT_EDITABLE',
@@ -147,6 +155,10 @@ export const ERROR_CODES = [
   'SERVICE_INVOICE_FILE_TOO_LARGE',
   'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
   'SERVICE_INVOICE_UPLOAD_MISMATCH',
+  'SERVICE_INVOICE_NOT_READY',
+  // A confirmed note has the same amount and date, or the same number and
+  // taker. The app shows it and resends with allowDuplicate.
+  'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

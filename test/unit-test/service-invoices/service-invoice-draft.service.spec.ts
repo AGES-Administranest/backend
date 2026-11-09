@@ -1,8 +1,10 @@
 import { Prisma } from '@prisma/client';
 
 import {
+  confirmationService,
   draftNote,
   FakeClients,
+  FakeFinancialEntries,
   FakeServiceInvoicesRepository,
   FakeStorage,
   INVOICE_ID,
@@ -10,6 +12,7 @@ import {
   USER_ID,
 } from './testing/fakes';
 import { documentKey, DocumentUploads } from '../../../src/infra/storage';
+import { QueryServiceInvoiceReportDto } from '../../../src/modules/service-invoices/dto/query-service-invoice-report.dto';
 import { ServiceInvoiceDraftService } from '../../../src/modules/service-invoices/service-invoice-draft.service';
 import { ServiceInvoicesRepository } from '../../../src/modules/service-invoices/service-invoices.repository';
 import { DomainError } from '../../../src/shared/errors/domain-error';
@@ -30,6 +33,7 @@ describe('ServiceInvoiceDraftService', () => {
       new DocumentUploads(new FakeStorage()),
       clients.service,
       reviewService(repository, clients),
+      confirmationService(repository, clients, new FakeFinancialEntries()),
     );
   });
 
@@ -74,6 +78,108 @@ describe('ServiceInvoiceDraftService', () => {
     });
   });
 
+  describe('reports list', () => {
+    const query = (fields: Partial<QueryServiceInvoiceReportDto> = {}) =>
+      Object.assign(new QueryServiceInvoiceReportDto(), fields);
+
+    it('shows the issue date, the taker name and whether the file exists', async () => {
+      repository.reportNotes = [
+        {
+          id: INVOICE_ID,
+          issueDate: new Date('2026-10-13T00:00:00Z'),
+          fileUrl: 'service-invoice/abc.pdf',
+          client: { name: 'Clinica Exemplo' },
+        },
+        {
+          id: 'other',
+          issueDate: new Date('2026-10-01T00:00:00Z'),
+          fileUrl: null,
+          client: { name: 'Ana Souza' },
+        },
+      ];
+
+      await expect(service.listForReports(USER_ID, query())).resolves.toEqual([
+        {
+          id: INVOICE_ID,
+          issueDate: '2026-10-13',
+          takerName: 'Clinica Exemplo',
+          hasFile: true,
+        },
+        {
+          id: 'other',
+          issueDate: '2026-10-01',
+          takerName: 'Ana Souza',
+          hasFile: false,
+        },
+      ]);
+    });
+
+    it("asks for the token's owner only, with no filter by default", async () => {
+      await service.listForReports(USER_ID, query());
+
+      expect(repository.reportQueries).toEqual([
+        { userId: USER_ID, filters: {}, skip: 0, take: 50 },
+      ]);
+    });
+
+    it('passes the search and the period, and pages from the limit', async () => {
+      await service.listForReports(
+        USER_ID,
+        query({
+          search: 'vet',
+          startDate: '2026-10-01',
+          endDate: '2026-10-31',
+          page: 3,
+          limit: 10,
+        }),
+      );
+
+      expect(repository.reportQueries).toEqual([
+        {
+          userId: USER_ID,
+          filters: {
+            search: 'vet',
+            issuedFrom: new Date('2026-10-01T00:00:00Z'),
+            issuedTo: new Date('2026-10-31T00:00:00Z'),
+          },
+          skip: 20,
+          take: 10,
+        },
+      ]);
+    });
+
+    it.each([
+      ['startDate', { startDate: '2026-10-01' }, 'issuedFrom'],
+      ['endDate', { endDate: '2026-10-31' }, 'issuedTo'],
+    ])('accepts %s alone, as an open period', async (_name, dates, bound) => {
+      await service.listForReports(USER_ID, query(dates));
+
+      expect(Object.keys(repository.reportQueries[0].filters)).toEqual([bound]);
+    });
+
+    it('accepts a one-day period', async () => {
+      await expect(
+        service.listForReports(
+          USER_ID,
+          query({ startDate: '2026-10-13', endDate: '2026-10-13' }),
+        ),
+      ).resolves.toEqual([]);
+    });
+
+    it('refuses a start date after the end date', async () => {
+      await expect(
+        service.listForReports(
+          USER_ID,
+          query({ startDate: '2026-11-01', endDate: '2026-10-31' }),
+        ),
+      ).rejects.toMatchObject({
+        kind: 'INVALID_INPUT',
+        code: 'INVALID_REQUEST',
+      });
+      expect(repository.reportQueries).toEqual([]);
+    });
+  });
+
   describe('review', () => {
     it('saves only the fields sent, and clears the ones sent as null', async () => {
       repository.invoice = draftNote({ number: '1287', takerTaxId: '123' });
@@ -87,7 +193,7 @@ describe('ServiceInvoiceDraftService', () => {
 
       expect(repository.invoice).toMatchObject({
         issueDate: new Date('2026-10-13T00:00:00Z'),
-        amount: 1500,
+        amount: new Prisma.Decimal(1500),
         number: null,
         clientId: CLIENT_ID,
         takerTaxId: '123',
@@ -108,8 +214,8 @@ describe('ServiceInvoiceDraftService', () => {
       expect(repository.invoice?.clientId).toBeNull();
     });
 
-    it('does not edit a confirmed note yet', async () => {
-      repository.invoice = draftNote({ status: 'CONFIRMED' });
+    it('does not edit a discarded draft', async () => {
+      repository.invoice = draftNote({ status: 'CANCELLED' });
 
       await expect(
         service.update(USER_ID, INVOICE_ID, { number: '1288' }),
@@ -129,8 +235,8 @@ describe('ServiceInvoiceDraftService', () => {
       });
     });
 
-    it('does not discard a confirmed note', async () => {
-      repository.invoice = draftNote({ status: 'CONFIRMED' });
+    it('does not discard a note twice', async () => {
+      repository.invoice = draftNote({ status: 'CANCELLED' });
 
       await expect(service.discard(USER_ID, INVOICE_ID)).rejects.toMatchObject({
         code: 'SERVICE_INVOICE_NOT_EDITABLE',

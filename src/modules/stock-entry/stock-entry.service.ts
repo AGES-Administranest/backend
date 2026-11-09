@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, PurchaseInvoice } from '@prisma/client';
 
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
+import { QuerySupplierInvoicesDto } from './dto/query-supplier-invoices.dto';
+import { SupplierInvoiceSummaryDto } from './dto/supplier-invoice-summary.dto';
 import { UploadConfirmationResponseDto } from './dto/upload-confirmation-response.dto';
 import { UploadUrlResponseDto } from './dto/upload-url-response.dto';
 import { PurchaseReadingService } from './purchase-reading.service';
@@ -22,6 +24,8 @@ import {
   StoredDocument,
   UploadCheck,
 } from '../../infra/storage';
+import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
+import { SupplierService } from '../supplier';
 
 @Injectable()
 export class StockEntryService {
@@ -29,7 +33,35 @@ export class StockEntryService {
     private readonly stockEntryRepository: StockEntryRepository,
     private readonly documentUploads: DocumentUploads,
     private readonly purchaseReadingService: PurchaseReadingService,
+    private readonly supplierService: SupplierService,
   ) {}
+
+  async listSupplierInvoices(
+    userId: string,
+    supplierId: string,
+    query: QuerySupplierInvoicesDto,
+  ): Promise<SupplierInvoiceSummaryDto[]> {
+    await this.supplierService.findOne(supplierId, userId);
+
+    const invoices = await this.stockEntryRepository.findConfirmedBySupplier(
+      userId,
+      supplierId,
+      {
+        ...(query.from && { issuedFrom: fromIsoDate(query.from) }),
+        ...(query.to && { issuedTo: fromIsoDate(query.to) }),
+      },
+      (query.page - 1) * query.limit,
+      query.limit,
+    );
+
+    return invoices.map(invoice => ({
+      id: invoice.id,
+      issueDate: invoice.issueDate ? toIsoDate(invoice.issueDate) : null,
+      number: invoice.number,
+      totalAmount:
+        invoice.totalAmount === null ? null : Number(invoice.totalAmount),
+    }));
+  }
 
   /** `userId` is the local id the guard resolved from the token, never the body. */
   async createUploadUrl(

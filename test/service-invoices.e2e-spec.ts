@@ -1,8 +1,10 @@
 import { INestApplication } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { randomBytes, randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+import { ensureDefaultFinancialCategories } from './helpers/default-financial-categories';
 import {
   bearer,
   body,
@@ -39,6 +41,7 @@ describe('service-invoices (e2e)', () => {
 
   beforeEach(async () => {
     await resetDatabase(prisma);
+    await ensureDefaultFinancialCategories(prisma);
     await request(http)
       .post('/auth/session')
       .set('Authorization', bearer(ana))
@@ -185,12 +188,9 @@ describe('service-invoices (e2e)', () => {
     });
   });
 
-  it('refuses a review that is not a draft anymore', async () => {
+  it('refuses a review of a discarded draft', async () => {
     const id = await newDraft();
-    await prisma.serviceInvoice.update({
-      where: { id },
-      data: { status: 'CONFIRMED' },
-    });
+    await discard(id).expect(204);
 
     const response = await saveReview(id, { number: '1288' }).expect(409);
 
@@ -228,6 +228,204 @@ describe('service-invoices (e2e)', () => {
 
     expect(await listIds('?from=2026-10-01&to=2026-10-31')).toEqual([october]);
     expect(await listIds('?to=2026-09-30')).toEqual([september]);
+  });
+
+  describe('reports list', () => {
+    const REPORTS = '/service-invoices/reports';
+
+    /** A confirmed note written straight to the table, with its taker. */
+    const confirmedNote = async (
+      owner: string,
+      takerName: string,
+      issueDate: string,
+      fields: Partial<Prisma.ServiceInvoiceUncheckedCreateInput> = {},
+    ): Promise<string> => {
+      const client = await prisma.client.create({
+        data: { userId: owner, type: 'CLINIC', name: takerName },
+      });
+      const note = await prisma.serviceInvoice.create({
+        data: {
+          userId: owner,
+          clientId: client.id,
+          status: 'CONFIRMED',
+          issueDate: new Date(`${issueDate}T00:00:00Z`),
+          amount: 1500,
+          fileUrl: `users/${owner}/service-invoices/${randomUUID()}/original`,
+          ...fields,
+        },
+      });
+      return note.id;
+    };
+
+    const reports = async (query = '') => {
+      const response = await request(http)
+        .get(`${REPORTS}${query}`)
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      return response.body as {
+        id: string;
+        issueDate: string;
+        takerName: string;
+        hasFile: boolean;
+      }[];
+    };
+
+    const reportIds = async (query = '') =>
+      (await reports(query)).map(note => note.id);
+
+    it('lists the issue date, the taker name and the file indicator', async () => {
+      const withFile = await confirmedNote(
+        userId,
+        'Clínica Exemplo',
+        '2026-10-13',
+      );
+      const withoutFile = await confirmedNote(
+        userId,
+        'Ana Souza',
+        '2026-10-01',
+        { fileUrl: null },
+      );
+
+      expect(await reports()).toEqual([
+        {
+          id: withFile,
+          issueDate: '2026-10-13',
+          takerName: 'Clínica Exemplo',
+          hasFile: true,
+        },
+        {
+          id: withoutFile,
+          issueDate: '2026-10-01',
+          takerName: 'Ana Souza',
+          hasFile: false,
+        },
+      ]);
+    });
+
+    it('orders by issue date, latest first, whatever the order they were recorded', async () => {
+      const middle = await confirmedNote(userId, 'B', '2026-10-10');
+      const oldest = await confirmedNote(userId, 'A', '2026-09-01');
+      const latest = await confirmedNote(userId, 'C', '2026-11-05');
+
+      expect(await reportIds()).toEqual([latest, middle, oldest]);
+    });
+
+    it('leaves out drafts, discarded drafts and deleted notes', async () => {
+      const confirmed = await confirmedNote(userId, 'Confirmed', '2026-10-13');
+      await confirmedNote(userId, 'Draft', '2026-10-14', { status: 'DRAFT' });
+      await confirmedNote(userId, 'Cancelled', '2026-10-15', {
+        status: 'CANCELLED',
+      });
+      await confirmedNote(userId, 'Deleted', '2026-10-16', {
+        deletedAt: new Date(),
+      });
+
+      expect(await reportIds()).toEqual([confirmed]);
+    });
+
+    it('searches the taker name, in part and in any letter case', async () => {
+      const clinic = await confirmedNote(
+        userId,
+        'Clínica Veterinária Sul',
+        '2026-10-13',
+      );
+      await confirmedNote(userId, 'Ana Souza', '2026-10-12');
+
+      expect(await reportIds('?search=VETERIN')).toEqual([clinic]);
+      expect(await reportIds('?search=sul')).toEqual([clinic]);
+      expect(await reportIds('?search=nobody')).toEqual([]);
+      expect(await reportIds('?search=%20%20')).toHaveLength(2);
+    });
+
+    it('takes % and _ in the search as plain characters', async () => {
+      await confirmedNote(userId, 'Clínica Sul', '2026-10-13');
+
+      expect(await reportIds('?search=%25')).toEqual([]);
+      expect(await reportIds('?search=_')).toEqual([]);
+    });
+
+    it('filters by period, both ends included, and either one alone', async () => {
+      const september = await confirmedNote(userId, 'A', '2026-09-30');
+      const october = await confirmedNote(userId, 'B', '2026-10-01');
+      const november = await confirmedNote(userId, 'C', '2026-11-01');
+
+      expect(
+        await reportIds('?startDate=2026-10-01&endDate=2026-10-31'),
+      ).toEqual([october]);
+      expect(await reportIds('?startDate=2026-10-01')).toEqual([
+        november,
+        october,
+      ]);
+      expect(await reportIds('?endDate=2026-10-01')).toEqual([
+        october,
+        september,
+      ]);
+      expect(
+        await reportIds('?startDate=2026-10-01&endDate=2026-10-01'),
+      ).toEqual([october]);
+    });
+
+    it('combines the search with the period', async () => {
+      await confirmedNote(userId, 'Clínica Sul', '2026-09-10');
+      const match = await confirmedNote(userId, 'Clínica Norte', '2026-10-10');
+      await confirmedNote(userId, 'Ana Souza', '2026-10-11');
+
+      expect(await reportIds('?search=clínica&startDate=2026-10-01')).toEqual([
+        match,
+      ]);
+    });
+
+    it('pages the list, for the few cards and for "see all"', async () => {
+      const first = await confirmedNote(userId, 'A', '2026-10-03');
+      const second = await confirmedNote(userId, 'B', '2026-10-02');
+      const third = await confirmedNote(userId, 'C', '2026-10-01');
+
+      expect(await reportIds('?limit=2')).toEqual([first, second]);
+      expect(await reportIds('?limit=2&page=2')).toEqual([third]);
+    });
+
+    it('refuses a start date after the end date', async () => {
+      const response = await request(http)
+        .get(`${REPORTS}?startDate=2026-11-01&endDate=2026-10-31`)
+        .set('Authorization', bearer(ana))
+        .expect(400);
+
+      expect(body(response)).toMatchObject({ code: 'INVALID_REQUEST' });
+    });
+
+    it.each([
+      '?startDate=2026-02-30',
+      '?endDate=13/10/2026',
+      '?page=0',
+      '?limit=101',
+      '?userId=someone-else',
+    ])('refuses %s', async query => {
+      const response = await request(http)
+        .get(`${REPORTS}${query}`)
+        .set('Authorization', bearer(ana))
+        .expect(400);
+
+      expect(body(response)).toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it("never shows another account's notes", async () => {
+      const other = await prisma.user.create({
+        data: {
+          cognitoSub: 'sub-nfse-bruno',
+          email: 'bruno.nfse@example.com',
+          name: 'Bruno Lima',
+        },
+      });
+      await confirmedNote(other.id, 'Clínica do Bruno', '2026-10-13');
+      const mine = await confirmedNote(userId, 'Clínica da Ana', '2026-10-12');
+
+      expect(await reportIds()).toEqual([mine]);
+      expect(await reportIds('?search=bruno')).toEqual([]);
+    });
+
+    it('requires a token', async () => {
+      await request(http).get(REPORTS).expect(401);
+    });
   });
 
   describe('review', () => {
@@ -374,6 +572,184 @@ describe('service-invoices (e2e)', () => {
       const review = await readReview(await readDraft());
 
       expect(review).not.toHaveProperty('duplicateOf');
+    });
+  });
+
+  describe('confirmation', () => {
+    const ISSUED = '2026-10-13';
+
+    const confirm = (id: string, payload: Record<string, unknown> = {}) =>
+      request(http)
+        .post(`/service-invoices/${id}/confirm`)
+        .set('Authorization', bearer(ana))
+        .send(payload);
+
+    /** A draft reviewed with everything a confirmation needs. */
+    const reviewedDraft = async (fileHash?: string) => {
+      const client = await prisma.client.create({
+        data: {
+          userId,
+          type: 'CLINIC',
+          name: 'Clínica Exemplo',
+          paymentTermsDays: 30,
+        },
+      });
+      const id = await newDraft(fileHash);
+      await saveReview(id, {
+        issueDate: ISSUED,
+        amount: 1500,
+        number: '1287',
+        clientId: client.id,
+      }).expect(204);
+      return id;
+    };
+
+    const entryOf = (serviceInvoiceId: string) =>
+      prisma.financialEntry.findUnique({ where: { serviceInvoiceId } });
+
+    const statement = async () => {
+      const response = await request(http)
+        .get('/financial-entries')
+        .query({ year: 2026, month: 10 })
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      return response.body as {
+        id: string;
+        amount: string;
+        source: string;
+        origin: { type: string; id: string };
+      }[];
+    };
+
+    it('records the income entry of the note, due after the client terms', async () => {
+      const id = await reviewedDraft();
+
+      const response = await confirm(id).expect(200);
+
+      const { financialEntryId } = body(response) as {
+        financialEntryId: string;
+      };
+      expect(body(response)).toEqual({ id, financialEntryId });
+      await expect(entryOf(id)).resolves.toMatchObject({
+        id: financialEntryId,
+        nature: 'INCOME',
+        scope: 'PROFESSIONAL',
+        source: 'SERVICE_INVOICE',
+        status: 'PENDING',
+        description: 'NFS-e 1287',
+        accrualDate: new Date(`${ISSUED}T00:00:00Z`),
+        dueDate: new Date('2026-11-12T00:00:00Z'),
+      });
+      expect(await statement()).toEqual([
+        expect.objectContaining({
+          id: financialEntryId,
+          amount: '1500',
+          source: 'SERVICE_INVOICE',
+          origin: { type: 'SERVICE_INVOICE', id },
+        }),
+      ]);
+    });
+
+    it('lists what is missing before confirming', async () => {
+      const id = await newDraft();
+      await saveReview(id, { amount: 1500 }).expect(204);
+
+      const response = await confirm(id).expect(400);
+
+      expect(body(response)).toMatchObject({
+        code: 'SERVICE_INVOICE_NOT_READY',
+        details: { missing: ['issueDate', 'clientId'] },
+      });
+      await expect(entryOf(id)).resolves.toBeNull();
+    });
+
+    it('confirms a note once, with one entry', async () => {
+      const id = await reviewedDraft();
+      await confirm(id).expect(200);
+
+      const response = await confirm(id).expect(409);
+
+      expect(body(response)).toMatchObject({
+        code: 'SERVICE_INVOICE_NOT_EDITABLE',
+      });
+      await expect(
+        prisma.financialEntry.count({ where: { serviceInvoiceId: id } }),
+      ).resolves.toBe(1);
+    });
+
+    it('points to a confirmed note that looks the same until the user insists', async () => {
+      const first = await reviewedDraft();
+      await confirm(first).expect(200);
+      const second = await reviewedDraft();
+
+      const refused = await confirm(second).expect(409);
+      expect(body(refused)).toMatchObject({
+        code: 'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
+        details: {
+          duplicateOf: { id: first, reason: 'SAME_AMOUNT_AND_DATE' },
+        },
+      });
+      await expect(entryOf(second)).resolves.toBeNull();
+
+      await confirm(second, { allowDuplicate: true }).expect(200);
+      await expect(entryOf(second)).resolves.not.toBeNull();
+    });
+
+    it('takes the entry along when a confirmed note is edited', async () => {
+      const id = await reviewedDraft();
+      await confirm(id).expect(200);
+
+      await saveReview(id, { amount: 1450, issueDate: '2026-10-20' }).expect(
+        204,
+      );
+
+      await expect(entryOf(id)).resolves.toMatchObject({
+        amount: new Prisma.Decimal(1450),
+        accrualDate: new Date('2026-10-20T00:00:00Z'),
+        dueDate: new Date('2026-11-19T00:00:00Z'),
+      });
+    });
+
+    it('keeps the required fields of a confirmed note', async () => {
+      const id = await reviewedDraft();
+      await confirm(id).expect(200);
+
+      await saveReview(id, { amount: null }).expect(400);
+
+      await expect(entryOf(id)).resolves.toMatchObject({
+        amount: new Prisma.Decimal(1500),
+      });
+    });
+
+    it('leaves the amount of the entry to the note', async () => {
+      const id = await reviewedDraft();
+      const { financialEntryId } = body(await confirm(id).expect(200)) as {
+        financialEntryId: string;
+      };
+
+      const response = await request(http)
+        .patch(`/financial-entries/${financialEntryId}`)
+        .set('Authorization', bearer(ana))
+        .send({ amount: 10 })
+        .expect(400);
+
+      expect(body(response)).toMatchObject({
+        code: 'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',
+      });
+    });
+
+    it('deletes a confirmed note with its entry, freeing its file', async () => {
+      const fileHash = newFileHash();
+      const id = await reviewedDraft(fileHash);
+      await confirm(id).expect(200);
+
+      await discard(id).expect(204);
+
+      expect(await statement()).toEqual([]);
+      await expect(
+        prisma.serviceInvoice.findUniqueOrThrow({ where: { id } }),
+      ).resolves.toMatchObject({ deletedAt: expect.any(Date) as Date });
+      await newDraft(fileHash);
     });
   });
 

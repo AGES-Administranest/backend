@@ -7,8 +7,10 @@ import { FinancialCategoryService } from './financial-category.service';
 import { FinancialEntryController } from './financial-entry.controller';
 import { FinancialEntryRepository } from './financial-entry.repository';
 import { FinancialEntryService } from './financial-entry.service';
+import { EquipmentModule } from '../equipment';
 
 @Module({
+  imports: [EquipmentModule],
   controllers: [
     FinancialBalanceController,
     FinancialCategoryController,

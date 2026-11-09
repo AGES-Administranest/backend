@@ -109,7 +109,9 @@ export class HourlyRateResponse {
     type: String,
     format: 'date-time',
     example: '2026-10-19T20:42:00.000Z',
-    description: 'When this calculation ran. It is not stored.',
+    description:
+      "When this calculation ran. The same instant is kept in the month's " +
+      'history (US22) whenever the calculation is stored there.',
   })
   calculatedAt!: Date;
 }

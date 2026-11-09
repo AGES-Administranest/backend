@@ -22,7 +22,7 @@ export class FinancialBalanceController {
   @ApiOperation({
     summary: "Summarizes the user's income and expenses for a month",
     description:
-      'Without month and year, the current UTC month is used, like the statement. Expenses follow the statement rule. Depreciation is not included.',
+      'Without month and year, the current UTC month is used, like the statement. Expenses follow the statement rule. The equipment depreciation (US15) is added as a professional expense and as the DEPRECIATION group; it is computed, not stored, so it is not in the statement.',
   })
   @ApiOkResponse({ type: FinancialBalanceResponse })
   @ApiBadRequestResponse({
