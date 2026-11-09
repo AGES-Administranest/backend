@@ -194,6 +194,10 @@ enum MeasurementUnit {
   GRAM
   TABLET
   OTHER
+  LITER
+  MICROGRAM
+  MG_PER_ML
+  MCG_PER_ML
 
   @@map("measurement_unit_enum")
 }
