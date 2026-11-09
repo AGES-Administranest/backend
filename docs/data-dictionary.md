@@ -278,8 +278,8 @@ break a rule the original had to follow.
 Only the four parts, the hour value and the goals are stored. The total, the
 productive hours, the minimum hourly rate and the percentages are derived from
 the row by `composeHourlyRate` in `src/modules/pricing/domain/hourly-rate.ts`,
-the same code behind `GET /pricing/hourly-rate`, so a period opened from the
-history shows exactly what was calculated:
+the same code behind `GET /pricing/hourly-rate`, so the history (the list of
+months and a month opened from it) shows exactly what was calculated:
 
 - `total` = the sum of the four parts;
 - productive hours = `weekly_hours × 52 ÷ 12`;

@@ -168,6 +168,15 @@ item per month that has a snapshot, **from the latest month back**. A month
 without one is left out, never answered as `0.00`. An account with no snapshot
 answers `[]`.
 
+Each item has what the history shows for every month without opening it: the
+hour value, the productive hours and the minimum hour value (without the
+margin). They are the same values as `hourlyRate`, `productiveHours` and
+`minimumHourlyRate` of `GET /pricing/hourly-rate/history/:year/:month`: the hour
+value is the stored one, and the other two are derived from the stored row by
+the same code (`composeHourlyRate`). The productive hours change only when the
+weekly hours of that month's goals did. The margin percentage and the
+composition are not in the list: they come from the month's own route.
+
 #### 200
 
 ```json
@@ -176,12 +185,16 @@ answers `[]`.
     "year": 2026,
     "month": 11,
     "hourlyRate": "63.46",
+    "productiveHours": "173.33",
+    "minimumHourlyRate": "57.69",
     "calculatedAt": "2026-11-02T16:43:32.177Z"
   },
   {
     "year": 2026,
     "month": 3,
     "hourlyRate": "85.15",
+    "productiveHours": "130.00",
+    "minimumHourlyRate": "70.96",
     "calculatedAt": "2026-11-02T16:43:32.158Z"
   }
 ]
