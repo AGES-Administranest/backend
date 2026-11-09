@@ -8,3 +8,7 @@ export * from './dto/query-hourly-rate-history.dto';
 export * from './dto/hourly-rate-month-params.dto';
 export * from './entities/hourly-rate-history.entity';
 export * from './domain/hourly-rate-snapshot';
+export * from './procedure-estimate.service';
+export * from './dto/procedure-estimate.dto';
+export * from './entities/procedure-estimate.entity';
+export * from './domain/procedure-estimate';

@@ -3,11 +3,13 @@ import { Prisma, Trip, TripMode } from '@prisma/client';
 
 import { FinancialEntryService } from '../financial';
 import { snapshotCostPerKm, tripCost } from './domain/trip-cost';
+import { averageDailyCost, TripCostEstimate } from './domain/trip-estimate';
 import { isSameTrip, modeViolations, TripDraft } from './domain/trip-rules';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { QueryTripDto } from './dto/query-trip.dto';
 import { UpdateTripDto } from './dto/update-trip.dto';
 import { TripEntity, TripListEntity } from './entities/trip.entity';
+import { TRIP_ESTIMATE_DAYS } from './trips.constants';
 import { TripsRepository } from './trips.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
@@ -70,6 +72,23 @@ export class TripsService {
       totalKm: money(page.totalKm),
       totalCost: money(page.totalCost),
     };
+  }
+
+  /**
+   * What a day at the client has cost in trips, over the latest days with
+   * trips there, to price the trip of a new procedure (US21). The caller owns
+   * the client check: this only reads the user's own trips.
+   */
+  async estimateCostPerDay(
+    userId: string,
+    clientId: string,
+  ): Promise<TripCostEstimate> {
+    const dailyTotals = await this.tripsRepository.findDailyCosts(
+      userId,
+      clientId,
+      TRIP_ESTIMATE_DAYS,
+    );
+    return averageDailyCost(dailyTotals);
   }
 
   async findOne(id: string, userId: string): Promise<TripEntity> {

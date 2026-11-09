@@ -79,6 +79,7 @@ describe('TripsService', () => {
     create: jest.Mock;
     update: jest.Mock;
     softDelete: jest.Mock;
+    findDailyCosts: jest.Mock;
   };
   let financialEntries: { recordTrip: jest.Mock; removeTripEntry: jest.Mock };
   let service: TripsService;
@@ -95,6 +96,7 @@ describe('TripsService', () => {
       // read and write of a request goes through the same transaction.
       transaction: jest.fn((fn: (client: unknown) => unknown) => fn(tx)),
       findPage: jest.fn(),
+      findDailyCosts: jest.fn().mockResolvedValue([]),
       findById: jest.fn().mockResolvedValue(trip()),
       findAnyById: jest.fn().mockResolvedValue(null),
       findVehicle: jest.fn().mockResolvedValue(activeVehicle),
@@ -685,6 +687,33 @@ describe('TripsService', () => {
         }),
       ).rejects.toMatchObject(error('INVALID_INPUT', 'INVALID_REQUEST'));
       expect(repository.findPage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('estimateCostPerDay', () => {
+    it('averages the latest days with trips to the client', async () => {
+      repository.findDailyCosts.mockResolvedValue([
+        decimal('65.8'),
+        decimal('32.9'),
+      ]);
+
+      const estimate = await service.estimateCostPerDay('user-1', 'client-1');
+
+      expect(repository.findDailyCosts).toHaveBeenCalledWith(
+        'user-1',
+        'client-1',
+        10,
+      );
+      expect(estimate.available).toBe(true);
+      expect(estimate.days).toBe(2);
+      expect(estimate.costPerDay.toString()).toBe('49.35');
+    });
+
+    it('is not available without trips to the client', async () => {
+      const estimate = await service.estimateCostPerDay('user-1', 'client-1');
+
+      expect(estimate).toMatchObject({ available: false, days: 0 });
+      expect(estimate.costPerDay.toString()).toBe('0');
     });
   });
 

@@ -396,3 +396,41 @@ describe('ItemService', () => {
     });
   });
 });
+
+describe('ItemService.findUnitCosts', () => {
+  let repository: { findUnitCosts: jest.Mock };
+  let service: ItemService;
+
+  beforeEach(() => {
+    repository = {
+      findUnitCosts: jest.fn().mockResolvedValue([
+        { id: 'item-1', defaultUnitCost: new Decimal('12.5') },
+        { id: 'item-2', defaultUnitCost: null },
+      ]),
+    };
+    service = new ItemService(repository as never, {} as never, {} as never);
+  });
+
+  it('maps each item found to its unit cost, null when none is recorded', async () => {
+    const costs = await service.findUnitCosts('user-1', [
+      'item-1',
+      'item-2',
+      'item-9',
+    ]);
+
+    expect(repository.findUnitCosts).toHaveBeenCalledWith('user-1', [
+      'item-1',
+      'item-2',
+      'item-9',
+    ]);
+    expect(costs.get('item-1')?.toString()).toBe('12.5');
+    expect(costs.get('item-2')).toBeNull();
+    // Missing, deleted or another account's: simply absent.
+    expect(costs.has('item-9')).toBe(false);
+  });
+
+  it('does not query without ids', async () => {
+    expect((await service.findUnitCosts('user-1', [])).size).toBe(0);
+    expect(repository.findUnitCosts).not.toHaveBeenCalled();
+  });
+});
