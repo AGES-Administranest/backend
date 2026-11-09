@@ -3,10 +3,24 @@ import { Equipment, Prisma, Supplier } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 @Injectable()
 export class EquipmentRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Equipment acquired in the period, active or not. */
+  countAcquiredInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.equipment.count({
+        where: {
+          userId,
+          deletedAt: null,
+          acquisitionDate: { gte: period.from, lt: period.to },
+        },
+      }),
+    );
+  }
 
   findMany(where: Prisma.EquipmentWhereInput): Promise<Equipment[]> {
     return runQuery(() =>

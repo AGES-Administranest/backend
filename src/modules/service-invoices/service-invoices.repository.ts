@@ -4,6 +4,7 @@ import { Prisma, ServiceInvoice, ServiceInvoiceStatus } from '@prisma/client';
 import { DuplicateCriteria } from './domain/find-duplicates';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 /** A write to the note's income entry, inside the note's transaction. */
 export type IncomeWrite<Result> = (
@@ -45,6 +46,20 @@ const escapeLike = (text: string): string => text.replace(/[\\%_]/g, '\\$&');
 @Injectable()
 export class ServiceInvoicesRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Confirmed service invoices issued in the period. A draft is not a record yet. */
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.serviceInvoice.count({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          issueDate: { gte: period.from, lt: period.to },
+        },
+      }),
+    );
+  }
 
   /** The id comes from the client (ADR-09): `userId` is the ownership check. */
   findByIdAndUser(id: string, userId: string): Promise<ServiceInvoice | null> {

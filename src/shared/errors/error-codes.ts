@@ -160,6 +160,11 @@ export const ERROR_CODES = [
   // taker. The app shows it and resends with allowDuplicate.
   'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
 
+  // reports
+  // `from` is after `to`: the period is empty by construction, so resending
+  // the same dates will never work and the app has to fix the range.
+  'REPORT_PERIOD_INVALID',
+
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',
   'FINANCIAL_ENTRY_CONTROLLED_BY_ORIGIN',

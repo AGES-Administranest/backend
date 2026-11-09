@@ -3,6 +3,7 @@ import { Prisma, PurchaseInvoice } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 const WITH_SUPPLIER_NAME = {
   supplier: { select: { name: true } },
@@ -37,6 +38,20 @@ export type SupplierInvoiceFilters = {
 @Injectable()
 export class StockEntryRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Confirmed purchase invoices issued in the period. A draft is not a record yet. */
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.purchaseInvoice.count({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          issueDate: { gte: period.from, lt: period.to },
+        },
+      }),
+    );
+  }
 
   /** The id comes from the client (ADR-09): `userId` is the ownership check. */
   findByIdAndUser(id: string, userId: string): Promise<PurchaseInvoice | null> {

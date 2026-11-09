@@ -25,10 +25,15 @@ import {
   UploadCheck,
 } from '../../infra/storage';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
+import { Period } from '../../shared/dates/period';
 import { SupplierService } from '../supplier';
 
 @Injectable()
 export class StockEntryService {
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return this.stockEntryRepository.countConfirmedInPeriod(userId, period);
+  }
+
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
     private readonly documentUploads: DocumentUploads,
