@@ -57,6 +57,23 @@ export interface CorrectedItemUsage {
   itemBalance: Prisma.Decimal;
 }
 
+/** `before` is exclusive, so a period's last day needs no end-of-day instant. */
+export interface AppointmentPeriod {
+  from?: Date;
+  before?: Date;
+}
+
+export type ClientAppointment = Pick<
+  Appointment,
+  'id' | 'startsAt' | 'procedureName' | 'patientName' | 'amount'
+>;
+
+export interface ClientAppointmentPage {
+  appointments: ClientAppointment[];
+  /** across every page of the period */
+  total: number;
+}
+
 export interface RecordedItemUsage {
   movement: StockMovement;
   /** `item.currentQuantity` right after this movement was applied */
@@ -104,6 +121,38 @@ export class AppointmentsRepository {
         take,
       }),
     );
+  }
+
+  /** Latest first; the id keeps equal starts from moving between pages. */
+  async findCompletedPageByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+    skip: number,
+    take: number,
+  ): Promise<ClientAppointmentPage> {
+    const where = this.completedByClientWhere(userId, clientId, period);
+
+    const [appointments, total] = await runQuery(() =>
+      this.prisma.$transaction([
+        this.prisma.appointment.findMany({
+          where,
+          select: {
+            id: true,
+            startsAt: true,
+            procedureName: true,
+            patientName: true,
+            amount: true,
+          },
+          orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
+          skip,
+          take,
+        }),
+        this.prisma.appointment.count({ where }),
+      ]),
+    );
+
+    return { appointments, total };
   }
 
   findById(id: string, userId: string): Promise<Appointment | null> {
@@ -361,6 +410,27 @@ export class AppointmentsRepository {
         });
       }),
     );
+  }
+
+  private completedByClientWhere(
+    userId: string,
+    clientId: string,
+    { from, before }: AppointmentPeriod,
+  ): Prisma.AppointmentWhereInput {
+    return {
+      userId,
+      clientId,
+      status: AppointmentStatus.COMPLETED,
+      deletedAt: null,
+      ...(from || before
+        ? {
+            startsAt: {
+              ...(from ? { gte: from } : {}),
+              ...(before ? { lt: before } : {}),
+            },
+          }
+        : {}),
+    };
   }
 
   private async ensureClientBelongsToUser(

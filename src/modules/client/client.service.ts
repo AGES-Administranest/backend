@@ -6,14 +6,31 @@ import { ClientRepository } from './client.repository';
 import { rankByName } from './domain/name-match';
 import { CreateClientDto } from './dto/create-client.dto';
 import { DeleteClientDto } from './dto/delete-client.dto';
+import { QueryClientAppointmentsDto } from './dto/query-client-appointments.dto';
 import { QueryClientDto } from './dto/query-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import {
+  ClientAppointmentEntity,
+  ClientAppointmentListEntity,
+} from './entities/client-appointment.entity';
 import { RecordNotFoundError } from '../../infra/prisma/prisma-errors';
+import {
+  startOfBusinessDay,
+  startOfNextBusinessDay,
+} from '../../shared/dates/business-day';
 import { DomainError } from '../../shared/errors/domain-error';
+import {
+  AppointmentPeriod,
+  AppointmentsService,
+  ClientAppointment,
+} from '../appointments';
 
 @Injectable()
 export class ClientService {
-  constructor(private readonly clientRepository: ClientRepository) {}
+  constructor(
+    private readonly clientRepository: ClientRepository,
+    private readonly appointmentsService: AppointmentsService,
+  ) {}
 
   async findAll(
     userId: string,
@@ -30,6 +47,31 @@ export class ClientService {
     const client = await this.clientRepository.findById(id, userId);
     if (!client) throw this.clientNotFound(id);
     return this.sanitize(client);
+  }
+
+  async findAppointments(
+    id: string,
+    userId: string,
+    { from, to, page, limit }: QueryClientAppointmentsDto,
+  ): Promise<ClientAppointmentListEntity> {
+    this.ensurePeriodIsOrdered(from, to);
+    await this.findOne(id, userId);
+
+    const { appointments, total } =
+      await this.appointmentsService.findCompletedByClient(
+        userId,
+        id,
+        this.toAppointmentPeriod(from, to),
+        (page - 1) * limit,
+        limit,
+      );
+
+    return {
+      items: appointments.map(appointment => this.toHistoryItem(appointment)),
+      total,
+      page,
+      limit,
+    };
   }
 
   /** An inactive client still holds its tax id; a deleted one does not. */
@@ -115,6 +157,34 @@ export class ClientService {
       active: client.active,
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
+    };
+  }
+
+  private ensurePeriodIsOrdered(from?: string, to?: string): void {
+    // `YYYY-MM-DD` strings sort as the dates they spell.
+    if (from && to && from > to) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        'INVALID_REQUEST',
+        'from must not be after to',
+        { from, to },
+      );
+    }
+  }
+
+  private toAppointmentPeriod(from?: string, to?: string): AppointmentPeriod {
+    return {
+      from: from ? startOfBusinessDay(from) : undefined,
+      before: to ? startOfNextBusinessDay(to) : undefined,
+    };
+  }
+
+  private toHistoryItem(
+    appointment: ClientAppointment,
+  ): ClientAppointmentEntity {
+    return {
+      ...appointment,
+      amount: appointment.amount?.toFixed(2) ?? null,
     };
   }
 

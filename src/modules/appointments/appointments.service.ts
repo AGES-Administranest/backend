@@ -11,7 +11,9 @@ import {
 
 import {
   ActiveSupply,
+  AppointmentPeriod,
   AppointmentsRepository,
+  ClientAppointmentPage,
   ItemUsage,
   ItemWithLots,
   RecordedItemUsage,
@@ -64,6 +66,22 @@ export class AppointmentsService {
 
   countInPeriod(userId: string, period: Period): Promise<number> {
     return this.appointmentsRepository.countInPeriod(userId, period);
+  }
+
+  findCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+    skip: number,
+    take: number,
+  ): Promise<ClientAppointmentPage> {
+    return this.appointmentsRepository.findCompletedPageByClient(
+      userId,
+      clientId,
+      period,
+      skip,
+      take,
+    );
   }
 
   async findAll(

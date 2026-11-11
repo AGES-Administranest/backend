@@ -1,4 +1,4 @@
-import { Client } from '@prisma/client';
+import { Client, Prisma } from '@prisma/client';
 
 import { RecordNotFoundError } from '../../../src/infra/prisma/prisma-errors';
 import { ClientService } from '../../../src/modules/client/client.service';
@@ -44,9 +44,15 @@ describe('ClientService', () => {
     update: jest.Mock;
     delete: jest.Mock;
   };
+  let appointments: { findCompletedByClient: jest.Mock };
   let service: ClientService;
 
   beforeEach(() => {
+    appointments = {
+      findCompletedByClient: jest
+        .fn()
+        .mockResolvedValue({ appointments: [], total: 0 }),
+    };
     repository = {
       findMany: jest.fn().mockResolvedValue([]),
       findById: jest.fn(),
@@ -56,7 +62,139 @@ describe('ClientService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     };
-    service = new ClientService(repository as never);
+    service = new ClientService(repository as never, appointments as never);
+  });
+
+  describe('findAppointments', () => {
+    const query = { page: 1, limit: 10 };
+
+    beforeEach(() => repository.findById.mockResolvedValue(client()));
+
+    it('asks for the São Paulo days of the period, the last one included', async () => {
+      await service.findAppointments('client-1', 'user-1', {
+        ...query,
+        from: '2026-11-01',
+        to: '2026-11-30',
+      });
+
+      expect(appointments.findCompletedByClient).toHaveBeenCalledWith(
+        'user-1',
+        'client-1',
+        {
+          from: new Date('2026-11-01T03:00:00.000Z'),
+          before: new Date('2026-12-01T03:00:00.000Z'),
+        },
+        0,
+        10,
+      );
+    });
+
+    it('asks for everything without a period', async () => {
+      await service.findAppointments('client-1', 'user-1', query);
+
+      expect(appointments.findCompletedByClient).toHaveBeenCalledWith(
+        'user-1',
+        'client-1',
+        { from: undefined, before: undefined },
+        0,
+        10,
+      );
+    });
+
+    it('accepts a period of a single day', async () => {
+      await service.findAppointments('client-1', 'user-1', {
+        ...query,
+        from: '2026-11-01',
+        to: '2026-11-01',
+      });
+
+      expect(appointments.findCompletedByClient).toHaveBeenCalled();
+    });
+
+    it('turns the page into an offset', async () => {
+      await service.findAppointments('client-1', 'user-1', {
+        page: 3,
+        limit: 10,
+      });
+
+      expect(appointments.findCompletedByClient).toHaveBeenCalledWith(
+        'user-1',
+        'client-1',
+        expect.anything(),
+        20,
+        10,
+      );
+    });
+
+    it('sends amounts as strings with cents, keeping a missing one null', async () => {
+      const startsAt = new Date('2026-11-03T16:00:00.000Z');
+      appointments.findCompletedByClient.mockResolvedValue({
+        appointments: [
+          {
+            id: 'appointment-1',
+            startsAt,
+            procedureName: 'Orquiectomia',
+            patientName: 'Mel',
+            amount: new Prisma.Decimal(620),
+          },
+          {
+            id: 'appointment-2',
+            startsAt,
+            procedureName: null,
+            patientName: null,
+            amount: null,
+          },
+        ],
+        total: 13,
+      });
+
+      await expect(
+        service.findAppointments('client-1', 'user-1', query),
+      ).resolves.toEqual({
+        items: [
+          {
+            id: 'appointment-1',
+            startsAt,
+            procedureName: 'Orquiectomia',
+            patientName: 'Mel',
+            amount: '620.00',
+          },
+          {
+            id: 'appointment-2',
+            startsAt,
+            procedureName: null,
+            patientName: null,
+            amount: null,
+          },
+        ],
+        total: 13,
+        page: 1,
+        limit: 10,
+      });
+    });
+
+    it('refuses a period that ends before it starts', async () => {
+      await expectDomainError(
+        service.findAppointments('client-1', 'user-1', {
+          ...query,
+          from: '2026-11-30',
+          to: '2026-11-01',
+        }),
+        'INVALID_REQUEST',
+      );
+      expect(appointments.findCompletedByClient).not.toHaveBeenCalled();
+    });
+
+    it("reports someone else's client as not found, reading nothing", async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expectDomainError(
+        service.findAppointments('client-1', 'user-2', query),
+        'CLIENT_NOT_FOUND',
+      );
+      expect(repository.findById).toHaveBeenCalledWith('client-1', 'user-2');
+      expect(appointments.findCompletedByClient).not.toHaveBeenCalled();
+    });
   });
 
   describe('findAll', () => {
