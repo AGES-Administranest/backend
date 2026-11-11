@@ -45,7 +45,7 @@ export class TripsRepository {
         where: {
           userId,
           deletedAt: null,
-          occurredOn: { gte: period.from, lt: period.to },
+          occurredOn: { gte: period.days.from, lt: period.days.to },
         },
       }),
     );

@@ -47,7 +47,7 @@ export class StockEntryRepository {
           userId,
           deletedAt: null,
           status: 'CONFIRMED',
-          issueDate: { gte: period.from, lt: period.to },
+          issueDate: { gte: period.days.from, lt: period.days.to },
         },
       }),
     );

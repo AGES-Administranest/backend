@@ -64,10 +64,12 @@ describe('Reports availability (e2e)', () => {
 
     await prisma.appointment.createMany({
       data: [
-        { userId: ownerId, startsAt: new Date('2026-10-01T00:00:00Z') },
-        { userId: ownerId, startsAt: new Date('2026-10-31T23:59:59Z') },
-        { userId: ownerId, startsAt: new Date('2026-09-30T23:59:59Z') },
-        { userId: ownerId, startsAt: new Date('2026-11-01T00:00:00Z') },
+        // Brasília dates: 01/10 00:00 and 31/10 23:59:59 are inside October;
+        // 30/09 23:59:59 and 01/11 00:00 are outside it.
+        { userId: ownerId, startsAt: new Date('2026-10-01T03:00:00Z') },
+        { userId: ownerId, startsAt: new Date('2026-11-01T02:59:59Z') },
+        { userId: ownerId, startsAt: new Date('2026-10-01T02:59:59Z') },
+        { userId: ownerId, startsAt: new Date('2026-11-01T03:00:00Z') },
         {
           userId: ownerId,
           startsAt: new Date('2026-10-10T12:00:00Z'),
@@ -168,7 +170,7 @@ describe('Reports availability (e2e)', () => {
           source: 'MANUAL_PURCHASE',
           quantity: '5',
           unitCost: '2',
-          occurredAt: new Date('2026-11-01T00:00:00Z'),
+          occurredAt: new Date('2026-11-01T03:00:00Z'),
         },
       ],
     });

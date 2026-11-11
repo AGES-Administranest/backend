@@ -2,9 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { QueryReportsAvailabilityDto } from './dto/query-reports-availability.dto';
 import { ReportsAvailabilityEntity } from './entities/reports-availability.entity';
-import { fromIsoDate } from '../../shared/dates/iso-date';
-import { Period } from '../../shared/dates/period';
-import { DomainError } from '../../shared/errors/domain-error';
+import { periodFromIsoDates } from '../../shared/dates/period';
 import { AppointmentsService } from '../appointments';
 import { EquipmentService } from '../equipment';
 import { FinancialEntryService } from '../financial';
@@ -12,8 +10,6 @@ import { ServiceInvoiceCountService } from '../service-invoices';
 import { StockEntryService } from '../stock-entry';
 import { StockMovementsService } from '../stock-movements';
 import { TripsService } from '../trips';
-
-const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Base of the reports area (US29, US30 and US32). It owns no table: each count
@@ -37,7 +33,7 @@ export class ReportsService {
     userId: string,
     query: QueryReportsAvailabilityDto,
   ): Promise<ReportsAvailabilityEntity> {
-    const period = this.periodOf(query);
+    const period = periodFromIsoDates(query.from, query.to);
 
     const [
       appointments,
@@ -74,22 +70,5 @@ export class ReportsService {
         trips +
         equipments,
     };
-  }
-
-  /** Both days are included, so the period ends at the start of the day after `to`. */
-  private periodOf(query: QueryReportsAvailabilityDto): Period {
-    const from = fromIsoDate(query.from);
-    const to = fromIsoDate(query.to);
-
-    if (from.getTime() > to.getTime()) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        'REPORT_PERIOD_INVALID',
-        '`from` must not be after `to`',
-        { from: query.from, to: query.to },
-      );
-    }
-
-    return { from, to: new Date(to.getTime() + DAY_IN_MS) };
   }
 }

@@ -73,35 +73,35 @@ describe('ReportsService.getAvailability', () => {
     expect(result.total).toBe(0);
   });
 
-  it('includes both days: the period ends at the start of the day after `to`', async () => {
+  it('gives each count the limits of its column kind', async () => {
     await service.getAvailability(userId, {
       from: '2026-10-01',
       to: '2026-10-31',
     });
 
-    const expected = {
+    // `@db.Date` columns and the financial entry (written at UTC midnight).
+    const days = {
       from: new Date('2026-10-01T00:00:00.000Z'),
       to: new Date('2026-11-01T00:00:00.000Z'),
     };
-    expect(appointments.countInPeriod).toHaveBeenCalledWith(userId, expected);
-    expect(financialEntries.countInPeriod).toHaveBeenCalledWith(
-      userId,
-      expected,
-    );
-    expect(serviceInvoices.countConfirmedInPeriod).toHaveBeenCalledWith(
-      userId,
-      expected,
-    );
-    expect(purchaseInvoices.countConfirmedInPeriod).toHaveBeenCalledWith(
-      userId,
-      expected,
-    );
-    expect(stockMovements.countInPeriod).toHaveBeenCalledWith(userId, expected);
-    expect(trips.countInPeriod).toHaveBeenCalledWith(userId, expected);
-    expect(equipment.countAcquiredInPeriod).toHaveBeenCalledWith(
-      userId,
-      expected,
-    );
+    // Instants: October in Brasília runs from 03:00Z to 03:00Z.
+    const instants = {
+      from: new Date('2026-10-01T03:00:00.000Z'),
+      to: new Date('2026-11-01T03:00:00.000Z'),
+    };
+    const period = { days, instants };
+
+    for (const source of [
+      appointments.countInPeriod,
+      financialEntries.countInPeriod,
+      serviceInvoices.countConfirmedInPeriod,
+      purchaseInvoices.countConfirmedInPeriod,
+      stockMovements.countInPeriod,
+      trips.countInPeriod,
+      equipment.countAcquiredInPeriod,
+    ]) {
+      expect(source).toHaveBeenCalledWith(userId, period);
+    }
   });
 
   it('accepts a single-day period', async () => {
@@ -111,8 +111,14 @@ describe('ReportsService.getAvailability', () => {
     });
 
     expect(trips.countInPeriod).toHaveBeenCalledWith(userId, {
-      from: new Date('2026-10-15T00:00:00.000Z'),
-      to: new Date('2026-10-16T00:00:00.000Z'),
+      days: {
+        from: new Date('2026-10-15T00:00:00.000Z'),
+        to: new Date('2026-10-16T00:00:00.000Z'),
+      },
+      instants: {
+        from: new Date('2026-10-15T03:00:00.000Z'),
+        to: new Date('2026-10-16T03:00:00.000Z'),
+      },
     });
   });
 

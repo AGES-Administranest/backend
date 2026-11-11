@@ -8,13 +8,22 @@ import { TripsRepository } from '../../../src/modules/trips/trips.repository';
 
 /**
  * ADR-11 for the counts the reports use: each one filters by the user and
- * leaves deleted records out, over the half-open period `[from, to)`.
+ * leaves deleted records out, over the half-open period `[from, to)`: local
+ * midnight for the columns that hold an instant, UTC midnight for the date
+ * columns and for the financial entry, which the statement also reads in UTC.
  */
 const period = {
-  from: new Date('2026-10-01T00:00:00.000Z'),
-  to: new Date('2026-11-01T00:00:00.000Z'),
+  days: {
+    from: new Date('2026-10-01T00:00:00.000Z'),
+    to: new Date('2026-11-01T00:00:00.000Z'),
+  },
+  instants: {
+    from: new Date('2026-10-01T03:00:00.000Z'),
+    to: new Date('2026-11-01T03:00:00.000Z'),
+  },
 };
-const inPeriod = { gte: period.from, lt: period.to };
+const inDays = { gte: period.days.from, lt: period.days.to };
+const inInstants = { gte: period.instants.from, lt: period.instants.to };
 
 interface Case {
   name: string;
@@ -31,7 +40,7 @@ const cases: Case[] = [
       const repository = new AppointmentsRepository(prisma as never);
       return userId => repository.countInPeriod(userId, period);
     },
-    where: { deletedAt: null, startsAt: inPeriod },
+    where: { deletedAt: null, startsAt: inInstants },
   },
   {
     name: 'financial entries',
@@ -40,7 +49,7 @@ const cases: Case[] = [
       const repository = new FinancialEntryRepository(prisma as never);
       return userId => repository.countInPeriod(userId, period);
     },
-    where: { deletedAt: null, accrualDate: inPeriod },
+    where: { deletedAt: null, accrualDate: inDays },
   },
   {
     name: 'service invoices',
@@ -49,7 +58,7 @@ const cases: Case[] = [
       const repository = new ServiceInvoicesRepository(prisma as never);
       return userId => repository.countConfirmedInPeriod(userId, period);
     },
-    where: { deletedAt: null, status: 'CONFIRMED', issueDate: inPeriod },
+    where: { deletedAt: null, status: 'CONFIRMED', issueDate: inDays },
   },
   {
     name: 'purchase invoices',
@@ -58,7 +67,7 @@ const cases: Case[] = [
       const repository = new StockEntryRepository(prisma as never);
       return userId => repository.countConfirmedInPeriod(userId, period);
     },
-    where: { deletedAt: null, status: 'CONFIRMED', issueDate: inPeriod },
+    where: { deletedAt: null, status: 'CONFIRMED', issueDate: inDays },
   },
   {
     name: 'stock movements',
@@ -67,7 +76,7 @@ const cases: Case[] = [
       const repository = new StockMovementsRepository(prisma as never);
       return userId => repository.countInPeriod(userId, period);
     },
-    where: { deletedAt: null, occurredAt: inPeriod },
+    where: { deletedAt: null, occurredAt: inInstants },
   },
   {
     name: 'trips',
@@ -76,7 +85,7 @@ const cases: Case[] = [
       const repository = new TripsRepository(prisma as never);
       return userId => repository.countInPeriod(userId, period);
     },
-    where: { deletedAt: null, occurredOn: inPeriod },
+    where: { deletedAt: null, occurredOn: inDays },
   },
   {
     name: 'equipment',
@@ -85,7 +94,7 @@ const cases: Case[] = [
       const repository = new EquipmentRepository(prisma as never);
       return userId => repository.countAcquiredInPeriod(userId, period);
     },
-    where: { deletedAt: null, acquisitionDate: inPeriod },
+    where: { deletedAt: null, acquisitionDate: inDays },
   },
 ];
 

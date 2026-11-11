@@ -74,7 +74,7 @@ export class AppointmentsRepository {
         where: {
           userId,
           deletedAt: null,
-          startsAt: { gte: period.from, lt: period.to },
+          startsAt: { gte: period.instants.from, lt: period.instants.to },
         },
       }),
     );

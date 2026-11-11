@@ -16,7 +16,7 @@ export class EquipmentRepository {
         where: {
           userId,
           deletedAt: null,
-          acquisitionDate: { gte: period.from, lt: period.to },
+          acquisitionDate: { gte: period.days.from, lt: period.days.to },
         },
       }),
     );

@@ -26,6 +26,13 @@ export class ReportsAvailabilityEntity {
   @ApiProperty({ description: 'Equipment acquired in the period' })
   equipments!: number;
 
-  @ApiProperty({ description: 'Sum of every section above' })
+  @ApiProperty({
+    description:
+      'Sum of every section above. It counts records, not distinct events: ' +
+      'a confirmed invoice, a trip or the supplies of an appointment also ' +
+      'produce a financial entry or a stock movement, and a stock correction ' +
+      'counts the movement and its reversal. Use it to tell whether the ' +
+      'period is empty, not as a number to show as "N records".',
+  })
   total!: number;
 }

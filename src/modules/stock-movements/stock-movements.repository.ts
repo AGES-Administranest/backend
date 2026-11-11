@@ -62,7 +62,7 @@ export class StockMovementsRepository {
         where: {
           userId,
           deletedAt: null,
-          occurredAt: { gte: period.from, lt: period.to },
+          occurredAt: { gte: period.instants.from, lt: period.instants.to },
         },
       }),
     );

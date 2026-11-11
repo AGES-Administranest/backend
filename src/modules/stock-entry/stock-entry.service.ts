@@ -30,16 +30,16 @@ import { SupplierService } from '../supplier';
 
 @Injectable()
 export class StockEntryService {
-  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
-    return this.stockEntryRepository.countConfirmedInPeriod(userId, period);
-  }
-
   constructor(
     private readonly stockEntryRepository: StockEntryRepository,
     private readonly documentUploads: DocumentUploads,
     private readonly purchaseReadingService: PurchaseReadingService,
     private readonly supplierService: SupplierService,
   ) {}
+
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return this.stockEntryRepository.countConfirmedInPeriod(userId, period);
+  }
 
   async listSupplierInvoices(
     userId: string,
