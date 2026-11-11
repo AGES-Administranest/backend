@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { NfseReadingService } from './nfse-reading.service';
 import { ServiceInvoiceConfirmationService } from './service-invoice-confirmation.service';
+import { ServiceInvoiceCountService } from './service-invoice-count.service';
 import { ServiceInvoiceDraftService } from './service-invoice-draft.service';
 import { ServiceInvoiceReviewService } from './service-invoice-review.service';
 import { ServiceInvoiceUploadService } from './service-invoice-upload.service';
@@ -26,6 +27,8 @@ import { UsersModule } from '../users';
     ServiceInvoiceConfirmationService,
     NfseReadingService,
     ServiceInvoicesRepository,
+    ServiceInvoiceCountService,
   ],
+  exports: [ServiceInvoiceCountService],
 })
 export class ServiceInvoicesModule {}

@@ -3,6 +3,7 @@ import { Prisma, Trip } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 type Db = Prisma.TransactionClient | PrismaService;
 
@@ -36,6 +37,19 @@ const TRIP_ORDER: Prisma.TripOrderByWithRelationInput[] = [
 @Injectable()
 export class TripsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Trips made in the period (`occurredOn`). */
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.trip.count({
+        where: {
+          userId,
+          deletedAt: null,
+          occurredOn: { gte: period.days.from, lt: period.days.to },
+        },
+      }),
+    );
+  }
 
   transaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     return runQuery(() => this.prisma.$transaction(fn));

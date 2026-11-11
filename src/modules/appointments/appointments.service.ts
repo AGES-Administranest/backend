@@ -48,6 +48,7 @@ import {
   RecordNotFoundError,
   UniqueConstraintError,
 } from '../../infra/prisma/prisma-errors';
+import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 import {
   assertValidMovement,
@@ -60,6 +61,10 @@ export class AppointmentsService {
   constructor(
     private readonly appointmentsRepository: AppointmentsRepository,
   ) {}
+
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return this.appointmentsRepository.countInPeriod(userId, period);
+  }
 
   async findAll(
     userId: string,
