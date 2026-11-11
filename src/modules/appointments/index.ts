@@ -2,6 +2,7 @@ export * from './appointments.module';
 export * from './appointments.service';
 export type {
   AppointmentPeriod,
+  AppointmentTotals,
   ClientAppointment,
   ClientAppointmentPage,
 } from './appointments.repository';

@@ -19,6 +19,11 @@ export interface TripPage {
   totalCost: Prisma.Decimal;
 }
 
+export interface TripTotals {
+  count: number;
+  cost: Prisma.Decimal;
+}
+
 /** Latest day first; within a day, in the order the trips were recorded. */
 const TRIP_ORDER: Prisma.TripOrderByWithRelationInput[] = [
   { occurredOn: 'desc' },
@@ -104,6 +109,25 @@ export class TripsRepository {
     );
     // `cost` is NOT NULL, so every group has a sum.
     return rows.map(row => row._sum.cost ?? new Prisma.Decimal(0));
+  }
+
+  async sumByClient(
+    userId: string,
+    clientId: string,
+    period: TripPeriod,
+  ): Promise<TripTotals> {
+    const totals = await runQuery(() =>
+      this.prisma.trip.aggregate({
+        where: { ...this.periodWhere(userId, period), clientId },
+        _count: { _all: true },
+        _sum: { cost: true },
+      }),
+    );
+
+    return {
+      count: totals._count._all,
+      cost: totals._sum.cost ?? new Prisma.Decimal(0),
+    };
   }
 
   findById(id: string, userId: string, db: Db = this.prisma) {

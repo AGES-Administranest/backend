@@ -25,9 +25,11 @@ import { ClientService } from './client.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { DeleteClientDto } from './dto/delete-client.dto';
 import { QueryClientAppointmentsDto } from './dto/query-client-appointments.dto';
+import { QueryClientPeriodDto } from './dto/query-client-period.dto';
 import { QueryClientDto } from './dto/query-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { ClientAppointmentListEntity } from './entities/client-appointment.entity';
+import { ClientSummaryEntity } from './entities/client-summary.entity';
 import { CurrentUser } from '../../shared/auth';
 // `import type` is required by `emitDecoratorMetadata` on a decorated signature.
 import type { AuthenticatedUser } from '../../shared/auth';
@@ -101,6 +103,33 @@ export class ClientController {
     @Query() query: QueryClientAppointmentsDto,
   ) {
     return this.clientService.findAppointments(id, user.id, query);
+  }
+
+  @Get(':id/summary')
+  @ApiOperation({
+    summary:
+      "Totals of a client's completed appointments and trips in a period",
+    description:
+      'Counts and adds up the same appointments GET /client/:id/appointments ' +
+      'lists, and the trips linked to the client. from and to are São Paulo ' +
+      'calendar days, both inclusive.',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: ClientSummaryEntity })
+  @ApiBadRequestResponse({
+    description:
+      'A date that is not YYYY-MM-DD or does not exist (VALIDATION_ERROR), ' +
+      'or from after to (INVALID_REQUEST)',
+  })
+  @ApiNotFoundResponse({
+    description: 'Client not found, deleted or owned by someone else',
+  })
+  summarize(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryClientPeriodDto,
+  ) {
+    return this.clientService.summarize(id, user.id, query);
   }
 
   @Patch(':id')

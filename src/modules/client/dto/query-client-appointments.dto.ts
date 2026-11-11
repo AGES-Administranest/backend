@@ -2,34 +2,12 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
-import { IsIsoDate } from '../../../shared/dates/iso-date';
+import { QueryClientPeriodDto } from './query-client-period.dto';
 
 // Keeps (page - 1) * limit inside the database's integer range.
 export const MAX_PAGE = 10_000;
 
-export class QueryClientAppointmentsDto {
-  @ApiPropertyOptional({
-    format: 'date',
-    example: '2026-11-01',
-    description:
-      'First day of the period, inclusive, in São Paulo time. Without it, ' +
-      'no start',
-  })
-  @IsOptional()
-  @IsIsoDate()
-  from?: string;
-
-  @ApiPropertyOptional({
-    format: 'date',
-    example: '2026-11-30',
-    description:
-      'Last day of the period, inclusive, in São Paulo time. Without it, no ' +
-      'end',
-  })
-  @IsOptional()
-  @IsIsoDate()
-  to?: string;
-
+export class QueryClientAppointmentsDto extends QueryClientPeriodDto {
   @ApiPropertyOptional({
     type: Number,
     default: 1,

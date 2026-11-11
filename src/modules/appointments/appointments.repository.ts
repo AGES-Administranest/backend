@@ -74,6 +74,11 @@ export interface ClientAppointmentPage {
   total: number;
 }
 
+export interface AppointmentTotals {
+  count: number;
+  amount: Prisma.Decimal;
+}
+
 export interface RecordedItemUsage {
   movement: StockMovement;
   /** `item.currentQuantity` right after this movement was applied */
@@ -153,6 +158,26 @@ export class AppointmentsRepository {
     );
 
     return { appointments, total };
+  }
+
+  /** Counts and adds up exactly what `findCompletedPageByClient` lists. */
+  async sumCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+  ): Promise<AppointmentTotals> {
+    const totals = await runQuery(() =>
+      this.prisma.appointment.aggregate({
+        where: this.completedByClientWhere(userId, clientId, period),
+        _count: { _all: true },
+        _sum: { amount: true },
+      }),
+    );
+
+    return {
+      count: totals._count._all,
+      amount: totals._sum.amount ?? new Prisma.Decimal(0),
+    };
   }
 
   findById(id: string, userId: string): Promise<Appointment | null> {

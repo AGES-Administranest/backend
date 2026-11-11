@@ -13,6 +13,7 @@ import {
   ActiveSupply,
   AppointmentPeriod,
   AppointmentsRepository,
+  AppointmentTotals,
   ClientAppointmentPage,
   ItemUsage,
   ItemWithLots,
@@ -81,6 +82,18 @@ export class AppointmentsService {
       period,
       skip,
       take,
+    );
+  }
+
+  sumCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+  ): Promise<AppointmentTotals> {
+    return this.appointmentsRepository.sumCompletedByClient(
+      userId,
+      clientId,
+      period,
     );
   }
 

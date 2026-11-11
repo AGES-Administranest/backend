@@ -6,4 +6,6 @@ export * from './client.entity';
 export * from './dto/query-client.dto';
 export * from './dto/delete-client.dto';
 export * from './dto/query-client-appointments.dto';
+export * from './dto/query-client-period.dto';
 export * from './entities/client-appointment.entity';
+export * from './entities/client-summary.entity';
