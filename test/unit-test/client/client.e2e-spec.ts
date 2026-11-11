@@ -293,6 +293,14 @@ describe('Client (e2e)', () => {
         .expect(400);
     });
 
+    it('answers 400, not 500, for a page too far to skip to', async () => {
+      await request(server())
+        .get(`/client/${await newClinic()}/appointments`)
+        .set('Authorization', bearer(owner))
+        .query({ page: '99999999999999999999' })
+        .expect(400);
+    });
+
     it('answers 400 for an id that is not a uuid', async () => {
       await request(server())
         .get('/client/not-a-uuid/appointments')

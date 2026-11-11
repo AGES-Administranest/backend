@@ -25,6 +25,7 @@ import {
   UploadCheck,
 } from '../../infra/storage';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
+import { Period } from '../../shared/dates/period';
 import { SupplierService } from '../supplier';
 
 @Injectable()
@@ -35,6 +36,10 @@ export class StockEntryService {
     private readonly purchaseReadingService: PurchaseReadingService,
     private readonly supplierService: SupplierService,
   ) {}
+
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return this.stockEntryRepository.countConfirmedInPeriod(userId, period);
+  }
 
   async listSupplierInvoices(
     userId: string,

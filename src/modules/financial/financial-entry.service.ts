@@ -19,6 +19,7 @@ import {
   StatementRow,
 } from './financial-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
+import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 import { EquipmentService } from '../equipment';
 
@@ -118,6 +119,10 @@ export class FinancialEntryService {
     private readonly categories: FinancialCategoryRepository,
     private readonly equipment: EquipmentService,
   ) {}
+
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return this.repository.countInPeriod(userId, period);
+  }
 
   async findAll(
     userId: string,
