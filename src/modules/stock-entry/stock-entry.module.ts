@@ -5,6 +5,7 @@ import { StockEntryDraftService } from './stock-entry-draft.service';
 import { StockEntryController } from './stock-entry.controller';
 import { StockEntryRepository } from './stock-entry.repository';
 import { StockEntryService } from './stock-entry.service';
+import { SupplierInvoicesController } from './supplier-invoices.controller';
 import { ExtractionModule } from '../extraction';
 import { FinancialModule } from '../financial';
 import { ItemModule } from '../item';
@@ -23,7 +24,7 @@ import { SupplierModule } from '../supplier';
     SupplierModule,
     FinancialModule,
   ],
-  controllers: [StockEntryController],
+  controllers: [StockEntryController, SupplierInvoicesController],
   // The repository stays internal: outside this module the only way in is the
   // service, same rule as `users`.
   providers: [

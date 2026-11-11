@@ -148,6 +148,165 @@ describe('users (e2e)', () => {
     });
   });
 
+  describe('GET /users/me', () => {
+    it("returns the caller's profile, with the unfilled fields as null", async () => {
+      await create(ana).expect(201);
+
+      const response = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(200);
+
+      const { id, ...profile } = body(response);
+      expect(id).toEqual(expect.any(String));
+      expect(profile).toEqual({
+        name: 'Operator',
+        email: 'operator@example.com',
+        crmv: null,
+        birthDate: null,
+        sex: null,
+        city: null,
+        state: null,
+      });
+    });
+
+    it('returns the filled-in fields and nothing beyond the profile', async () => {
+      const stored = await prisma.user.update({
+        where: { cognitoSub: operator.cognitoSub },
+        data: {
+          crmv: 'RS-12345',
+          birthDate: new Date('1990-04-15'),
+          sex: 'FEMALE',
+          city: 'Porto Alegre',
+          state: 'RS',
+          taxId: '12345678900',
+          taxIdType: 'CPF',
+          termsVersion: '2026-09-01',
+        },
+      });
+
+      const response = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(200);
+
+      expect(body(response)).toEqual({
+        id: stored.id,
+        name: 'Operator',
+        email: 'operator@example.com',
+        crmv: 'RS-12345',
+        birthDate: '1990-04-15T00:00:00.000Z',
+        sex: 'FEMALE',
+        city: 'Porto Alegre',
+        state: 'RS',
+      });
+    });
+
+    it('answers 401 without a token', async () => {
+      const response = await request(http).get('/users/me').expect(401);
+
+      expect(body(response).code).toBe('UNAUTHENTICATED');
+    });
+
+    it('answers 401 for a valid token with no local mirror', async () => {
+      await prisma.user.delete({
+        where: { cognitoSub: operator.cognitoSub },
+      });
+
+      const response = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(401);
+
+      expect(body(response).code).toBe('USER_NOT_PROVISIONED');
+    });
+  });
+
+  describe('PATCH /users/me', () => {
+    const patchMe = (payload: Record<string, unknown>) =>
+      request(http)
+        .patch('/users/me')
+        .set('Authorization', auth())
+        .send(payload);
+
+    const profile = {
+      name: 'Ana Souza',
+      crmv: 'RS-12345',
+      birthDate: '1990-04-15',
+      sex: 'FEMALE',
+      city: 'Porto Alegre',
+      state: 'RS',
+    };
+
+    it('returns the updated profile, the same as GET /users/me', async () => {
+      const response = await patchMe(profile).expect(200);
+
+      const { id, ...updated } = body(response);
+      expect(id).toEqual(expect.any(String));
+      expect(updated).toEqual({
+        ...profile,
+        email: 'operator@example.com',
+        birthDate: '1990-04-15T00:00:00.000Z',
+      });
+      const read = await request(http)
+        .get('/users/me')
+        .set('Authorization', auth())
+        .expect(200);
+      expect(body(read)).toEqual(body(response));
+    });
+
+    it("changes only the caller's row", async () => {
+      const created = await create(ana).expect(201);
+
+      await patchMe({ name: 'Changed', city: 'Pelotas' }).expect(200);
+
+      const other = await prisma.user.findUniqueOrThrow({
+        where: { id: body(created).id as string },
+      });
+      expect(other.name).toBe('Ana Souza');
+      expect(other.city).toBeNull();
+    });
+
+    it('leaves what was not sent and clears what was sent as null', async () => {
+      await patchMe(profile).expect(200);
+
+      const response = await patchMe({ crmv: null, birthDate: null }).expect(
+        200,
+      );
+
+      expect(body(response)).toMatchObject({
+        name: 'Ana Souza',
+        city: 'Porto Alegre',
+        crmv: null,
+        birthDate: null,
+      });
+    });
+
+    it('gives the same result when the same body is sent twice', async () => {
+      const first = await patchMe(profile).expect(200);
+      const second = await patchMe(profile).expect(200);
+
+      expect(body(second)).toEqual(body(first));
+    });
+
+    it.each([
+      { email: 'other@example.com' },
+      { cognitoSub: 'sub-other' },
+      { name: null },
+      { state: 'XX' },
+      { crmv: '12345' },
+      { birthDate: '2020-01-01' },
+    ])('answers 400 for %j', async payload => {
+      const response = await patchMe(payload).expect(400);
+
+      expect(body(response).code).toBe('VALIDATION_ERROR');
+    });
+
+    it('answers 401 without a token', async () => {
+      await request(http).patch('/users/me').send({ city: 'X' }).expect(401);
+    });
+  });
+
   describe('GET /users/:id', () => {
     it('returns the user', async () => {
       const created = await create(ana).expect(201);

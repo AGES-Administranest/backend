@@ -63,6 +63,7 @@ describe('StockEntryDraftService', () => {
   let service: StockEntryDraftService;
   let repository: FakeStockEntryRepository;
   let recordPurchaseInvoice: jest.Mock;
+  let isActiveAndOwned: jest.Mock;
   /** Runs while the service checks the items: another request's moment. */
   let meanwhile: () => void;
 
@@ -82,6 +83,7 @@ describe('StockEntryDraftService', () => {
         );
       },
     };
+    isActiveAndOwned = jest.fn().mockResolvedValue(true);
     const reading = new PurchaseReadingService(
       repository as unknown as StockEntryRepository,
       new FakeStorage(),
@@ -95,6 +97,7 @@ describe('StockEntryDraftService', () => {
       reading,
       items as unknown as ItemService,
       { recordPurchaseInvoice } as never,
+      { isActiveAndOwned } as never,
     );
     draft();
   });
@@ -237,6 +240,34 @@ describe('StockEntryDraftService', () => {
         issueDate: null,
         totalAmount: 94.5,
       });
+    });
+
+    it('links an active supplier belonging to the user and can clear it', async () => {
+      await service.updateHeader(USER_ID, INVOICE_ID, {
+        supplierId: 'supplier-1',
+      });
+
+      expect(isActiveAndOwned).toHaveBeenCalledWith(USER_ID, 'supplier-1');
+      expect(repository.invoice?.supplierId).toBe('supplier-1');
+
+      await service.updateHeader(USER_ID, INVOICE_ID, { supplierId: null });
+
+      expect(repository.invoice?.supplierId).toBeNull();
+    });
+
+    it('refuses a supplier that is missing, inactive, or belongs to another user', async () => {
+      isActiveAndOwned.mockResolvedValue(false);
+
+      await expect(
+        service.updateHeader(USER_ID, INVOICE_ID, {
+          supplierId: 'supplier-1',
+        }),
+      ).rejects.toMatchObject({
+        kind: 'INVALID_REFERENCE',
+        code: 'INVALID_REFERENCE',
+        details: { field: 'supplierId' },
+      });
+      expect(repository.invoice?.supplierId).toBeNull();
     });
 
     it('refuses to change an entry that is no longer a draft, and leaves it as it was', async () => {

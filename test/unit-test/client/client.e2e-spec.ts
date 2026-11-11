@@ -77,11 +77,404 @@ describe('Client (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.trip.deleteMany({
+      where: { userId: { in: [userId, otherId] } },
+    });
+    await prisma.appointment.deleteMany({
+      where: { userId: { in: [userId, otherId] } },
+    });
     await prisma.client.deleteMany({
       where: { userId: { in: [userId, otherId] } },
     });
     await prisma.user.deleteMany({ where: { id: { in: [userId, otherId] } } });
     await app.close();
+  });
+
+  describe('GET /client/:id/appointments', () => {
+    interface HistoryBody {
+      items: {
+        id: string;
+        startsAt: string;
+        procedureName: string | null;
+        patientName: string | null;
+        amount: string | null;
+      }[];
+      total: number;
+      page: number;
+      limit: number;
+    }
+
+    const newClinic = async () =>
+      (await createClient(owner, { type: 'CLINIC', name: randomUUID() })).id;
+
+    const seed = (
+      clientId: string,
+      startsAt: string,
+      overrides: Partial<{
+        status: 'SCHEDULED' | 'COMPLETED' | 'CANCELED';
+        amount: string | null;
+        deletedAt: Date;
+      }> = {},
+    ) =>
+      prisma.appointment.create({
+        data: {
+          userId,
+          clientId,
+          startsAt: new Date(startsAt),
+          status: 'COMPLETED',
+          amount: '620.00',
+          procedureName: 'Orquiectomia',
+          patientName: 'Mel',
+          ...overrides,
+        },
+      });
+
+    const history = async (
+      clientId: string,
+      query: Record<string, string | number> = {},
+    ) => {
+      const res = await request(server())
+        .get(`/client/${clientId}/appointments`)
+        .set('Authorization', bearer(owner))
+        .query(query)
+        .expect(200);
+      return res.body as HistoryBody;
+    };
+
+    const ids = (body: HistoryBody) => body.items.map(item => item.id);
+
+    it('returns only the fields of the contract, newest first', async () => {
+      const clinic = await newClinic();
+      const older = await seed(clinic, '2026-11-03T13:00:00.000Z');
+      const newer = await seed(clinic, '2026-11-08T13:00:00.000Z', {
+        amount: null,
+      });
+
+      const body = await history(clinic);
+
+      expect(body).toEqual({
+        items: [
+          {
+            id: newer.id,
+            startsAt: '2026-11-08T13:00:00.000Z',
+            procedureName: 'Orquiectomia',
+            patientName: 'Mel',
+            amount: null,
+          },
+          {
+            id: older.id,
+            startsAt: '2026-11-03T13:00:00.000Z',
+            procedureName: 'Orquiectomia',
+            patientName: 'Mel',
+            amount: '620.00',
+          },
+        ],
+        total: 2,
+        page: 1,
+        limit: 20,
+      });
+    });
+
+    it('lists only completed appointments of this client that exist', async () => {
+      const clinic = await newClinic();
+      const anotherClinic = await newClinic();
+      const startsAt = '2026-11-03T13:00:00.000Z';
+      const completed = await seed(clinic, startsAt);
+      await seed(clinic, startsAt, { status: 'SCHEDULED' });
+      await seed(clinic, startsAt, { status: 'CANCELED' });
+      await seed(clinic, startsAt, { deletedAt: new Date() });
+      await seed(anotherClinic, startsAt);
+
+      const body = await history(clinic);
+
+      expect(ids(body)).toEqual([completed.id]);
+      expect(body.total).toBe(1);
+    });
+
+    it('keeps an appointment on its São Paulo day at the end of a month', async () => {
+      const clinic = await newClinic();
+      const lateOctober = await seed(clinic, '2026-10-31T22:00:00.000-03:00');
+      const earlyNovember = await seed(clinic, '2026-11-01T00:00:00.000-03:00');
+
+      const october = await history(clinic, {
+        from: '2026-10-01',
+        to: '2026-10-31',
+      });
+      const november = await history(clinic, {
+        from: '2026-11-01',
+        to: '2026-11-30',
+      });
+
+      expect(ids(october)).toEqual([lateOctober.id]);
+      expect(ids(november)).toEqual([earlyNovember.id]);
+    });
+
+    it('never repeats or skips appointments with the same start', async () => {
+      const clinic = await newClinic();
+      const startsAt = '2026-11-03T13:00:00.000Z';
+      const seeded = await Promise.all(
+        Array.from({ length: 3 }, () => seed(clinic, startsAt)),
+      );
+
+      const pages = await Promise.all(
+        [1, 2, 3].map(page => history(clinic, { page, limit: 1 })),
+      );
+
+      expect(pages.flatMap(ids).sort()).toEqual(
+        seeded.map(appointment => appointment.id).sort(),
+      );
+      expect(pages.every(page => page.total === 3)).toBe(true);
+    });
+
+    it('tells a full last page from one with more after it', async () => {
+      const clinic = await newClinic();
+      await Promise.all(
+        Array.from({ length: 10 }, (_, day) =>
+          seed(clinic, `2026-11-${String(day + 1).padStart(2, '0')}T13:00:00Z`),
+        ),
+      );
+
+      const body = await history(clinic, { limit: 10 });
+
+      expect(body.items).toHaveLength(10);
+      expect(body.total).toBe(10);
+    });
+
+    it('keeps the history of an inactive client', async () => {
+      const clinic = await newClinic();
+      const appointment = await seed(clinic, '2026-11-03T13:00:00.000Z');
+      await prisma.client.update({
+        where: { id: clinic },
+        data: { active: false },
+      });
+
+      expect(ids(await history(clinic))).toEqual([appointment.id]);
+    });
+
+    it("answers 404 for someone else's client", async () => {
+      const clinic = await newClinic();
+
+      const res = await request(server())
+        .get(`/client/${clinic}/appointments`)
+        .set('Authorization', bearer(other))
+        .expect(404);
+
+      expect((res.body as { code: string }).code).toBe('CLIENT_NOT_FOUND');
+    });
+
+    it('answers 404 for a deleted client', async () => {
+      const clinic = await newClinic();
+      await request(server())
+        .delete(`/client/${clinic}`)
+        .set('Authorization', bearer(owner))
+        .expect(200);
+
+      await request(server())
+        .get(`/client/${clinic}/appointments`)
+        .set('Authorization', bearer(owner))
+        .expect(404);
+    });
+
+    it('answers 400 for a period that ends before it starts', async () => {
+      const res = await request(server())
+        .get(`/client/${await newClinic()}/appointments`)
+        .set('Authorization', bearer(owner))
+        .query({ from: '2026-11-30', to: '2026-11-01' })
+        .expect(400);
+
+      expect((res.body as { code: string }).code).toBe('INVALID_REQUEST');
+    });
+
+    it('answers 400 for a date that does not exist', async () => {
+      await request(server())
+        .get(`/client/${await newClinic()}/appointments`)
+        .set('Authorization', bearer(owner))
+        .query({ from: '2026-02-30' })
+        .expect(400);
+    });
+
+    it('answers 400, not 500, for a page too far to skip to', async () => {
+      await request(server())
+        .get(`/client/${await newClinic()}/appointments`)
+        .set('Authorization', bearer(owner))
+        .query({ page: '99999999999999999999' })
+        .expect(400);
+    });
+
+    it('answers 400 for an id that is not a uuid', async () => {
+      await request(server())
+        .get('/client/not-a-uuid/appointments')
+        .set('Authorization', bearer(owner))
+        .expect(400);
+    });
+
+    it('answers 401 without a token', async () => {
+      await request(server())
+        .get(`/client/${randomUUID()}/appointments`)
+        .expect(401);
+    });
+  });
+
+  describe('GET /client/:id/summary', () => {
+    interface SummaryBody {
+      appointmentsCount: number;
+      billedTotal: string;
+      tripCost: string;
+      tripCount: number;
+    }
+
+    const newClinic = async () =>
+      (await createClient(owner, { type: 'CLINIC', name: randomUUID() })).id;
+
+    const appointment = (
+      clientId: string,
+      startsAt: string,
+      overrides: Partial<{
+        status: 'SCHEDULED' | 'COMPLETED' | 'CANCELED';
+        amount: string | null;
+        deletedAt: Date;
+      }> = {},
+    ) =>
+      prisma.appointment.create({
+        data: {
+          userId,
+          clientId,
+          startsAt: new Date(startsAt),
+          status: 'COMPLETED',
+          amount: '620.00',
+          ...overrides,
+        },
+      });
+
+    const ride = (
+      clientId: string,
+      occurredOn: string,
+      cost: string,
+      overrides: Partial<{ deletedAt: Date }> = {},
+    ) =>
+      prisma.trip.create({
+        data: {
+          userId,
+          clientId,
+          mode: 'RIDE',
+          occurredOn: new Date(`${occurredOn}T00:00:00.000Z`),
+          origin: 'Casa',
+          destination: 'Clínica',
+          cost,
+          ...overrides,
+        },
+      });
+
+    const november = { from: '2026-11-01', to: '2026-11-30' };
+
+    const summary = async (
+      clientId: string,
+      query: Record<string, string> = november,
+    ) => {
+      const res = await request(server())
+        .get(`/client/${clientId}/summary`)
+        .set('Authorization', bearer(owner))
+        .query(query)
+        .expect(200);
+      return res.body as SummaryBody;
+    };
+
+    it('counts and adds up what the history lists, with the trips of the period', async () => {
+      const clinic = await newClinic();
+      const anotherClinic = await newClinic();
+      await appointment(clinic, '2026-11-03T13:00:00.000Z', {
+        amount: '620.00',
+      });
+      await appointment(clinic, '2026-11-08T13:00:00.000Z', {
+        amount: '780.00',
+      });
+      await appointment(clinic, '2026-11-12T13:00:00.000Z', { amount: null });
+      await appointment(clinic, '2026-11-15T13:00:00.000Z', {
+        status: 'CANCELED',
+      });
+      await appointment(clinic, '2026-11-16T13:00:00.000Z', {
+        deletedAt: new Date(),
+      });
+      await appointment(clinic, '2026-10-31T22:00:00.000-03:00');
+      await appointment(anotherClinic, '2026-11-03T13:00:00.000Z');
+      await ride(clinic, '2026-11-03', '48.00');
+      await ride(clinic, '2026-11-08', '16.50');
+      await ride(clinic, '2026-11-10', '30.00', { deletedAt: new Date() });
+      await ride(clinic, '2026-10-31', '30.00');
+      await ride(anotherClinic, '2026-11-03', '30.00');
+
+      const totals = await summary(clinic);
+      const history = await request(server())
+        .get(`/client/${clinic}/appointments`)
+        .set('Authorization', bearer(owner))
+        .query(november)
+        .expect(200);
+      const listed = (history.body as { items: { amount: string | null }[] })
+        .items;
+
+      expect(totals).toEqual({
+        appointmentsCount: 3,
+        billedTotal: '1400.00',
+        tripCost: '64.50',
+        tripCount: 2,
+      });
+      expect(listed).toHaveLength(totals.appointmentsCount);
+      expect(
+        listed.reduce((sum, item) => sum + Number(item.amount ?? 0), 0),
+      ).toBe(Number(totals.billedTotal));
+    });
+
+    it('answers zeros for a client with nothing in the period', async () => {
+      expect(await summary(await newClinic())).toEqual({
+        appointmentsCount: 0,
+        billedTotal: '0.00',
+        tripCost: '0.00',
+        tripCount: 0,
+      });
+    });
+
+    it('adds up everything without a period', async () => {
+      const clinic = await newClinic();
+      await appointment(clinic, '2025-03-10T13:00:00.000Z');
+      await appointment(clinic, '2026-11-03T13:00:00.000Z');
+      await ride(clinic, '2025-03-10', '10.00');
+
+      expect(await summary(clinic, {})).toEqual({
+        appointmentsCount: 2,
+        billedTotal: '1240.00',
+        tripCost: '10.00',
+        tripCount: 1,
+      });
+    });
+
+    it("answers 404 for someone else's client", async () => {
+      const clinic = await newClinic();
+
+      const res = await request(server())
+        .get(`/client/${clinic}/summary`)
+        .set('Authorization', bearer(other))
+        .expect(404);
+
+      expect((res.body as { code: string }).code).toBe('CLIENT_NOT_FOUND');
+    });
+
+    it('answers 400 for a period that ends before it starts', async () => {
+      const res = await request(server())
+        .get(`/client/${await newClinic()}/summary`)
+        .set('Authorization', bearer(owner))
+        .query({ from: '2026-11-30', to: '2026-11-01' })
+        .expect(400);
+
+      expect((res.body as { code: string }).code).toBe('INVALID_REQUEST');
+    });
+
+    it('answers 400 for a date that does not exist', async () => {
+      await request(server())
+        .get(`/client/${await newClinic()}/summary`)
+        .set('Authorization', bearer(owner))
+        .query({ to: '2026-02-30' })
+        .expect(400);
+    });
   });
 
   describe('POST /client', () => {
@@ -382,14 +775,14 @@ describe('Client (e2e)', () => {
       await createClient(owner, {
         type: 'CLINIC',
         name: 'Primeira com o CNPJ e2e',
-        taxId: '22333444000192',
+        taxId: '22333444000181',
         taxIdType: 'CNPJ',
       });
 
       const res = await post(owner, {
         type: 'CLINIC',
         name: 'Segunda com o CNPJ e2e',
-        taxId: '22333444000192',
+        taxId: '22333444000181',
         taxIdType: 'CNPJ',
       }).expect(409);
 
@@ -400,14 +793,14 @@ describe('Client (e2e)', () => {
       await createClient(owner, {
         type: 'CLINIC',
         name: 'Clinica compartilhada e2e',
-        taxId: '33444555000103',
+        taxId: '33444555000181',
         taxIdType: 'CNPJ',
       });
 
       await createClient(other, {
         type: 'CLINIC',
         name: 'Clinica compartilhada e2e',
-        taxId: '33444555000103',
+        taxId: '33444555000181',
         taxIdType: 'CNPJ',
       });
     });
@@ -416,7 +809,7 @@ describe('Client (e2e)', () => {
       const first = await createClient(owner, {
         type: 'CLINIC',
         name: 'CNPJ liberado e2e',
-        taxId: '44555666000114',
+        taxId: '44555666000181',
         taxIdType: 'CNPJ',
       });
       await request(server())
@@ -427,7 +820,7 @@ describe('Client (e2e)', () => {
       await createClient(owner, {
         type: 'CLINIC',
         name: 'CNPJ recadastrado e2e',
-        taxId: '44555666000114',
+        taxId: '44555666000181',
         taxIdType: 'CNPJ',
       });
     });
@@ -457,12 +850,12 @@ describe('Client (e2e)', () => {
       const created = await createClient(owner, {
         type: 'CLINIC',
         name: 'Mantem o CNPJ e2e',
-        taxId: '55666777000125',
+        taxId: '55666777000181',
         taxIdType: 'CNPJ',
       });
 
       await patch(created.id, {
-        taxId: '55666777000125',
+        taxId: '55666777000181',
         taxIdType: 'CNPJ',
         city: 'Canoas',
       }).expect(200);
@@ -472,7 +865,7 @@ describe('Client (e2e)', () => {
       const created = await createClient(owner, {
         type: 'CLINIC',
         name: 'Remove o CNPJ e2e',
-        taxId: '66777888000136',
+        taxId: '66777888000181',
         taxIdType: 'CNPJ',
       });
 
@@ -487,14 +880,14 @@ describe('Client (e2e)', () => {
       const created = await createClient(owner, {
         type: 'CLINIC',
         name: 'CNPJ pela metade e2e',
-        taxId: '77888999000147',
+        taxId: '77888999000181',
         taxIdType: 'CNPJ',
       });
 
       const res = await patch(created.id, { taxId: null }).expect(400);
 
       expect(errorOf(res).details?.fields).toEqual([TOGETHER]);
-      expect((await stored(created.id)).taxId).toBe('77888999000147');
+      expect((await stored(created.id)).taxId).toBe('77888999000181');
     });
   });
 });

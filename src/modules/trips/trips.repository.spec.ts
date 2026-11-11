@@ -14,6 +14,7 @@ describe('TripsRepository', () => {
       update: jest.Mock;
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
+      groupBy: jest.Mock;
     };
     vehicle: { findFirst: jest.Mock };
     appointment: { findFirst: jest.Mock };
@@ -36,6 +37,7 @@ describe('TripsRepository', () => {
         update: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'trip-1' }),
+        groupBy: jest.fn().mockResolvedValue([]),
       },
       vehicle: { findFirst: jest.fn().mockResolvedValue(null) },
       appointment: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -114,6 +116,37 @@ describe('TripsRepository', () => {
     });
   });
 
+  describe('findDailyCosts', () => {
+    it('totals the owner’s live trips to the client by day, latest days first', async () => {
+      await repository.findDailyCosts('user-1', 'client-1', 10);
+
+      expect(prisma.trip.groupBy).toHaveBeenCalledWith({
+        by: ['occurredOn'],
+        where: { userId: 'user-1', clientId: 'client-1', deletedAt: null },
+        _sum: { cost: true },
+        orderBy: { occurredOn: 'desc' },
+        take: 10,
+      });
+    });
+
+    it('returns one total per day', async () => {
+      prisma.trip.groupBy.mockResolvedValueOnce([
+        {
+          occurredOn: new Date('2026-10-20T00:00:00.000Z'),
+          _sum: { cost: new Prisma.Decimal('65.8') },
+        },
+        {
+          occurredOn: new Date('2026-10-13T00:00:00.000Z'),
+          _sum: { cost: new Prisma.Decimal('0') },
+        },
+      ]);
+
+      const totals = await repository.findDailyCosts('user-1', 'client-1', 10);
+
+      expect(totals.map(total => total.toString())).toEqual(['65.8', '0']);
+    });
+  });
+
   it('finds a trip by id scoped to the owner, skipping deleted ones', async () => {
     await repository.findById('trip-1', 'user-1');
 
@@ -175,6 +208,46 @@ describe('TripsRepository', () => {
 
     expect(tx.trip.findFirst).toHaveBeenCalled();
     expect(prisma.trip.findFirst).not.toHaveBeenCalled();
+  });
+
+  describe('sumByClient', () => {
+    it("adds up the client's trips that were not deleted in the period", async () => {
+      const period = {
+        from: new Date('2026-11-01T00:00:00.000Z'),
+        to: new Date('2026-11-30T00:00:00.000Z'),
+      };
+      prisma.trip.aggregate.mockResolvedValue({
+        _count: { _all: 4 },
+        _sum: { cost: new Prisma.Decimal('96.50') },
+      });
+
+      const totals = await repository.sumByClient('user-1', 'client-1', period);
+
+      expect(prisma.trip.aggregate).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          deletedAt: null,
+          occurredOn: { gte: period.from, lte: period.to },
+          clientId: 'client-1',
+        },
+        _count: { _all: true },
+        _sum: { cost: true },
+      });
+      expect(totals.count).toBe(4);
+      expect(totals.cost.toFixed(2)).toBe('96.50');
+    });
+
+    it('costs zero when the client has no trip', async () => {
+      prisma.trip.aggregate.mockResolvedValue({
+        _count: { _all: 0 },
+        _sum: { cost: null },
+      });
+
+      const totals = await repository.sumByClient('user-1', 'client-1', {});
+
+      expect(totals.count).toBe(0);
+      expect(totals.cost.toFixed(2)).toBe('0.00');
+    });
   });
 
   describe('softDelete', () => {

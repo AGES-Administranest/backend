@@ -74,6 +74,11 @@ call creates the settings, every later call overwrites them. Resending the same
 body stores the same values (only `updatedAt` moves), so a retry after a dropped
 connection is safe.
 
+Saving the goals also recalculates the current month's hour value and replaces
+it in the history (US22), so the history reflects the new goals even if the
+calculator is not opened afterwards. See the History section of
+[`hourly-rate.md`](hourly-rate.md#history).
+
 ```json
 { "monthlyIncomeGoal": 8000, "weeklyHours": 37.5, "safetyMarginPct": 10 }
 ```

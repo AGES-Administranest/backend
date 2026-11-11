@@ -6,6 +6,8 @@ describe('AppointmentsRepository', () => {
   let prisma: {
     appointment: {
       findMany: jest.Mock;
+      count: jest.Mock;
+      aggregate: jest.Mock;
       findFirst: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
@@ -37,6 +39,10 @@ describe('AppointmentsRepository', () => {
     prisma = {
       appointment: {
         findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        aggregate: jest
+          .fn()
+          .mockResolvedValue({ _count: { _all: 0 }, _sum: { amount: null } }),
         findFirst: jest.fn().mockResolvedValue(storedAppointment),
         create: jest.fn().mockResolvedValue(storedAppointment),
         update: jest
@@ -72,6 +78,132 @@ describe('AppointmentsRepository', () => {
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     repository = new AppointmentsRepository(prisma as never);
+  });
+
+  describe('findCompletedPageByClient', () => {
+    const baseWhere = {
+      userId: 'user-1',
+      clientId: 'client-1',
+      status: AppointmentStatus.COMPLETED,
+      deletedAt: null,
+    };
+
+    beforeEach(() => {
+      prisma.$transaction.mockImplementation((queries: Promise<unknown>[]) =>
+        Promise.all(queries),
+      );
+    });
+
+    it('filters and counts with the same conditions', async () => {
+      const from = new Date('2026-11-01T03:00:00.000Z');
+      const before = new Date('2026-12-01T03:00:00.000Z');
+
+      await repository.findCompletedPageByClient(
+        'user-1',
+        'client-1',
+        { from, before },
+        0,
+        10,
+      );
+
+      const where = { ...baseWhere, startsAt: { gte: from, lt: before } };
+      expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where }),
+      );
+      expect(prisma.appointment.count).toHaveBeenCalledWith({ where });
+    });
+
+    it('leaves the date out when there is no period', async () => {
+      await repository.findCompletedPageByClient(
+        'user-1',
+        'client-1',
+        {},
+        0,
+        10,
+      );
+
+      expect(prisma.appointment.count).toHaveBeenCalledWith({
+        where: baseWhere,
+      });
+    });
+
+    it('applies a period with only one end', async () => {
+      const from = new Date('2026-11-01T03:00:00.000Z');
+
+      await repository.findCompletedPageByClient(
+        'user-1',
+        'client-1',
+        { from },
+        0,
+        10,
+      );
+
+      expect(prisma.appointment.count).toHaveBeenCalledWith({
+        where: { ...baseWhere, startsAt: { gte: from } },
+      });
+    });
+
+    it('orders by the latest start with the id as tie-breaker', async () => {
+      await repository.findCompletedPageByClient(
+        'user-1',
+        'client-1',
+        {},
+        20,
+        10,
+      );
+
+      expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
+          skip: 20,
+          take: 10,
+        }),
+      );
+    });
+
+    it('sums with the same conditions the page lists', async () => {
+      const from = new Date('2026-11-01T03:00:00.000Z');
+      const before = new Date('2026-12-01T03:00:00.000Z');
+      prisma.appointment.aggregate.mockResolvedValue({
+        _count: { _all: 2 },
+        _sum: { amount: new Prisma.Decimal('1400.00') },
+      });
+
+      const totals = await repository.sumCompletedByClient(
+        'user-1',
+        'client-1',
+        { from, before },
+      );
+
+      expect(prisma.appointment.aggregate).toHaveBeenCalledWith({
+        where: { ...baseWhere, startsAt: { gte: from, lt: before } },
+        _count: { _all: true },
+        _sum: { amount: true },
+      });
+      expect(totals.count).toBe(2);
+      expect(totals.amount.toFixed(2)).toBe('1400.00');
+    });
+
+    it('adds up to zero when nothing has an amount', async () => {
+      const totals = await repository.sumCompletedByClient(
+        'user-1',
+        'client-1',
+        {},
+      );
+
+      expect(totals.count).toBe(0);
+      expect(totals.amount.toFixed(2)).toBe('0.00');
+    });
+
+    it('returns the page with the total of the whole period', async () => {
+      const row = { id: 'appointment-1' };
+      prisma.appointment.findMany.mockResolvedValue([row]);
+      prisma.appointment.count.mockResolvedValue(13);
+
+      await expect(
+        repository.findCompletedPageByClient('user-1', 'client-1', {}, 0, 1),
+      ).resolves.toEqual({ appointments: [row], total: 13 });
+    });
   });
 
   it('scopes listing to the owner and excludes soft-deleted records', async () => {

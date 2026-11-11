@@ -30,8 +30,10 @@ import {
   ServiceInvoiceDownloadDto,
   ServiceInvoiceDownloadUrlDto,
 } from './dto/download-url-response.dto';
+import { QueryServiceInvoiceReportDto } from './dto/query-service-invoice-report.dto';
 import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
+import { ServiceInvoiceReportItemDto } from './dto/service-invoice-report-item.dto';
 import { ServiceInvoicePageDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
 import { ServiceInvoiceUploadConfirmationDto } from './dto/upload-confirmation-response.dto';
@@ -67,6 +69,31 @@ export class ServiceInvoicesController {
     @Query() query: QueryServiceInvoiceDto,
   ): Promise<ServiceInvoicePageDto> {
     return this.draftService.list(user.id, query);
+  }
+
+  // Declared before `:id`, or "reports" would be read as a note id.
+  @Get('reports')
+  @ApiOperation({
+    summary: 'Lists the confirmed NFSe for the Reports tab (US02)',
+    description:
+      'Latest issue date first. Feeds the few cards (limit) and the "see ' +
+      'all" list. Drafts and discarded notes are left out. search, ' +
+      'startDate and endDate combine; either date can be sent alone for an ' +
+      'open period, and both ends are included.',
+  })
+  @ApiOkResponse({ type: [ServiceInvoiceReportItemDto] })
+  @ApiBadRequestResponse({
+    description:
+      'A date that is not YYYY-MM-DD or does not exist, a search over the ' +
+      'limit or a page out of range (VALIDATION_ERROR), or startDate after ' +
+      'endDate (INVALID_REQUEST)',
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  listForReports(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryServiceInvoiceReportDto,
+  ): Promise<ServiceInvoiceReportItemDto[]> {
+    return this.draftService.listForReports(user.id, query);
   }
 
   @Get(':id')

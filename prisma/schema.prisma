@@ -30,6 +30,17 @@ enum TaxIdType {
   @@map("tax_id_type_enum")
 }
 
+/// The user's sex as shown on the profile (US23). NOT_INFORMED is an explicit
+/// choice; NULL means the field was never filled in.
+enum Sex {
+  FEMALE
+  MALE
+  OTHER
+  NOT_INFORMED
+
+  @@map("sex_enum")
+}
+
 enum Weekday {
   MON
   TUE
@@ -183,6 +194,10 @@ enum MeasurementUnit {
   GRAM
   TABLET
   OTHER
+  LITER
+  MICROGRAM
+  MG_PER_ML
+  MCG_PER_ML
 
   @@map("measurement_unit_enum")
 }
@@ -252,6 +267,12 @@ model User {
   taxIdType  TaxIdType? @map("tax_id_type")
   birthDate  DateTime?  @map("birth_date") @db.Date
   photoUrl   String?    @map("photo_url")
+  /// Profile field (US23). Optional; NULL until the user fills it in.
+  sex        Sex?
+  /// City where the professional works (US23). Optional, free text.
+  city       String?    @db.VarChar(120)
+  /// Brazilian state (UF) as its two-letter code, e.g. "RS" (US23). Optional.
+  state      String?    @db.VarChar(2)
 
   termsAcceptedAt   DateTime? @map("terms_accepted_at") @db.Timestamptz(6)
   privacyAcceptedAt DateTime? @map("privacy_accepted_at") @db.Timestamptz(6)
@@ -275,6 +296,7 @@ model User {
   financialCategories FinancialCategory[]
   financialEntries    FinancialEntry[]
   pricingSettings     PricingSettings?
+  hourlyRateSnapshots HourlyRateSnapshot[]
   reports             Report[]
 
   @@map("user")
@@ -437,6 +459,7 @@ model Supplier {
   contact   String?
   email     String?
   phone     String?
+  notes     String?
   active    Boolean    @default(true)
   createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -449,6 +472,7 @@ model Supplier {
   purchaseInvoices PurchaseInvoice[]
   stockMovements   StockMovement[]
 
+  @@unique([userId, taxId], where: raw("deleted_at IS NULL AND tax_id IS NOT NULL"))
   @@index([userId, active])
   @@map("supplier")
 }
@@ -900,6 +924,56 @@ model PricingSettings {
   user User @relation(fields: [userId], references: [id])
 
   @@map("pricing_settings")
+}
+
+/// The hour value of one month as it was calculated (US22): the four parts of
+/// the formula and the US19 goals they came from. The history reads these rows
+/// instead of recalculating, so a later change to pricing_settings does not
+/// rewrite past months. One row per user and month (UTC): the current month is
+/// replaced on every calculation, a past month is only written if it has no
+/// row yet; calculated_at says when the stored calculation was made.
+///
+/// Only the inputs of the formula are stored. The rest of the hourly rate
+/// response (total, productive hours, minimum hourly rate, percentages) is
+/// derived from these columns by src/modules/pricing/domain/hourly-rate.ts,
+/// exactly as GET /pricing/hourly-rate derives it.
+/// Range CHECKs live in migration 20261029213000_hourly_rate_snapshot.
+model HourlyRateSnapshot {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  /// CHECK between 2000 and 2100, the range GET /pricing/hourly-rate accepts
+  year              Int
+  /// CHECK between 1 and 12
+  month             Int
+  /// R$, total ÷ productive hours, rounded to cents. CHECK >= 0
+  hourlyRate        Decimal  @map("hourly_rate") @db.Decimal(14, 2)
+  /// FIXED_COSTS: personal expenses + equipment depreciation + transport.
+  /// CHECK >= 0
+  fixedCosts        Decimal  @map("fixed_costs") @db.Decimal(14, 2)
+  /// VARIABLE_COSTS: professional expenses of the month. CHECK >= 0
+  variableCosts     Decimal  @map("variable_costs") @db.Decimal(14, 2)
+  /// OWNER_DRAW: the monthly income goal used. CHECK >= 0
+  ownerDraw         Decimal  @map("owner_draw") @db.Decimal(14, 2)
+  /// SAFETY_MARGIN: the margin amount, not the percentage. CHECK >= 0
+  safetyMargin      Decimal  @map("safety_margin") @db.Decimal(14, 2)
+  /// copy of pricing_settings.monthly_income_goal at calculation time. CHECK > 0
+  monthlyIncomeGoal Decimal  @map("monthly_income_goal") @db.Decimal(14, 2)
+  /// copy of pricing_settings.weekly_hours at calculation time.
+  /// CHECK > 0 and <= 168
+  weeklyHours       Decimal  @map("weekly_hours") @db.Decimal(6, 2)
+  /// copy of pricing_settings.safety_margin_pct at calculation time.
+  /// CHECK between 0 and 100
+  safetyMarginPct   Decimal  @map("safety_margin_pct") @db.Decimal(6, 2)
+  /// the instant of the calculation, the same calculatedAt the response
+  /// returned. No default: the writer passes it explicitly, on insert and on
+  /// update alike.
+  calculatedAt      DateTime @map("calculated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  /// also serves the history, read per user from the latest month back
+  @@unique([userId, year, month])
+  @@map("hourly_rate_snapshot")
 }
 
 model Report {

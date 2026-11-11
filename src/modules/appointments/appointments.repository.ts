@@ -21,6 +21,7 @@ import {
   runQuery,
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 import { balanceRequiresAdjustment, reversalOf } from '../stock-movements';
 
 export type ItemWithLots = Item & { lots: ItemLot[] };
@@ -56,6 +57,28 @@ export interface CorrectedItemUsage {
   itemBalance: Prisma.Decimal;
 }
 
+/** `before` is exclusive, so a period's last day needs no end-of-day instant. */
+export interface AppointmentPeriod {
+  from?: Date;
+  before?: Date;
+}
+
+export type ClientAppointment = Pick<
+  Appointment,
+  'id' | 'startsAt' | 'procedureName' | 'patientName' | 'amount'
+>;
+
+export interface ClientAppointmentPage {
+  appointments: ClientAppointment[];
+  /** across every page of the period */
+  total: number;
+}
+
+export interface AppointmentTotals {
+  count: number;
+  amount: Prisma.Decimal;
+}
+
 export interface RecordedItemUsage {
   movement: StockMovement;
   /** `item.currentQuantity` right after this movement was applied */
@@ -65,6 +88,19 @@ export interface RecordedItemUsage {
 @Injectable()
 export class AppointmentsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Appointments starting in the period, whatever their status. */
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.appointment.count({
+        where: {
+          userId,
+          deletedAt: null,
+          startsAt: { gte: period.instants.from, lt: period.instants.to },
+        },
+      }),
+    );
+  }
 
   findByClientGeneratedId(
     clientGeneratedId: string,
@@ -90,6 +126,58 @@ export class AppointmentsRepository {
         take,
       }),
     );
+  }
+
+  /** Latest first; the id keeps equal starts from moving between pages. */
+  async findCompletedPageByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+    skip: number,
+    take: number,
+  ): Promise<ClientAppointmentPage> {
+    const where = this.completedByClientWhere(userId, clientId, period);
+
+    const [appointments, total] = await runQuery(() =>
+      this.prisma.$transaction([
+        this.prisma.appointment.findMany({
+          where,
+          select: {
+            id: true,
+            startsAt: true,
+            procedureName: true,
+            patientName: true,
+            amount: true,
+          },
+          orderBy: [{ startsAt: 'desc' }, { id: 'desc' }],
+          skip,
+          take,
+        }),
+        this.prisma.appointment.count({ where }),
+      ]),
+    );
+
+    return { appointments, total };
+  }
+
+  /** Counts and adds up exactly what `findCompletedPageByClient` lists. */
+  async sumCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+  ): Promise<AppointmentTotals> {
+    const totals = await runQuery(() =>
+      this.prisma.appointment.aggregate({
+        where: this.completedByClientWhere(userId, clientId, period),
+        _count: { _all: true },
+        _sum: { amount: true },
+      }),
+    );
+
+    return {
+      count: totals._count._all,
+      amount: totals._sum.amount ?? new Prisma.Decimal(0),
+    };
   }
 
   findById(id: string, userId: string): Promise<Appointment | null> {
@@ -347,6 +435,27 @@ export class AppointmentsRepository {
         });
       }),
     );
+  }
+
+  private completedByClientWhere(
+    userId: string,
+    clientId: string,
+    { from, before }: AppointmentPeriod,
+  ): Prisma.AppointmentWhereInput {
+    return {
+      userId,
+      clientId,
+      status: AppointmentStatus.COMPLETED,
+      deletedAt: null,
+      ...(from || before
+        ? {
+            startsAt: {
+              ...(from ? { gte: from } : {}),
+              ...(before ? { lt: before } : {}),
+            },
+          }
+        : {}),
+    };
   }
 
   private async ensureClientBelongsToUser(

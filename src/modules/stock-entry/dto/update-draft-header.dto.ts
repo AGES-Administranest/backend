@@ -3,6 +3,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -13,6 +14,11 @@ import { MAX_DRAFT_AMOUNT } from '../stock-entry.constants';
 
 /** An absent field is left as it is; `null` clears it. */
 export class UpdateDraftHeaderDto {
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string | null;
+
   @ApiPropertyOptional({ example: '4521', nullable: true })
   @IsOptional()
   @IsString()

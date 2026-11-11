@@ -3,6 +3,7 @@ import { Prisma, PurchaseInvoice } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 const WITH_SUPPLIER_NAME = {
   supplier: { select: { name: true } },
@@ -28,10 +29,29 @@ export type DraftLineRow = Omit<
   'purchaseInvoiceId'
 >;
 
+export type SupplierInvoiceFilters = {
+  issuedFrom?: Date;
+  issuedTo?: Date;
+};
+
 /** The module's only point of contact with the database (ADR-01). */
 @Injectable()
 export class StockEntryRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Confirmed purchase invoices issued in the period. A draft is not a record yet. */
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.purchaseInvoice.count({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          issueDate: { gte: period.days.from, lt: period.days.to },
+        },
+      }),
+    );
+  }
 
   /** The id comes from the client (ADR-09): `userId` is the ownership check. */
   findByIdAndUser(id: string, userId: string): Promise<PurchaseInvoice | null> {
@@ -48,6 +68,34 @@ export class StockEntryRepository {
         where: { userId, status: 'DRAFT', deletedAt: null },
         include: WITH_SUPPLIER_NAME,
         orderBy: { updatedAt: 'desc' },
+      }),
+    );
+  }
+
+  findConfirmedBySupplier(
+    userId: string,
+    supplierId: string,
+    filters: SupplierInvoiceFilters,
+    skip: number,
+    take: number,
+  ): Promise<PurchaseInvoice[]> {
+    return runQuery(() =>
+      this.prisma.purchaseInvoice.findMany({
+        where: {
+          userId,
+          supplierId,
+          status: 'CONFIRMED',
+          deletedAt: null,
+          ...((filters.issuedFrom || filters.issuedTo) && {
+            issueDate: { gte: filters.issuedFrom, lte: filters.issuedTo },
+          }),
+        },
+        orderBy: [
+          { issueDate: { sort: 'desc', nulls: 'last' } },
+          { id: 'desc' },
+        ],
+        skip,
+        take,
       }),
     );
   }

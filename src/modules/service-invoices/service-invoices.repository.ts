@@ -5,6 +5,7 @@ import { DuplicateCriteria } from './domain/find-duplicates';
 import { escapeLike, InvoiceSearch } from './domain/search';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 /** A write to the note's income entry, inside the note's transaction. */
 export type IncomeWrite<Result> = (
@@ -25,10 +26,38 @@ export type NotePage = { notes: ListedNote[]; total: number };
 
 export type ClientSummary = { id: string; name: string; taxId: string | null };
 
+/** A confirmed note with what the Reports list shows of its taker. */
+export type ReportNote = Pick<
+  ServiceInvoice,
+  'id' | 'issueDate' | 'fileUrl'
+> & {
+  client: { name: string } | null;
+};
+
+export type ReportFilters = {
+  search?: string;
+  issuedFrom?: Date;
+  issuedTo?: Date;
+};
+
 /** The module's only point of contact with the database (ADR-01). */
 @Injectable()
 export class ServiceInvoicesRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Confirmed service invoices issued in the period. A draft is not a record yet. */
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.serviceInvoice.count({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          issueDate: { gte: period.days.from, lt: period.days.to },
+        },
+      }),
+    );
+  }
 
   /** The id comes from the client (ADR-09): `userId` is the ownership check. */
   findByIdAndUser(id: string, userId: string): Promise<ServiceInvoice | null> {
@@ -96,6 +125,48 @@ export class ServiceInvoicesRepository {
       this.prisma.client.findFirst({
         where: { id: clientId, userId },
         select: { id: true, name: true, taxId: true },
+      }),
+    );
+  }
+
+  /**
+   * Confirmed notes only: they are the ones with an issue date and a taker the
+   * user picked. Latest issue date first; the rest keeps the order stable
+   * between pages.
+   */
+  findConfirmedForReport(
+    userId: string,
+    filters: ReportFilters,
+    skip: number,
+    take: number,
+  ): Promise<ReportNote[]> {
+    return runQuery(() =>
+      this.prisma.serviceInvoice.findMany({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          ...((filters.issuedFrom || filters.issuedTo) && {
+            issueDate: { gte: filters.issuedFrom, lte: filters.issuedTo },
+          }),
+          ...(filters.search && {
+            client: {
+              name: {
+                contains: escapeLike(filters.search),
+                mode: 'insensitive',
+              },
+            },
+          }),
+        },
+        select: {
+          id: true,
+          issueDate: true,
+          fileUrl: true,
+          client: { select: { name: true } },
+        },
+        orderBy: [{ issueDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
       }),
     );
   }

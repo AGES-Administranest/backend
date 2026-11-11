@@ -11,7 +11,10 @@ import {
 
 import {
   ActiveSupply,
+  AppointmentPeriod,
   AppointmentsRepository,
+  AppointmentTotals,
+  ClientAppointmentPage,
   ItemUsage,
   ItemWithLots,
   RecordedItemUsage,
@@ -48,6 +51,7 @@ import {
   RecordNotFoundError,
   UniqueConstraintError,
 } from '../../infra/prisma/prisma-errors';
+import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 import {
   assertValidMovement,
@@ -60,6 +64,38 @@ export class AppointmentsService {
   constructor(
     private readonly appointmentsRepository: AppointmentsRepository,
   ) {}
+
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return this.appointmentsRepository.countInPeriod(userId, period);
+  }
+
+  findCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+    skip: number,
+    take: number,
+  ): Promise<ClientAppointmentPage> {
+    return this.appointmentsRepository.findCompletedPageByClient(
+      userId,
+      clientId,
+      period,
+      skip,
+      take,
+    );
+  }
+
+  sumCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+  ): Promise<AppointmentTotals> {
+    return this.appointmentsRepository.sumCompletedByClient(
+      userId,
+      clientId,
+      period,
+    );
+  }
 
   async findAll(
     userId: string,

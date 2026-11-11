@@ -1,4 +1,4 @@
-# Hourly rate — `GET /pricing/hourly-rate` (US20)
+# Hourly rate — `GET /pricing/hourly-rate` (US20) and its history (US22)
 
 The value of the user's working hour for one month, with every part of the
 formula, its amount and its share of the total. It is what the calculator shows
@@ -91,8 +91,10 @@ never a float, as in the other financial endpoints.
   three thirds answers `33.34`, `33.33` and `33.33`.
 - `hourlyRate` and `minimumHourlyRate` divide by the full productive hours.
   `productiveHours` is rounded only for display (40 h a week is `173.33`).
-- `calculatedAt` is when this request ran. Nothing is stored: a change to an
-  expense, an equipment or the goals shows up on the next request.
+- `calculatedAt` is when this request ran. The response is always calculated
+  from the current costs and goals, so a change to an expense, an equipment or
+  the goals shows up on the next request. The result is then stored in the
+  month's history by the rule in [History](#history).
 
 ## 404 — goals not configured yet
 
@@ -122,6 +124,158 @@ action on a record in the wrong state (`APPOINTMENT_NOT_SCHEDULED`,
 `VALIDATION_ERROR`, as on every other route: a month outside 1–12, a year
 outside 2000–2100, a value that is not an integer (`2026-10` included) or an
 unknown query parameter.
+
+## History
+
+`GET /pricing/hourly-rate` always calculates with the **current** goals, so on
+its own a change to the income goal or the weekly hours would rewrite every past
+month. The history keeps the hour value of each month as it was calculated, in
+`hourly_rate_snapshot` (see [`data-dictionary.md`](data-dictionary.md)).
+
+### When a month is stored
+
+| Trigger | Month | What happens |
+|---|---|---|
+| `GET /pricing/hourly-rate` | Current month (UTC) | The stored month is **replaced** on every call. Expenses are still coming in, so the latest figure is the one worth keeping. |
+| `GET /pricing/hourly-rate` | Past month | Stored **only if the month has no snapshot yet**. Opening an old month today uses today's goals; overwriting would replace what the user saw back then with a configuration that did not exist at the time. |
+| `GET /pricing/hourly-rate` | Future month | **Not stored.** It is a projection; it starts being recorded once it becomes the current month. |
+| `PUT /pricing-settings` | Current month (UTC) | Recalculated and **replaced**, so the history reflects new goals even if the calculator is not opened afterwards. |
+
+A `404 PRICING_SETTINGS_NOT_FOUND` stores nothing: without goals there is no
+hour value. Each write is a single statement on the unique key (`user_id`,
+`year`, `month`): for the current month an upsert (`INSERT ... ON CONFLICT DO
+UPDATE`), for a past month an insert that skips an existing row (`INSERT ... ON
+CONFLICT DO NOTHING`). Two requests racing on the same new month therefore
+cannot both insert it, and a past month is never overwritten. (An upsert with an
+empty update is avoided on purpose: Prisma runs it as a read followed by an
+insert, so the losing request failed with a unique violation.)
+
+The rule lives in `snapshotWriteFor`
+(`src/modules/pricing/domain/hourly-rate-snapshot.ts`). For a past month the
+calculator and the history can answer different values on purpose: the
+calculator shows that month with today's goals, the history what was stored
+first.
+
+### `GET /pricing/hourly-rate/history`
+
+| Query  | Type      | Notes |
+| ------ | --------- | ----- |
+| `from` | `YYYY-MM` | First month listed, inclusive. Optional: without it, the oldest one. |
+| `to`   | `YYYY-MM` | Last month listed, inclusive. Optional: without it, the latest one. |
+
+Years are 2000–2100, as in the month filter of `GET /pricing/hourly-rate`. One
+item per month that has a snapshot, **from the latest month back**. A month
+without one is left out, never answered as `0.00`. An account with no snapshot
+answers `[]`.
+
+Each item has what the history shows for every month without opening it: the
+hour value, the productive hours and the minimum hour value (without the
+margin). They are the same values as `hourlyRate`, `productiveHours` and
+`minimumHourlyRate` of `GET /pricing/hourly-rate/history/:year/:month`: the hour
+value is the stored one, and the other two are derived from the stored row by
+the same code (`composeHourlyRate`). The productive hours change only when the
+weekly hours of that month's goals did. The margin percentage and the
+composition are not in the list: they come from the month's own route.
+
+#### 200
+
+```json
+[
+  {
+    "year": 2026,
+    "month": 11,
+    "hourlyRate": "63.46",
+    "productiveHours": "173.33",
+    "minimumHourlyRate": "57.69",
+    "calculatedAt": "2026-11-02T16:43:32.177Z"
+  },
+  {
+    "year": 2026,
+    "month": 3,
+    "hourlyRate": "85.15",
+    "productiveHours": "130.00",
+    "minimumHourlyRate": "70.96",
+    "calculatedAt": "2026-11-02T16:43:32.158Z"
+  }
+]
+```
+
+#### 400 — invalid range
+
+`VALIDATION_ERROR` for a bound that is not `YYYY-MM` (`2026-4`), a year outside
+2000–2100, `from` after `to`, or an unknown query parameter:
+
+```json
+{
+  "statusCode": 400,
+  "code": "VALIDATION_ERROR",
+  "message": "Invalid request",
+  "details": {
+    "fields": ["from must not be after to"]
+  },
+  "path": "/pricing/hourly-rate/history?from=2026-04&to=2026-03",
+  "timestamp": "2026-11-02T16:43:32.198Z"
+}
+```
+
+### `GET /pricing/hourly-rate/history/:year/:month`
+
+The stored month in **the same shape as `GET /pricing/hourly-rate`**, plus
+`parameters`: the goals it was calculated with. Nothing is recalculated: the
+four amounts and the hour value come from the row, and the total, productive
+hours, minimum hour value and shares are derived from them by the same domain
+code as the live calculation (`composeHourlyRate`). `calculatedAt` is when the
+stored calculation ran. Every value is a decimal string with 2 places.
+
+#### 200
+
+The month of March after the goals changed from 8000 / 30 h / 20 % to
+10000 / 40 h / 10 %: the history still answers what was stored first.
+
+```json
+{
+  "month": 3,
+  "year": 2026,
+  "items": [
+    { "key": "FIXED_COSTS", "label": "Fixed costs", "amount": "0.00", "percentOfTotal": "0.00" },
+    { "key": "VARIABLE_COSTS", "label": "Variable costs", "amount": "1225.00", "percentOfTotal": "11.06" },
+    { "key": "OWNER_DRAW", "label": "Owner's draw", "amount": "8000.00", "percentOfTotal": "72.27" },
+    { "key": "SAFETY_MARGIN", "label": "Safety margin", "amount": "1845.00", "percentOfTotal": "16.67" }
+  ],
+  "total": "11070.00",
+  "productiveHours": "130.00",
+  "hourlyRate": "85.15",
+  "minimumHourlyRate": "70.96",
+  "calculatedAt": "2026-11-02T16:43:32.158Z",
+  "parameters": {
+    "monthlyIncomeGoal": "8000.00",
+    "weeklyHours": "30.00",
+    "safetyMarginPct": "20.00"
+  }
+}
+```
+
+#### 404 — month without a snapshot
+
+```json
+{
+  "statusCode": 404,
+  "code": "HOURLY_RATE_SNAPSHOT_NOT_FOUND",
+  "message": "This month has no stored hourly rate",
+  "details": { "year": 2026, "month": 2 },
+  "path": "/pricing/hourly-rate/history/2026/2",
+  "timestamp": "2026-11-02T16:43:32.196Z"
+}
+```
+
+The month was never calculated, is a future month, or belongs to another
+account: the three are not told apart (ADR-11). **Not a failure** for the app,
+which shows the month as empty in the history.
+
+#### 400 — invalid month
+
+`VALIDATION_ERROR` when `year` is not an integer in 2000–2100 or `month` not an
+integer in 1–12 (`/history/2026/13`).
 
 ## For other modules
 

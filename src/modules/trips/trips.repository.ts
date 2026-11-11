@@ -3,6 +3,7 @@ import { Prisma, Trip } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 type Db = Prisma.TransactionClient | PrismaService;
 
@@ -16,6 +17,11 @@ export interface TripPage {
   total: number;
   totalKm: Prisma.Decimal;
   totalCost: Prisma.Decimal;
+}
+
+export interface TripTotals {
+  count: number;
+  cost: Prisma.Decimal;
 }
 
 /** Latest day first; within a day, in the order the trips were recorded. */
@@ -36,6 +42,19 @@ const TRIP_ORDER: Prisma.TripOrderByWithRelationInput[] = [
 @Injectable()
 export class TripsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Trips made in the period (`occurredOn`). */
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.trip.count({
+        where: {
+          userId,
+          deletedAt: null,
+          occurredOn: { gte: period.days.from, lt: period.days.to },
+        },
+      }),
+    );
+  }
 
   transaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     return runQuery(() => this.prisma.$transaction(fn));
@@ -67,6 +86,47 @@ export class TripsRepository {
       // A RIDE without a distance is NULL, which SUM skips.
       totalKm: sums._sum.distanceKm ?? new Prisma.Decimal(0),
       totalCost: sums._sum.cost ?? new Prisma.Decimal(0),
+    };
+  }
+
+  /**
+   * What each of the latest `days` days with trips to the client cost, latest
+   * first: one total per date, so the way there and back add up.
+   */
+  async findDailyCosts(
+    userId: string,
+    clientId: string,
+    days: number,
+  ): Promise<Prisma.Decimal[]> {
+    const rows = await runQuery(() =>
+      this.prisma.trip.groupBy({
+        by: ['occurredOn'],
+        where: { userId, clientId, deletedAt: null },
+        _sum: { cost: true },
+        orderBy: { occurredOn: 'desc' },
+        take: days,
+      }),
+    );
+    // `cost` is NOT NULL, so every group has a sum.
+    return rows.map(row => row._sum.cost ?? new Prisma.Decimal(0));
+  }
+
+  async sumByClient(
+    userId: string,
+    clientId: string,
+    period: TripPeriod,
+  ): Promise<TripTotals> {
+    const totals = await runQuery(() =>
+      this.prisma.trip.aggregate({
+        where: { ...this.periodWhere(userId, period), clientId },
+        _count: { _all: true },
+        _sum: { cost: true },
+      }),
+    );
+
+    return {
+      count: totals._count._all,
+      cost: totals._sum.cost ?? new Prisma.Decimal(0),
     };
   }
 

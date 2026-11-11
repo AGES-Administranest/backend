@@ -45,6 +45,15 @@ export interface HourlyRateInput {
   weeklyHours: DecimalInput;
 }
 
+/** The four amounts of the formula, in R$, already rounded to cents. */
+export interface HourlyRateParts {
+  fixedCosts: DecimalInput;
+  variableCosts: DecimalInput;
+  ownerDraw: DecimalInput;
+  /** The margin amount, not the percentage. */
+  safetyMargin: DecimalInput;
+}
+
 export interface HourlyRatePart {
   key: HourlyRatePartKey;
   /** Rounded to 2 places. The parts add up to `total` exactly. */
@@ -141,12 +150,42 @@ export function calculateHourlyRate(input: HourlyRateInput): HourlyRateResult {
   const variableCosts = round(toDecimal(input.variableCosts));
   const ownerDraw = round(toDecimal(input.ownerDraw));
   const base = fixedCosts.plus(variableCosts).plus(ownerDraw);
-  const margin = round(base.times(marginPct).dividedBy(100));
-  const total = base.plus(margin);
+  const safetyMargin = round(base.times(marginPct).dividedBy(100));
 
-  const amounts = [fixedCosts, variableCosts, ownerDraw, margin];
+  return composeHourlyRate(
+    { fixedCosts, variableCosts, ownerDraw, safetyMargin },
+    weeklyHours,
+  );
+}
+
+/**
+ * Everything else in the result, built from the four parts already rounded.
+ * It is how a stored month (US22) answers exactly what was calculated: the
+ * snapshot keeps only the parts and the weekly hours, and this derives the
+ * rest with the same code as `calculateHourlyRate`.
+ *
+ * @throws RangeError when the weekly hours are not positive.
+ */
+export function composeHourlyRate(
+  parts: HourlyRateParts,
+  weeklyHours: DecimalInput,
+): HourlyRateResult {
+  const hoursPerWeek = toDecimal(weeklyHours);
+  if (hoursPerWeek.lessThanOrEqualTo(0)) {
+    throw new RangeError('weeklyHours must be greater than zero');
+  }
+
+  const amounts = [
+    parts.fixedCosts,
+    parts.variableCosts,
+    parts.ownerDraw,
+    parts.safetyMargin,
+  ].map(toDecimal);
+  const [fixedCosts, variableCosts, ownerDraw, margin] = amounts;
+  const base = fixedCosts.plus(variableCosts).plus(ownerDraw);
+  const total = base.plus(margin);
   const percentages = percentagesOf(amounts);
-  const hours = productiveHoursPerMonth(weeklyHours);
+  const hours = productiveHoursPerMonth(hoursPerWeek);
 
   return {
     parts: HOURLY_RATE_PART_KEYS.map((key, index) => ({
