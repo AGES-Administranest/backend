@@ -12,6 +12,7 @@ import { EquipmentSummaryEntity } from './entities/equipment-summary.entity';
 import { EquipmentEntity } from './entities/equipment.entity';
 import { EquipmentRepository } from './equipment.repository';
 import { InvalidReferenceError } from '../../infra/prisma/prisma-errors';
+import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 
 const CENTS_PER_UNIT = 100;
@@ -19,6 +20,10 @@ const CENTS_PER_UNIT = 100;
 @Injectable()
 export class EquipmentService {
   constructor(private readonly equipmentRepository: EquipmentRepository) {}
+
+  countAcquiredInPeriod(userId: string, period: Period): Promise<number> {
+    return this.equipmentRepository.countAcquiredInPeriod(userId, period);
+  }
 
   async findAll(
     userId: string,

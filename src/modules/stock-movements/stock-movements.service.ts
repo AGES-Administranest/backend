@@ -52,6 +52,7 @@ import {
   InvalidReferenceError,
   UniqueConstraintError,
 } from '../../infra/prisma/prisma-errors';
+import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 
 /**
@@ -161,6 +162,10 @@ export class StockMovementsService {
   private readonly logger = new Logger(StockMovementsService.name);
 
   constructor(private readonly repository: StockMovementsRepository) {}
+
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return this.repository.countInPeriod(userId, period);
+  }
 
   /** One movement — a batch of one, with the same guarantees. */
   async record(

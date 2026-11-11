@@ -13,6 +13,7 @@ import { TRIP_ESTIMATE_DAYS } from './trips.constants';
 import { TripsRepository } from './trips.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
+import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 
 type Tx = Prisma.TransactionClient;
@@ -44,6 +45,10 @@ export class TripsService {
     private readonly tripsRepository: TripsRepository,
     private readonly financialEntries: FinancialEntryService,
   ) {}
+
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return this.tripsRepository.countInPeriod(userId, period);
+  }
 
   async findAll(userId: string, query: QueryTripDto): Promise<TripListEntity> {
     const from = query.from ? fromIsoDate(query.from) : undefined;

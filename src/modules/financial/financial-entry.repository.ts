@@ -6,6 +6,7 @@ import {
   runQuery,
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 const statementSelect = {
   id: true,
@@ -53,6 +54,26 @@ export interface StatementFilter {
 @Injectable()
 export class FinancialEntryRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Entries accrued in the period: the date the statement is ordered by.
+   *
+   * It uses the UTC `days`, not the local `instants`, although the column is a
+   * `timestamptz`: entries from invoices and trips store their date at UTC
+   * midnight, and the statement builds its month with `Date.UTC` too. Counting
+   * with local midnight would make this number disagree with the statement.
+   */
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.financialEntry.count({
+        where: {
+          userId,
+          deletedAt: null,
+          accrualDate: { gte: period.days.from, lt: period.days.to },
+        },
+      }),
+    );
+  }
 
   // The one definition of "what the statement shows", so the statement and
   // the totals built on it cannot drift apart.

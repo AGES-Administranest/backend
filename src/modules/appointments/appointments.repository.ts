@@ -21,6 +21,7 @@ import {
   runQuery,
 } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 import { balanceRequiresAdjustment, reversalOf } from '../stock-movements';
 
 export type ItemWithLots = Item & { lots: ItemLot[] };
@@ -82,6 +83,19 @@ export interface RecordedItemUsage {
 @Injectable()
 export class AppointmentsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Appointments starting in the period, whatever their status. */
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.appointment.count({
+        where: {
+          userId,
+          deletedAt: null,
+          startsAt: { gte: period.instants.from, lt: period.instants.to },
+        },
+      }),
+    );
+  }
 
   findByClientGeneratedId(
     clientGeneratedId: string,
