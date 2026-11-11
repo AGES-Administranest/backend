@@ -10,9 +10,9 @@ real responses and what the app is expected to do with each one.
 | Method | Route | What it does |
 |---|---|---|
 | `GET` | `/users/me` | Reads the profile |
+| `PATCH` | `/users/me` | Edits the profile |
 
-`PATCH /users/me` (US24) and `DELETE /users/me` (US25) will be documented here
-as well.
+`DELETE /users/me` (US25) will be documented here as well.
 
 All of them need `Authorization: Bearer <IdToken>`, and the mirror created by
 `POST /auth/session` (ADR-02).
@@ -94,3 +94,25 @@ A valid token with no mirror yet answers `401 USER_NOT_PROVISIONED`: call
 keeps the token's local id for up to five minutes (`AUTH_SUB_CACHE_TTL_MS`), so
 in that window the request still reaches the service and finds no row. Once the
 entry expires, the same token answers `401 USER_NOT_PROVISIONED`.
+
+## `PATCH /users/me`
+
+Edits `name`, `crmv`, `birthDate`, `sex`, `city` and `state`. Any other field —
+`email` included, since Cognito owns it (ADR-02) — answers `400`.
+
+- A field left out keeps its value; `null` clears it. `name` cannot be `null`.
+- The response is the same body `GET /users/me` returns.
+- Idempotent: the offline queue (ADR-08) resends the same body with no `/sync`
+  route.
+
+| Field | Rule |
+|---|---|
+| `name` | 2 to 120 characters, trimmed. |
+| `crmv` | UF, hyphen, up to 6 digits: `RS-12345`. Upper-cased. |
+| `birthDate` | Sent as `YYYY-MM-DD`, not the ISO date-time `GET` returns. From 1900 on, at least 18 years ago. |
+| `sex` | One of the enum values. |
+| `city` | Up to 120 characters, not blank. |
+| `state` | One of the 27 UFs. Upper-cased. |
+
+An invalid field answers `400 VALIDATION_ERROR`, naming the field in
+`details.fields`.
