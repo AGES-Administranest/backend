@@ -1,7 +1,10 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
-import { QueryClientAppointmentsDto } from '../../../src/modules/client/dto/query-client-appointments.dto';
+import {
+  MAX_PAGE,
+  QueryClientAppointmentsDto,
+} from '../../../src/modules/client/dto/query-client-appointments.dto';
 
 const invalidFields = async (query: Record<string, unknown>) => {
   const errors = await validate(
@@ -42,6 +45,8 @@ describe('QueryClientAppointmentsDto', () => {
 
   it.each([
     ['page', 0],
+    ['page', MAX_PAGE + 1],
+    ['page', '99999999999999999999'],
     ['limit', 0],
     ['limit', 101],
     ['limit', 'abc'],

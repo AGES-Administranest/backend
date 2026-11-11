@@ -4,6 +4,9 @@ import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
 import { IsIsoDate } from '../../../shared/dates/iso-date';
 
+// Keeps (page - 1) * limit inside the database's integer range.
+export const MAX_PAGE = 10_000;
+
 export class QueryClientAppointmentsDto {
   @ApiPropertyOptional({
     format: 'date',
@@ -27,11 +30,17 @@ export class QueryClientAppointmentsDto {
   @IsIsoDate()
   to?: string;
 
-  @ApiPropertyOptional({ type: Number, default: 1, minimum: 1 })
+  @ApiPropertyOptional({
+    type: Number,
+    default: 1,
+    minimum: 1,
+    maximum: MAX_PAGE,
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(MAX_PAGE)
   page: number = 1;
 
   @ApiPropertyOptional({ type: Number, default: 20, minimum: 1, maximum: 100 })
