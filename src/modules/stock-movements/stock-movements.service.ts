@@ -21,8 +21,10 @@ import {
 } from './domain/stock-movement.rules';
 import {
   adjustmentsByReason,
+  consumptionByItem,
   consumptionByProcedure,
   directionTotals,
+  type ItemConsumption,
   itemPeriodBalance,
 } from './domain/stock-summary.rules';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
@@ -165,6 +167,20 @@ export class StockMovementsService {
 
   countInPeriod(userId: string, period: Period): Promise<number> {
     return this.repository.countInPeriod(userId, period);
+  }
+
+  /** What the procedures of the period used, by item (US29). */
+  async consumptionInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<ItemConsumption[]> {
+    const movements = await this.repository.findForSummary({
+      userId,
+      deletedAt: null,
+      appointmentId: { not: null },
+      occurredAt: { gte: period.instants.from, lt: period.instants.to },
+    });
+    return consumptionByItem(movements);
   }
 
   /** One movement — a batch of one, with the same guarantees. */

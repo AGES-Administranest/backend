@@ -164,6 +164,9 @@ export const ERROR_CODES = [
   // `from` is after `to`: the period is empty by construction, so resending
   // the same dates will never work and the app has to fix the range.
   'REPORT_PERIOD_INVALID',
+  // The general report (US29) was asked with no section at all. The app
+  // blocks this before sending, so it only happens on a bug.
+  'REPORT_SECTIONS_EMPTY',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

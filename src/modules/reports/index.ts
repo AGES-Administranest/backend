@@ -2,3 +2,7 @@ export * from './reports.module';
 export * from './reports.service';
 export * from './dto/query-reports-availability.dto';
 export * from './entities/reports-availability.entity';
+export * from './general-report.service';
+export * from './dto/query-general-report.dto';
+export * from './entities/general-report.entity';
+export * from './domain/report-sections';

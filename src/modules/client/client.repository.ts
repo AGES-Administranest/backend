@@ -21,6 +21,22 @@ export class ClientRepository {
    * Scoped to the owner (ADR-11). Someone else's client, or a deleted one,
    * comes back null, which the service reports as "not found".
    */
+  /**
+   * The names of these clients, deleted ones included: a report still has to
+   * name the client of a past record (US29). Scoped to the owner (ADR-11).
+   */
+  findNames(
+    userId: string,
+    ids: readonly string[],
+  ): Promise<{ id: string; name: string }[]> {
+    return runQuery(() =>
+      this.prisma.client.findMany({
+        where: { userId, id: { in: [...ids] } },
+        select: { id: true, name: true },
+      }),
+    );
+  }
+
   findById(id: string, userId: string): Promise<Client | null> {
     return runQuery(() =>
       this.prisma.client.findFirst({

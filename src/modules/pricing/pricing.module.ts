@@ -27,6 +27,6 @@ import { TripsModule } from '../trips';
     HourlyRateSnapshotRepository,
     ProcedureEstimateService,
   ],
-  exports: [HourlyRateService],
+  exports: [HourlyRateService, HourlyRateHistoryService],
 })
 export class PricingModule {}

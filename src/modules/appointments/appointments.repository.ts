@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   Appointment,
   AppointmentStatus,
+  Client,
   EntryNature,
   EntryScope,
   EntrySource,
@@ -77,6 +78,27 @@ export interface ClientAppointmentPage {
 export interface AppointmentTotals {
   count: number;
   amount: Prisma.Decimal;
+}
+
+/** A completed appointment as the general report (US29) lists it. */
+export type ReportAppointment = Pick<
+  Appointment,
+  | 'id'
+  | 'startsAt'
+  | 'patientName'
+  | 'asa'
+  | 'weightKg'
+  | 'location'
+  | 'procedureName'
+  | 'amount'
+  | 'clientId'
+> & {
+  client: Pick<Client, 'name' | 'addressLine' | 'city' | 'state'> | null;
+};
+
+/** `AppointmentTotals` of one client; `clientId` is null for no client. */
+export interface ClientAppointmentTotals extends AppointmentTotals {
+  clientId: string | null;
 }
 
 export interface RecordedItemUsage {
@@ -178,6 +200,57 @@ export class AppointmentsRepository {
       count: totals._count._all,
       amount: totals._sum.amount ?? new Prisma.Decimal(0),
     };
+  }
+
+  /** Every completed appointment of the period, oldest first (US29). */
+  findCompletedInPeriod(
+    userId: string,
+    period: AppointmentPeriod,
+  ): Promise<ReportAppointment[]> {
+    return runQuery(() =>
+      this.prisma.appointment.findMany({
+        where: this.completedWhere(userId, period),
+        select: {
+          id: true,
+          startsAt: true,
+          patientName: true,
+          asa: true,
+          weightKg: true,
+          location: true,
+          procedureName: true,
+          amount: true,
+          clientId: true,
+          client: {
+            select: { name: true, addressLine: true, city: true, state: true },
+          },
+        },
+        orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+  }
+
+  /**
+   * `sumCompletedByClient` for every client at once, by the same filter, so
+   * the report and the client's card (US17) cannot disagree.
+   */
+  async sumCompletedGroupedByClient(
+    userId: string,
+    period: AppointmentPeriod,
+  ): Promise<ClientAppointmentTotals[]> {
+    const rows = await runQuery(() =>
+      this.prisma.appointment.groupBy({
+        by: ['clientId'],
+        where: this.completedWhere(userId, period),
+        _count: { _all: true },
+        _sum: { amount: true },
+      }),
+    );
+
+    return rows.map(row => ({
+      clientId: row.clientId,
+      count: row._count._all,
+      amount: row._sum.amount ?? new Prisma.Decimal(0),
+    }));
   }
 
   findById(id: string, userId: string): Promise<Appointment | null> {
@@ -440,11 +513,17 @@ export class AppointmentsRepository {
   private completedByClientWhere(
     userId: string,
     clientId: string,
+    period: AppointmentPeriod,
+  ): Prisma.AppointmentWhereInput {
+    return { ...this.completedWhere(userId, period), clientId };
+  }
+
+  private completedWhere(
+    userId: string,
     { from, before }: AppointmentPeriod,
   ): Prisma.AppointmentWhereInput {
     return {
       userId,
-      clientId,
       status: AppointmentStatus.COMPLETED,
       deletedAt: null,
       ...(from || before
