@@ -1,0 +1,91 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { Report } from '@prisma/client';
+
+import { QueryReportHistoryDto } from './dto/query-report-history.dto';
+import { ReportDownloadUrlEntity } from './entities/report-download-url.entity';
+import { ReportHistoryItemEntity } from './entities/report-history-item.entity';
+import { reportNotFound } from './report-history.errors';
+import { ReportHistoryRepository } from './report-history.repository';
+import {
+  documentKey,
+  DocumentStorage,
+  DOWNLOAD_TTL_MS,
+} from '../../infra/storage';
+import { toIsoDate } from '../../shared/dates/iso-date';
+
+/**
+ * The history of generated reports (US32): list, download again, delete.
+ * Only stored reports (`DONE`) that were not deleted exist here; anything
+ * else answers `REPORT_NOT_FOUND`, the same as another user's (ADR-11).
+ */
+@Injectable()
+export class ReportHistoryService {
+  private readonly logger = new Logger(ReportHistoryService.name);
+
+  constructor(
+    private readonly repository: ReportHistoryRepository,
+    private readonly storage: DocumentStorage,
+  ) {}
+
+  async list(
+    userId: string,
+    query: QueryReportHistoryDto,
+  ): Promise<ReportHistoryItemEntity[]> {
+    const reports = await this.repository.findPage(userId, query);
+    return reports.map(toItem);
+  }
+
+  /** @throws DomainError `REPORT_NOT_FOUND` */
+  async downloadUrl(
+    userId: string,
+    id: string,
+  ): Promise<ReportDownloadUrlEntity> {
+    const report = await this.repository.findListed(id, userId);
+    if (!report) throw reportNotFound(id);
+
+    return this.storage.createPresignedGet({
+      key: documentKey(userId, 'reports', id),
+      expiresInMs: DOWNLOAD_TTL_MS,
+      ...(report.fileName && { fileName: report.fileName }),
+    });
+  }
+
+  /**
+   * The row leaves the history first, then the file leaves the bucket. A
+   * bucket cannot join the transaction, and the other order would list a
+   * report whose file is gone if the update failed. A file that survives a
+   * failed delete is only logged: no route reaches it anymore.
+   *
+   * @throws DomainError `REPORT_NOT_FOUND`, also on a second delete.
+   */
+  async remove(userId: string, id: string): Promise<void> {
+    const removed = await this.repository.softDelete(id, userId);
+    if (!removed) throw reportNotFound(id);
+
+    try {
+      await this.storage.deleteDocument(documentKey(userId, 'reports', id));
+    } catch (error) {
+      this.logger.error(
+        `Report ${id} was deleted but its file was not`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+}
+
+function toItem(report: Report): ReportHistoryItemEntity {
+  return {
+    id: report.id,
+    kind: report.kind,
+    fileName: report.fileName,
+    fileBytesSize: report.fileBytesSize,
+    period:
+      report.periodStart && report.periodEnd
+        ? {
+            from: toIsoDate(report.periodStart),
+            to: toIsoDate(report.periodEnd),
+          }
+        : null,
+    generatedAt: report.createdAt,
+  };
+}

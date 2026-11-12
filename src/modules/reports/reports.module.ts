@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 
 import { ReportArchiveService } from './report-archive.service';
+import { ReportHistoryController } from './report-history.controller';
 import { ReportHistoryRepository } from './report-history.repository';
+import { ReportHistoryService } from './report-history.service';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
 import { AppointmentsModule } from '../appointments';
@@ -22,8 +24,13 @@ import { TripsModule } from '../trips';
     TripsModule,
     EquipmentModule,
   ],
-  controllers: [ReportsController],
-  providers: [ReportsService, ReportArchiveService, ReportHistoryRepository],
+  controllers: [ReportsController, ReportHistoryController],
+  providers: [
+    ReportsService,
+    ReportArchiveService,
+    ReportHistoryService,
+    ReportHistoryRepository,
+  ],
   exports: [ReportsService, ReportArchiveService],
 })
 export class ReportsModule {}

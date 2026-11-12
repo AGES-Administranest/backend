@@ -70,3 +70,80 @@ describe('ReportHistoryRepository recording', () => {
     await expect(repository.markDone(REPORT_ID, USER_ID)).resolves.toBe(false);
   });
 });
+
+describe('ReportHistoryRepository history', () => {
+  const LISTED = {
+    userId: USER_ID,
+    status: ReportStatus.DONE,
+    deletedAt: null,
+  };
+
+  let report: {
+    findMany: jest.Mock;
+    findFirst: jest.Mock;
+    updateMany: jest.Mock;
+  };
+  let repository: ReportHistoryRepository;
+
+  beforeEach(() => {
+    report = {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    };
+    repository = new ReportHistoryRepository({
+      report,
+    } as unknown as PrismaService);
+  });
+
+  it('lists the user stored reports, newest first, one page at a time', async () => {
+    await repository.findPage(USER_ID, { page: 3, limit: 10 });
+
+    expect(report.findMany).toHaveBeenCalledWith({
+      where: LISTED,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: 20,
+      take: 10,
+    });
+  });
+
+  it('filters the page by kind when asked', async () => {
+    await repository.findPage(USER_ID, {
+      kind: ReportKind.TAX_PACKAGE,
+      page: 1,
+      limit: 20,
+    });
+
+    expect(report.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { ...LISTED, kind: ReportKind.TAX_PACKAGE },
+        skip: 0,
+      }),
+    );
+  });
+
+  it('finds a report only as the history lists it', async () => {
+    await repository.findListed(REPORT_ID, USER_ID);
+
+    expect(report.findFirst).toHaveBeenCalledWith({
+      where: { id: REPORT_ID, ...LISTED },
+    });
+  });
+
+  it('deletes only a listed report, in the same write that checks it', async () => {
+    await expect(repository.softDelete(REPORT_ID, USER_ID)).resolves.toBe(true);
+
+    expect(report.updateMany).toHaveBeenCalledWith({
+      where: { id: REPORT_ID, ...LISTED },
+      data: { deletedAt: expect.any(Date) as Date },
+    });
+  });
+
+  it('answers false when there was nothing to delete', async () => {
+    report.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(repository.softDelete(REPORT_ID, USER_ID)).resolves.toBe(
+      false,
+    );
+  });
+});

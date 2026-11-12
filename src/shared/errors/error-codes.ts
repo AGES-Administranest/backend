@@ -164,6 +164,9 @@ export const ERROR_CODES = [
   // `from` is after `to`: the period is empty by construction, so resending
   // the same dates will never work and the app has to fix the range.
   'REPORT_PERIOD_INVALID',
+  // A generated report that is not this user's, not stored yet, failed or
+  // deleted from the history (US32): the app only knows the ones it listed.
+  'REPORT_NOT_FOUND',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

@@ -1,8 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, ReportKind, ReportStatus } from '@prisma/client';
+import { Prisma, Report, ReportKind, ReportStatus } from '@prisma/client';
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+
+export interface ReportHistoryPage {
+  kind?: ReportKind;
+  page: number;
+  limit: number;
+}
+
+/** What the history shows: stored and not deleted, owned by the user. */
+const listed = (userId: string): Prisma.ReportWhereInput => ({
+  userId,
+  status: ReportStatus.DONE,
+  deletedAt: null,
+});
 
 export interface PendingReport {
   id: string;
@@ -42,6 +55,44 @@ export class ReportHistoryRepository {
         },
       }),
     );
+  }
+
+  /** Newest first; `id` breaks a tie so a page never repeats or skips a row. */
+  findPage(userId: string, query: ReportHistoryPage): Promise<Report[]> {
+    return runQuery(() =>
+      this.prisma.report.findMany({
+        where: {
+          ...listed(userId),
+          ...(query.kind ? { kind: query.kind } : {}),
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+    );
+  }
+
+  /** The report only if the history would list it. */
+  findListed(id: string, userId: string): Promise<Report | null> {
+    return runQuery(() =>
+      this.prisma.report.findFirst({ where: { id, ...listed(userId) } }),
+    );
+  }
+
+  /**
+   * Removes the report from the history; the row and its key stay. The
+   * condition is in the write, so of two concurrent deletes only one wins.
+   *
+   * @returns False when the history did not list it.
+   */
+  async softDelete(id: string, userId: string): Promise<boolean> {
+    const { count } = await runQuery(() =>
+      this.prisma.report.updateMany({
+        where: { id, ...listed(userId) },
+        data: { deletedAt: new Date() },
+      }),
+    );
+    return count === 1;
   }
 
   /** False when the row is no longer `PENDING`: a report is finished once. */
