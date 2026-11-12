@@ -17,13 +17,14 @@ GET /reports/general?from=2026-10-15&to=2026-11-14&sections=FINANCIAL,TRIPS
 
 | Parameter | Rule |
 |---|---|
-| `from`, `to` | `YYYY-MM-DD`, both included. The same period as `GET /reports/availability` (US26), so the two read the same records |
+| `from`, `to` | `YYYY-MM-DD`, both included, at most 366 days. The same period as `GET /reports/availability` (US26), so the two read the same records |
 | `sections` | Comma-separated, or the parameter repeated. Without it, every section. Present but empty: `400 REPORT_SECTIONS_EMPTY` |
 
 | Error | When |
 |---|---|
 | `400 VALIDATION_ERROR` | A date is missing or not `YYYY-MM-DD`, or a section is unknown |
 | `400 REPORT_PERIOD_INVALID` | `from` is after `to` |
+| `400 REPORT_PERIOD_TOO_LONG` | The period is longer than 366 days. `details` carries `days` and `maxDays` |
 | `400 REPORT_SECTIONS_EMPTY` | `sections` was sent with nothing in it |
 
 ## Response
@@ -54,7 +55,7 @@ GET /reports/general?from=2026-10-15&to=2026-11-14&sections=FINANCIAL,TRIPS
 | `SUPPLIERS` | Confirmed purchases by supplier | `StockEntryService.purchaseTotalsBySupplierInPeriod` |
 | `TRIPS` | Trip count, km and cost | `TripsService.totalsInPeriod` |
 | `DEPRECIATION` | Depreciation of each month and of the period | `EquipmentService.monthlyDepreciation` (US15), prorated |
-| `HOURLY_RATE` | The hour value of each month | History (US22) or `HourlyRateService.calculate` (US20) |
+| `HOURLY_RATE` | The hour value of each month | History (US22) or `HourlyRateService.calculateWithoutStoring` (US20) |
 
 ### Financial
 
@@ -95,7 +96,10 @@ has a line.
 
 ### Stock and supplies
 
-**Consumption** is what the procedures used: movements tied to an appointment.
+**Consumption** is what the procedures used: the movements of the appointments
+the report counts, that is completed and not deleted. Deleting an appointment
+reverses its supplies with the deletion date, which may fall outside the
+period, so the supply and its reversal are left out together.
 A supply that was corrected or removed leaves a `CORRECTION_REVERSAL` with the
 same appointment, item and cost, which is subtracted, so a correction never
 counts twice. Losses and manual adjustments are not consumption; they belong to
@@ -113,7 +117,7 @@ One value per month of the period (decided on 11/11/2026).
 | Month | Value |
 |---|---|
 | Past, with a stored value | The history (US22): what the hour was worth then. `source: HISTORY` |
-| Past without one, current, or future | Calculated now (US20). `source: CALCULATED`. This also stores it by the US22 rule, as the calculator does |
+| Past without one, current, or future | Calculated now (US20) with the current goals. `source: CALCULATED`. Not stored: the report only reads, and a past month calculated today must not enter the history as what the hour was worth then |
 
 Without goals (US19, `PRICING_SETTINGS_NOT_FOUND`), nothing can be calculated:
 those months come back with `hourlyRate: null`, the section has

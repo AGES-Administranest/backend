@@ -52,12 +52,12 @@ export class ReportsController {
   @ApiOperation({
     summary: 'The general report of a period (US29)',
     description:
-      'The selected sections of the period, in the order of the document. Feeds the preview (US27) and the PDF (US28). Both dates are included; deleted records are not counted. A selected section without records is still sent, with `empty: true`. Asking for the current month also refreshes its hourly rate in the history (US22), as the calculator does.',
+      'The selected sections of the period, in the order of the document. Feeds the preview (US27) and the PDF (US28). Both dates are included; deleted records are not counted. At most 366 days. A selected section without records is still sent, with `empty: true`. Read-only: a month without a stored hourly rate is calculated for the answer and not stored (US22).',
   })
   @ApiOkResponse({ type: GeneralReportEntity })
   @ApiBadRequestResponse({
     description:
-      'A date is missing or not YYYY-MM-DD, or a section is unknown (VALIDATION_ERROR); `from` is after `to` (REPORT_PERIOD_INVALID); `sections` is present but empty (REPORT_SECTIONS_EMPTY)',
+      'A date is missing or not YYYY-MM-DD, or a section is unknown (VALIDATION_ERROR); `from` is after `to` (REPORT_PERIOD_INVALID); the period is longer than 366 days (REPORT_PERIOD_TOO_LONG); `sections` is present but empty (REPORT_SECTIONS_EMPTY)',
   })
   @ApiUnauthorizedResponse({
     description:

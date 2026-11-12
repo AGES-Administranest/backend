@@ -197,10 +197,11 @@ export interface ItemConsumption {
 /**
  * What the procedures used, by item, most expensive first (US29).
  *
- * Only movements tied to an appointment count. A supply that was corrected or
- * removed leaves a reversal with the same appointment, item and cost
- * (`reversalOf`), so it is subtracted here and the two net to zero. Losses and
- * manual adjustments are not consumption: they belong to the stock summary.
+ * Only movements tied to an appointment count; the caller picks which
+ * appointments. A supply that was corrected or removed leaves a reversal with
+ * the same appointment, item and cost (`reversalOf`), so it is subtracted here
+ * and the two net to zero. Losses and manual adjustments are not consumption:
+ * they belong to the stock summary.
  */
 export function consumptionByItem(
   movements: readonly ConsumableMovement[],

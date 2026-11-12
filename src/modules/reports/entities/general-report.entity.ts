@@ -388,7 +388,7 @@ export class HourlyRateMonth {
     enum: HOURLY_RATE_SOURCES,
     nullable: true,
     description:
-      'HISTORY: the stored value of a past month (US22); CALCULATED: calculated now (US20), for the current month or a month never stored. Null when there is no value.',
+      'HISTORY: the stored value of a past month (US22); CALCULATED: calculated now from the current goals (US20) and not stored, for the current month, a future one or a month never stored. Null when there is no value.',
   })
   source!: HourlyRateSource | null;
 }

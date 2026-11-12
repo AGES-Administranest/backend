@@ -33,6 +33,7 @@ export class GeneralReportService {
 
   /**
    * @throws DomainError `REPORT_PERIOD_INVALID` when `from` is after `to`.
+   * @throws DomainError `REPORT_PERIOD_TOO_LONG` past `MAX_REPORT_DAYS` (366).
    * @throws DomainError `REPORT_SECTIONS_EMPTY` when no section is selected.
    */
   async generate(

@@ -71,9 +71,10 @@ export class CostsSectionBuilder {
    *
    * A past month answers what the history stored for it (US22), so the report
    * shows what the hour was worth then. The current month, a future one, or a
-   * past month never stored is calculated now (US20), which also stores it by
-   * the US22 rule. Without goals (US19) nothing can be calculated: those months
-   * come back empty and the section says why.
+   * past month never stored is calculated now (US20) and NOT stored: reading a
+   * report must not write a past month into the history with today's goals.
+   * Without goals (US19) nothing can be calculated: those months come back
+   * empty and the section says why.
    */
   async hourlyRateSection(
     context: ReportContext,
@@ -94,8 +95,8 @@ export class CostsSectionBuilder {
 
     const months: HourlyRateMonth[] = [];
     let settingsMissing = false;
-    // One at a time: each calculation reads the month's costs and may write
-    // the history, and a long period would otherwise flood a small database.
+    // One at a time: each calculation reads the month's costs, and a year of
+    // them at once would flood a small database.
     for (const { year, month } of context.segments) {
       const storedRate = storedByMonth.get(yearMonth({ year, month }));
       if (
@@ -110,7 +111,7 @@ export class CostsSectionBuilder {
         continue;
       }
       try {
-        const result = await this.hourlyRate.calculate(
+        const result = await this.hourlyRate.calculateWithoutStoring(
           context.userId,
           Object.assign(new QueryHourlyRateDto(), { year, month }),
         );

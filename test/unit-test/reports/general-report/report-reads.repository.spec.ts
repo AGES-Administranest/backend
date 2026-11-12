@@ -250,7 +250,7 @@ describe('income read by the report', () => {
 });
 
 describe('stock consumption read by the report', () => {
-  it('reads only the movements tied to an appointment in the period', async () => {
+  it('reads only the supplies of completed, live appointments in the period', async () => {
     const findForSummary = jest.fn().mockResolvedValue([]);
     const service = new StockMovementsService({ findForSummary } as never);
 
@@ -259,7 +259,9 @@ describe('stock consumption read by the report', () => {
     expect(findForSummary).toHaveBeenCalledWith({
       userId: 'user-1',
       deletedAt: null,
-      appointmentId: { not: null },
+      appointment: {
+        is: { deletedAt: null, status: AppointmentStatus.COMPLETED },
+      },
       occurredAt: { gte: period.instants.from, lt: period.instants.to },
     });
   });

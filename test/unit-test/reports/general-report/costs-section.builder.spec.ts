@@ -16,7 +16,7 @@ const settingsNotFound = () =>
 describe('CostsSectionBuilder', () => {
   const build = () => {
     const trips = { totalsInPeriod: jest.fn() };
-    const hourlyRate = { calculate: jest.fn() };
+    const hourlyRate = { calculateWithoutStoring: jest.fn() };
     const hourlyRateHistory = { list: jest.fn().mockResolvedValue([]) };
     const builder = new CostsSectionBuilder(
       trips as never,
@@ -126,7 +126,7 @@ describe('CostsSectionBuilder', () => {
         { year: 2026, month: 9, hourlyRate: '180.00' },
         { year: 2026, month: 11, hourlyRate: '150.00' },
       ]);
-      hourlyRate.calculate
+      hourlyRate.calculateWithoutStoring
         .mockResolvedValueOnce({ hourlyRate: '182.40' }) // October, never stored
         .mockResolvedValueOnce({ hourlyRate: '190.00' }); // November, current
 
@@ -138,7 +138,7 @@ describe('CostsSectionBuilder', () => {
         from: '2026-09',
         to: '2026-11',
       });
-      expect(hourlyRate.calculate.mock.calls).toEqual([
+      expect(hourlyRate.calculateWithoutStoring.mock.calls).toEqual([
         ['user-1', { year: 2026, month: 10 }],
         ['user-1', { year: 2026, month: 11 }],
       ]);
@@ -156,14 +156,14 @@ describe('CostsSectionBuilder', () => {
 
     it('says why the months are empty when the goals were never saved', async () => {
       const { builder, hourlyRate } = build();
-      hourlyRate.calculate.mockRejectedValue(settingsNotFound());
+      hourlyRate.calculateWithoutStoring.mockRejectedValue(settingsNotFound());
 
       const section = await builder.hourlyRateSection(
         contextFor('2026-09-01', '2026-10-31'),
       );
 
       // After the first refusal, the other months are not even tried.
-      expect(hourlyRate.calculate).toHaveBeenCalledTimes(1);
+      expect(hourlyRate.calculateWithoutStoring).toHaveBeenCalledTimes(1);
       expect(section).toEqual({
         type: 'HOURLY_RATE',
         empty: true,
@@ -180,7 +180,7 @@ describe('CostsSectionBuilder', () => {
       hourlyRateHistory.list.mockResolvedValue([
         { year: 2026, month: 11, hourlyRate: '150.00' },
       ]);
-      hourlyRate.calculate.mockRejectedValue(settingsNotFound());
+      hourlyRate.calculateWithoutStoring.mockRejectedValue(settingsNotFound());
 
       const section = await builder.hourlyRateSection(
         contextFor('2026-11-01', '2026-11-30'),
@@ -197,7 +197,9 @@ describe('CostsSectionBuilder', () => {
 
     it('lets any other error through', async () => {
       const { builder, hourlyRate } = build();
-      hourlyRate.calculate.mockRejectedValue(new Error('database down'));
+      hourlyRate.calculateWithoutStoring.mockRejectedValue(
+        new Error('database down'),
+      );
 
       await expect(
         builder.hourlyRateSection(contextFor('2026-10-01', '2026-10-31')),

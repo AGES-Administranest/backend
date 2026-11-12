@@ -18,10 +18,6 @@ export class ClientRepository {
   }
 
   /**
-   * Scoped to the owner (ADR-11). Someone else's client, or a deleted one,
-   * comes back null, which the service reports as "not found".
-   */
-  /**
    * The names of these clients, deleted ones included: a report still has to
    * name the client of a past record (US29). Scoped to the owner (ADR-11).
    */
@@ -37,6 +33,10 @@ export class ClientRepository {
     );
   }
 
+  /**
+   * Scoped to the owner (ADR-11). Someone else's client, or a deleted one,
+   * comes back null, which the service reports as "not found".
+   */
   findById(id: string, userId: string): Promise<Client | null> {
     return runQuery(() =>
       this.prisma.client.findFirst({

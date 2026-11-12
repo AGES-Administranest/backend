@@ -6,6 +6,7 @@ import type { AppointmentPeriod } from '../../appointments';
 import { EquipmentService } from '../../equipment';
 import type { TripPeriod } from '../../trips';
 import { monthSegments, MonthSegment, prorate } from '../domain/month-segments';
+import { assertReportablePeriod } from '../domain/report-period';
 
 /** The depreciation of one month of the period (US15, prorated). */
 export interface SegmentDepreciation {
@@ -28,7 +29,10 @@ export class ReportContext {
   readonly segments: MonthSegment[];
   private depreciationOnce?: Promise<SegmentDepreciation[]>;
 
-  /** @throws DomainError `REPORT_PERIOD_INVALID` when `from` is after `to`. */
+  /**
+   * @throws DomainError `REPORT_PERIOD_INVALID` when `from` is after `to`.
+   * @throws DomainError `REPORT_PERIOD_TOO_LONG` past `MAX_REPORT_DAYS`.
+   */
   constructor(
     readonly userId: string,
     readonly from: string,
@@ -36,6 +40,7 @@ export class ReportContext {
     private readonly equipment: EquipmentService,
   ) {
     this.period = periodFromIsoDates(from, to);
+    assertReportablePeriod(this.period, { from, to });
     this.segments = monthSegments(from, to);
   }
 
