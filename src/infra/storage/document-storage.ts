@@ -22,9 +22,23 @@ export abstract class DocumentStorage {
    */
   abstract getDocument(key: string): Promise<Uint8Array | null>;
 
+  /**
+   * Writes a file the API itself produced, such as a generated report (US28).
+   * Files the user sends never pass through here: they go straight to the
+   * bucket with a presigned POST (ADR-03).
+   */
+  abstract putDocument(
+    key: string,
+    body: Uint8Array,
+    contentType: string,
+  ): Promise<void>;
+
   abstract createPresignedGet(
     request: PresignedGetRequest,
   ): Promise<PresignedGet>;
+
+  /** Idempotent: nothing at the key is not an error, so a retry is safe. */
+  abstract deleteDocument(key: string): Promise<void>;
 }
 
 export type PresignedPostRequest = {

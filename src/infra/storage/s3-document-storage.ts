@@ -1,6 +1,8 @@
 import {
   GetObjectCommand,
+  DeleteObjectCommand,
   HeadObjectCommand,
+  PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -101,6 +103,21 @@ export class S3DocumentStorage extends DocumentStorage {
     }
   }
 
+  async putDocument(
+    key: string,
+    body: Uint8Array,
+    contentType: string,
+  ): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      }),
+    );
+  }
+
   /**
    * Unlike the presigned POST, the host is part of the signature: the URL only
    * works against the `AWS_ENDPOINT_URL` this API was started with.
@@ -122,6 +139,13 @@ export class S3DocumentStorage extends DocumentStorage {
     );
 
     return { url, expiresAt: signedAt + request.expiresInMs };
+  }
+
+  /** S3 answers 204 for a key that is not there, so this never throws on it. */
+  async deleteDocument(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
   }
 
   /**
