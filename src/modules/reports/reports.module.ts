@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { ReportArchiveService } from './report-archive.service';
+import { ReportHistoryRepository } from './report-history.repository';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
 import { AppointmentsModule } from '../appointments';
@@ -21,7 +23,7 @@ import { TripsModule } from '../trips';
     EquipmentModule,
   ],
   controllers: [ReportsController],
-  providers: [ReportsService],
-  exports: [ReportsService],
+  providers: [ReportsService, ReportArchiveService, ReportHistoryRepository],
+  exports: [ReportsService, ReportArchiveService],
 })
 export class ReportsModule {}
