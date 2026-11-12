@@ -245,7 +245,7 @@ function appointments(section: AppointmentsReportSection): Content[] {
       ['Valor total faturado', brl(section.billedTotal)],
     ]),
     table(
-      [48, '*', 26, 36, 95, 85, 58],
+      [48, '*', 26, 44, 90, 82, 58],
       [
         head('Data'),
         head('Paciente'),
