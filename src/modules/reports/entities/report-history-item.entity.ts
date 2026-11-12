@@ -5,7 +5,11 @@ export class ReportHistoryPeriod {
   @ApiProperty({ example: '2026-10-15', format: 'date' })
   from!: string;
 
-  @ApiProperty({ example: '2026-11-14', format: 'date' })
+  @ApiProperty({
+    example: '2026-11-14',
+    format: 'date',
+    description: 'Included, like from',
+  })
   to!: string;
 }
 
@@ -14,22 +18,43 @@ export class ReportHistoryItemEntity {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ enum: ReportKind })
+  @ApiProperty({
+    enum: ReportKind,
+    description:
+      'GENERAL_REPORT: the general report PDF (US28). TAX_PACKAGE: the package for the accountant (US30)',
+  })
   kind!: ReportKind;
 
   @ApiProperty({
     type: String,
     nullable: true,
     example: 'administranest_relatorio-geral_2026-10-15_2026-11-14.pdf',
+    description:
+      'The name the file downloads under. Null only for a report recorded without one',
   })
   fileName!: string | null;
 
-  @ApiProperty({ type: Number, nullable: true, example: 184320 })
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    example: 184320,
+    description:
+      'Size of the file in bytes. Null only for a report recorded without one',
+  })
   fileBytesSize!: number | null;
 
-  @ApiProperty({ type: ReportHistoryPeriod, nullable: true })
+  @ApiProperty({
+    type: ReportHistoryPeriod,
+    nullable: true,
+    description:
+      'The period the file covers. Null only for a report recorded without one',
+  })
   period!: ReportHistoryPeriod | null;
 
-  @ApiProperty({ type: String, format: 'date-time' })
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    description: 'When the report was generated',
+  })
   generatedAt!: Date;
 }
