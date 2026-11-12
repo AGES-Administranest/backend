@@ -184,6 +184,15 @@ enum ReportStatus {
   @@map("report_status_enum")
 }
 
+/// What a generated file is: the general report PDF (US28) or the package of
+/// notes for the accountant (US30).
+enum ReportKind {
+  GENERAL_REPORT
+  TAX_PACKAGE
+
+  @@map("report_kind_enum")
+}
+
 enum MeasurementUnit {
   UNIT
   AMPOULE
@@ -974,16 +983,25 @@ model HourlyRateSnapshot {
 }
 
 model Report {
-  id          String       @id @default(uuid()) @db.Uuid
-  userId      String       @map("user_id") @db.Uuid
-  kind        String
-  periodStart DateTime?    @map("period_start") @db.Date
-  periodEnd   DateTime?    @map("period_end") @db.Date
-  filters     Json?
-  /// storage URL
-  fileUrl     String?      @map("file_url")
-  status      ReportStatus @default(PENDING)
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @map("user_id") @db.Uuid
+  kind          ReportKind
+  periodStart   DateTime?    @map("period_start") @db.Date
+  periodEnd     DateTime?    @map("period_end") @db.Date
+  /// what the file was generated from; the shape depends on `kind` (see
+  /// docs/data-dictionary.md)
+  filters       Json?
+  /// Holds the object's deterministic KEY, not a signed URL: a signed URL
+  /// expires, the key does not. The name is kept for compatibility. Nullable —
+  /// the row is born PENDING, before the file is in the bucket.
+  fileUrl       String?      @map("file_url")
+  /// name the file is downloaded under, set by whoever generates it
+  fileName      String?      @map("file_name")
+  fileBytesSize Int?         @map("file_bytes_size")
+  status        ReportStatus @default(PENDING)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// removed from the history (US32); the row and its key stay
+  deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id])
 
