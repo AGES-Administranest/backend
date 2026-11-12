@@ -992,8 +992,9 @@ model Report {
   /// docs/data-dictionary.md)
   filters       Json?
   /// Holds the object's deterministic KEY, not a signed URL: a signed URL
-  /// expires, the key does not. The name is kept for compatibility. Nullable —
-  /// the row is born PENDING, before the file is in the bucket.
+  /// expires, the key does not. The name is kept for compatibility. Nullable
+  /// since the table was created; ReportArchiveService always sets it, together
+  /// with file_name and file_bytes_size.
   fileUrl       String?      @map("file_url")
   /// name the file is downloaded under, set by whoever generates it
   fileName      String?      @map("file_name")

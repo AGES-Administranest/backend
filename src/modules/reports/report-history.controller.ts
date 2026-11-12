@@ -91,8 +91,8 @@ export class ReportHistoryController {
     summary: 'Deletes a generated report from the history (US32)',
     description:
       'The app asks the user to confirm first. The report leaves the list ' +
-      'and its file is deleted from storage; a URL issued before keeps ' +
-      'working until it expires. Deleting it again answers 404.',
+      'and its file is deleted from storage, so a URL issued before stops ' +
+      'working. Deleting it again answers 404.',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Deleted' })

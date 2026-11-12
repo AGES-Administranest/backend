@@ -14,8 +14,9 @@ ALTER TABLE "report"
   ALTER COLUMN "kind" TYPE "report_kind_enum" USING "kind"::"report_kind_enum";
 
 -- The name and size of the file, for the history list, and the soft delete.
--- All nullable: the row is born PENDING, before the file is in the bucket, and
--- a deleted report keeps its row and key.
+-- All nullable: ReportArchiveService fills the name and the size from the first
+-- write, but the recording of US28 (#92) does not yet, so a CHECK that a DONE
+-- row has them comes with that change. A deleted report keeps its row and key.
 ALTER TABLE "report" ADD COLUMN     "file_name" TEXT,
 ADD COLUMN     "file_bytes_size" INTEGER,
 ADD COLUMN     "deleted_at" TIMESTAMPTZ(6);

@@ -153,7 +153,8 @@ What it removes, in this order:
 2. **From the bucket:** the file is deleted.
 
 What stays: the row, with its key in `file_url`. A URL issued before the delete
-keeps working until it expires, at most five minutes later.
+stops working once the file is gone; only if deleting the file failed does it
+keep working until it expires, at most five minutes later.
 
 The two steps cannot be one transaction. If deleting the file fails, the
 answer is still `204`: the report is already out of the history, and the
