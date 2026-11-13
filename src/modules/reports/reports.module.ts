@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
+import { TaxPackageService } from './tax-package.service';
 import { AppointmentsModule } from '../appointments';
 import { EquipmentModule } from '../equipment';
 import { FinancialModule } from '../financial';
@@ -21,7 +22,7 @@ import { TripsModule } from '../trips';
     EquipmentModule,
   ],
   controllers: [ReportsController],
-  providers: [ReportsService],
+  providers: [ReportsService, TaxPackageService],
   exports: [ReportsService],
 })
 export class ReportsModule {}

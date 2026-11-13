@@ -5,6 +5,29 @@ import { DuplicateCriteria } from './domain/find-duplicates';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { Period } from '../../shared/dates/period';
+import { TaxPackageTotals } from '../../shared/tax-package/tax-package.types';
+
+/**
+ * `fileUrl` is filled when the upload is signed, `uploadedAt` when the app
+ * confirmed it: only both together mean the file is in the bucket.
+ */
+const WITH_STORED_FILE = {
+  fileUrl: { not: null },
+  uploadedAt: { not: null },
+} satisfies Prisma.ServiceInvoiceWhereInput;
+
+const TAX_PACKAGE_SELECT = {
+  id: true,
+  issueDate: true,
+  amount: true,
+  fileName: true,
+  fileMimeType: true,
+  client: { select: { name: true } },
+} satisfies Prisma.ServiceInvoiceSelect;
+
+export type TaxPackageNote = Prisma.ServiceInvoiceGetPayload<{
+  select: typeof TAX_PACKAGE_SELECT;
+}>;
 
 /** A write to the note's income entry, inside the note's transaction. */
 export type IncomeWrite<Result> = (
@@ -57,6 +80,64 @@ export class ServiceInvoicesRepository {
           status: 'CONFIRMED',
           issueDate: { gte: period.days.from, lt: period.days.to },
         },
+      }),
+    );
+  }
+
+  /** Confirmed notes issued in the period, split by whether their file is stored. */
+  summarizeTaxPackage(
+    userId: string,
+    period: Period,
+  ): Promise<TaxPackageTotals> {
+    const confirmed = {
+      userId,
+      deletedAt: null,
+      status: 'CONFIRMED',
+      issueDate: { gte: period.days.from, lt: period.days.to },
+    } satisfies Prisma.ServiceInvoiceWhereInput;
+
+    return runQuery(async () => {
+      const [stored, missingFiles] = await Promise.all([
+        this.prisma.serviceInvoice.aggregate({
+          where: { ...confirmed, ...WITH_STORED_FILE },
+          _count: { _all: true },
+          _sum: { amount: true, fileBytesSize: true },
+        }),
+        this.prisma.serviceInvoice.count({
+          where: {
+            ...confirmed,
+            OR: [{ fileUrl: null }, { uploadedAt: null }],
+          },
+        }),
+      ]);
+
+      return {
+        count: stored._count._all,
+        totalAmount: stored._sum.amount?.toNumber() ?? 0,
+        bytesSize: stored._sum.fileBytesSize ?? 0,
+        missingFiles,
+      };
+    });
+  }
+
+  /** The notes the tax package holds, oldest first. `take` bounds the read. */
+  findTaxPackageNotes(
+    userId: string,
+    period: Period,
+    take: number,
+  ): Promise<TaxPackageNote[]> {
+    return runQuery(() =>
+      this.prisma.serviceInvoice.findMany({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          issueDate: { gte: period.days.from, lt: period.days.to },
+          ...WITH_STORED_FILE,
+        },
+        select: TAX_PACKAGE_SELECT,
+        orderBy: [{ issueDate: 'asc' }, { id: 'asc' }],
+        take,
       }),
     );
   }
