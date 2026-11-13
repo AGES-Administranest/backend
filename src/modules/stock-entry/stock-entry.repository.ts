@@ -30,6 +30,16 @@ export type DraftLineRow = Omit<
   'purchaseInvoiceId'
 >;
 
+/** Confirmed purchase invoices, added up. One without a total adds nothing. */
+export interface PurchaseTotals {
+  count: number;
+  total: Prisma.Decimal;
+}
+
+export interface SupplierPurchaseTotals extends PurchaseTotals {
+  supplierId: string | null;
+}
+
 export type SupplierInvoiceFilters = {
   issuedFrom?: Date;
   issuedTo?: Date;
@@ -66,14 +76,60 @@ export class StockEntryRepository {
   countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
     return runQuery(() =>
       this.prisma.purchaseInvoice.count({
-        where: {
-          userId,
-          deletedAt: null,
-          status: 'CONFIRMED',
-          issueDate: { gte: period.days.from, lt: period.days.to },
-        },
+        where: this.confirmedInPeriod(userId, period),
       }),
     );
+  }
+
+  /** The confirmed purchases of the period, added up (US29). */
+  async sumConfirmedInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<PurchaseTotals> {
+    const totals = await runQuery(() =>
+      this.prisma.purchaseInvoice.aggregate({
+        where: this.confirmedInPeriod(userId, period),
+        _count: { _all: true },
+        _sum: { totalAmount: true },
+      }),
+    );
+    return {
+      count: totals._count._all,
+      total: totals._sum.totalAmount ?? new Prisma.Decimal(0),
+    };
+  }
+
+  /** The same purchases, by supplier; `supplierId` is null for none. */
+  async sumConfirmedBySupplierInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<SupplierPurchaseTotals[]> {
+    const rows = await runQuery(() =>
+      this.prisma.purchaseInvoice.groupBy({
+        by: ['supplierId'],
+        where: this.confirmedInPeriod(userId, period),
+        _count: { _all: true },
+        _sum: { totalAmount: true },
+      }),
+    );
+    return rows.map(row => ({
+      supplierId: row.supplierId,
+      count: row._count._all,
+      total: row._sum.totalAmount ?? new Prisma.Decimal(0),
+    }));
+  }
+
+  /** What `countConfirmedInPeriod` counts. */
+  private confirmedInPeriod(
+    userId: string,
+    period: Period,
+  ): Prisma.PurchaseInvoiceWhereInput {
+    return {
+      userId,
+      deletedAt: null,
+      status: 'CONFIRMED',
+      issueDate: { gte: period.days.from, lt: period.days.to },
+    };
   }
 
   /**

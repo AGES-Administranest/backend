@@ -1,6 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { Test } from '@nestjs/testing';
+import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { generateKeyPair, JWTVerifyGetKey, SignJWT } from 'jose';
 
 import { AppModule } from '../../src/app.module';
@@ -108,7 +108,15 @@ export interface TestContext {
   prisma: PrismaService;
 }
 
-export async function createTestApp(): Promise<TestContext> {
+/**
+ * `configure` swaps more providers for one spec, such as the bucket for a spec
+ * whose route writes files: CI has no S3.
+ */
+export async function createTestApp(
+  configure: (
+    builder: TestingModuleBuilder,
+  ) => TestingModuleBuilder = builder => builder,
+): Promise<TestContext> {
   const pair = await generateKeyPair('RS256', { extractable: true });
   const stranger = await generateKeyPair('RS256', { extractable: true });
   signingKey = pair.privateKey;
@@ -117,7 +125,7 @@ export async function createTestApp(): Promise<TestContext> {
 
   const keys: JWTVerifyGetKey = () => Promise.resolve(pair.publicKey);
 
-  const moduleRef = await Test.createTestingModule({
+  const builder = Test.createTestingModule({
     imports: [AppModule],
   })
     .overrideProvider(CognitoJwtVerifier)
@@ -139,8 +147,8 @@ export async function createTestApp(): Promise<TestContext> {
     // to the very next request rather than being masked by an entry cached a
     // moment earlier. The cache itself has its own unit spec.
     .overrideProvider(SubIdCache)
-    .useValue(new SubIdCache(0, 0))
-    .compile();
+    .useValue(new SubIdCache(0, 0));
+  const moduleRef = await configure(builder).compile();
 
   const app = moduleRef.createNestApplication<NestExpressApplication>();
 

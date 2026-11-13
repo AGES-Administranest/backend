@@ -169,6 +169,12 @@ export const ERROR_CODES = [
   'TAX_PACKAGE_EMPTY',
   // more documents or bytes than one package holds: a shorter period fits.
   'TAX_PACKAGE_TOO_LARGE',
+  // The general report (US29) was asked with no section at all. The app
+  // blocks this before sending, so it only happens on a bug.
+  'REPORT_SECTIONS_EMPTY',
+  // The period is longer than a report covers (MAX_REPORT_DAYS). Each month
+  // of a report costs a few queries, so a decade would exhaust the database.
+  'REPORT_PERIOD_TOO_LONG',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

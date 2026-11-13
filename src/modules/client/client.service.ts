@@ -48,6 +48,16 @@ export class ClientService {
     return clients.map(client => this.sanitize(client));
   }
 
+  /** Id to name, deleted clients included (US29). */
+  async findNames(
+    userId: string,
+    ids: readonly string[],
+  ): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.clientRepository.findNames(userId, ids);
+    return new Map(rows.map(row => [row.id, row.name]));
+  }
+
   async findOne(id: string, userId: string): Promise<ClientEntity> {
     const client = await this.clientRepository.findById(id, userId);
     if (!client) throw this.clientNotFound(id);

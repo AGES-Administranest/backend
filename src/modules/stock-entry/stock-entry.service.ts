@@ -16,7 +16,11 @@ import {
   uploadMismatch,
   uploadNotFinished,
 } from './stock-entry.errors';
-import { StockEntryRepository } from './stock-entry.repository';
+import {
+  PurchaseTotals,
+  StockEntryRepository,
+  SupplierPurchaseTotals,
+} from './stock-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import {
   documentKey,
@@ -79,6 +83,20 @@ export class StockEntryService {
             },
           ]
         : [],
+  purchaseTotalsInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<PurchaseTotals> {
+    return this.stockEntryRepository.sumConfirmedInPeriod(userId, period);
+  }
+
+  purchaseTotalsBySupplierInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<SupplierPurchaseTotals[]> {
+    return this.stockEntryRepository.sumConfirmedBySupplierInPeriod(
+      userId,
+      period,
     );
   }
 

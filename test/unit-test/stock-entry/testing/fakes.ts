@@ -40,6 +40,15 @@ export class FakeStorage {
     return Promise.resolve(this.objects.get(key)?.bytes ?? null);
   }
 
+  putDocument(
+    key: string,
+    bytes: Uint8Array,
+    contentType: string,
+  ): Promise<void> {
+    this.put(key, { contentLength: bytes.byteLength, contentType }, bytes);
+    return Promise.resolve();
+  }
+
   createPresignedPost() {
     return Promise.resolve({ url: 'https://bucket', fields: {}, expiresAt: 0 });
   }
