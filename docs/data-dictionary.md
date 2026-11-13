@@ -318,6 +318,5 @@ and downloads their files again — see [`reports.md`](reports.md).
 | `FAILED` | Storing the file failed; the error reached the app. Never listed. |
 
 The history lists rows that are `DONE` and not deleted, newest `created_at`
-first. The recording of US28 (#92) stores the file first and writes the row
-already `DONE`; it moves to this cycle with subtask 2 of US32, which also fills
-`file_name` and `file_bytes_size`.
+first. Every row is written by `ReportArchiveService.store`, which sets
+`file_url`, `file_name` and `file_bytes_size` when it creates the row.

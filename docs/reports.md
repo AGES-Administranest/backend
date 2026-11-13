@@ -42,11 +42,9 @@ A row left `PENDING` (the process stopped between the upload and the update)
 stays invisible. Since the row is written before the file, every object in the
 bucket has a row with its key.
 
-> **Not wired to the PDF yet.** The cycle above exists and is tested, but the
-> general report PDF (US28, #92) still records its file its own way: it stores
-> the file first and writes the row already `DONE`, without `file_name` and
-> `file_bytes_size`. Once #92 is in `dev`, its `ReportExportService` calls
-> `store` instead (subtask 2 of US32).
+The general report PDF (`POST /reports`, US28) is recorded this way: its
+`ReportExportService` calls `store` and builds the download link from the id it
+returns. The package for the accountant (US30) will call it the same way.
 
 ### Recording a new kind
 
@@ -165,7 +163,7 @@ failure is logged with the report id, so the leftover file can be found by
 
 ## Follow-ups
 
-- Wire the general report PDF (US28, #92) to `store`, and add a CHECK that a
-  `DONE` row has `file_url`, `file_name` and `file_bytes_size` (subtask 2).
+- Add a CHECK that a `DONE` row has `file_url`, `file_name` and
+  `file_bytes_size`.
 - Rows left `PENDING`, and files left behind by a failed delete, are not cleaned
   up: nothing removes them yet.
