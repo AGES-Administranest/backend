@@ -40,6 +40,11 @@ export class FakeStorage {
     return Promise.resolve({ url: 'https://bucket', fields: {}, expiresAt: 0 });
   }
 
+  deleteDocument(key: string) {
+    this.objects.delete(key);
+    return Promise.resolve();
+  }
+
   createPresignedGet({ key }: { key: string }) {
     return Promise.resolve({ url: `https://bucket/${key}`, expiresAt: 0 });
   }

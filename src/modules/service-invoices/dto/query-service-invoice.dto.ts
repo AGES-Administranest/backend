@@ -1,55 +1,62 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ServiceInvoiceStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
-import { IsIsoDate } from '../../../shared/dates/iso-date';
+export const SERVICE_INVOICE_SORT = 'issueDate:desc';
+
+/** With the largest page size this is ten million rows deep. */
+const MAX_PAGE = 100_000;
 
 export class QueryServiceInvoiceDto {
-  @ApiPropertyOptional({
-    enum: ServiceInvoiceStatus,
-    description: 'Without it, every note but the discarded drafts',
+  @ApiProperty({
+    enum: [ServiceInvoiceStatus.CONFIRMED],
+    description: 'Only confirmed notes are listed: a draft is not a note yet',
   })
-  @IsOptional()
-  @IsEnum(ServiceInvoiceStatus)
-  status?: ServiceInvoiceStatus;
+  @IsIn([ServiceInvoiceStatus.CONFIRMED])
+  status!: typeof ServiceInvoiceStatus.CONFIRMED;
 
-  @ApiPropertyOptional({
-    example: '2026-10-01',
-    format: 'date',
-    description: 'Issued on or after this date',
+  @ApiProperty({
+    enum: [SERVICE_INVOICE_SORT],
+    description: 'Ties are broken by id, so a page boundary never moves',
   })
-  @IsOptional()
-  @IsIsoDate()
-  from?: string;
+  @IsIn([SERVICE_INVOICE_SORT])
+  sort!: typeof SERVICE_INVOICE_SORT;
 
-  @ApiPropertyOptional({
-    example: '2026-10-31',
-    format: 'date',
-    description: 'Issued on or before this date',
+  @ApiProperty({
+    minimum: 1,
+    maximum: MAX_PAGE,
+    description: 'A page past the cap would overflow the OFFSET of the query',
   })
-  @IsOptional()
-  @IsIsoDate()
-  to?: string;
-
-  @ApiPropertyOptional({ default: 1, minimum: 1 })
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  page: number = 1;
+  @Max(MAX_PAGE)
+  page!: number;
 
-  @ApiPropertyOptional({
-    default: 50,
-    minimum: 1,
-    maximum: 100,
-    description:
-      'A page shorter than this limit is the last one — there is no total count.',
-  })
-  @IsOptional()
+  @ApiProperty({ minimum: 1, maximum: 100 })
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
-  limit: number = 50;
+  pageSize!: number;
+
+  @ApiPropertyOptional({
+    example: '22/04',
+    description:
+      'Without accents or case: part of the taker name or of the number, or ' +
+      'of the issue date as DD/MM/YYYY (digits only, at least two: 22/04, 2204)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
 }

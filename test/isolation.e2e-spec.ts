@@ -433,6 +433,38 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
       );
     });
 
+    /** A confirmed note with its income entry, owned by `user`. */
+    const confirmedNoteOf = async (user: TestUser): Promise<string> => {
+      // Confirming records an income under a seeded category.
+      await ensureDefaultFinancialCategories(prisma);
+      const id = await noteOf(user);
+      const owner = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: user.cognitoSub },
+      });
+      const client = await prisma.client.create({
+        data: {
+          userId: owner.id,
+          type: 'CLINIC',
+          name: user === ana ? 'Clinica da Ana' : 'Clinica do Bruno',
+        },
+      });
+      await request(http)
+        .patch(`/service-invoices/${id}`)
+        .set('Authorization', bearer(user))
+        .send({ issueDate: '2026-04-22', amount: 100, clientId: client.id })
+        .expect(200);
+      await prisma.serviceInvoice.update({
+        where: { id },
+        data: { uploadedAt: new Date() },
+      });
+      await request(http)
+        .post(`/service-invoices/${id}/confirm`)
+        .set('Authorization', bearer(user))
+        .send({})
+        .expect(200);
+      return id;
+    };
+
     it('lets another account upload the same file to a note of its own', async () => {
       await issueUploadUrl(ana, randomUUID(), 'c'.repeat(64)).expect(200);
 
@@ -440,16 +472,108 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
 
     it('does not list another account notes', async () => {
-      await noteOf(ana);
-      const brunoNote = await noteOf(bruno);
+      const anaId = await confirmedNoteOf(ana);
+      const brunoId = await confirmedNoteOf(bruno);
+      const listed = (user: TestUser, search?: string) =>
+        request(http)
+          .get('/service-invoices')
+          .query({
+            status: 'CONFIRMED',
+            sort: 'issueDate:desc',
+            page: 1,
+            pageSize: 20,
+            ...(search && { search }),
+          })
+          .set('Authorization', bearer(user))
+          .expect(200)
+          .then(
+            response =>
+              response.body as { items: { id: string }[]; total: number },
+          );
+
+      const page = await listed(bruno);
+      expect(page.items.map(note => note.id)).toEqual([brunoId]);
+      expect(page.total).toBe(1);
+      // A search that only Ana's note matches finds nothing for Bruno.
+      expect(await listed(bruno, 'Clinica da Ana')).toEqual({
+        items: [],
+        total: 0,
+      });
+      expect((await listed(ana, 'Clinica da Ana')).items).toEqual([
+        expect.objectContaining({ id: anaId }),
+      ]);
+    });
+
+    it('answers 404 for every route of a confirmed note of another account, and changes nothing', async () => {
+      const id = await confirmedNoteOf(ana);
+      const brunoRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: bruno.cognitoSub },
+      });
+      const brunoClient = await prisma.client.create({
+        data: { userId: brunoRow.id, type: 'CLINIC', name: 'Do Bruno' },
+      });
+      const stored = await readNote(id);
+
+      await request(http)
+        .get(`/service-invoices/${id}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+      const download = await request(http)
+        .get(`/service-invoices/${id}/download-url`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+      expect(body(download)).toMatchObject({
+        code: 'SERVICE_INVOICE_FILE_NOT_FOUND',
+      });
+      await request(http)
+        .patch(`/service-invoices/${id}`)
+        .set('Authorization', bearer(bruno))
+        .send({
+          issueDate: '2026-05-01',
+          amount: 1,
+          clientId: brunoClient.id,
+        })
+        .expect(404);
+      await request(http)
+        .delete(`/service-invoices/${id}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      const after = await readNote(id);
+      expect(after).toMatchObject({
+        status: 'CONFIRMED',
+        deletedAt: null,
+        amount: stored.amount,
+        clientId: stored.clientId,
+      });
+      await expect(
+        prisma.financialEntry.count({
+          where: { serviceInvoiceId: id, deletedAt: null },
+        }),
+      ).resolves.toBe(1);
+    });
+
+    it('does not let a confirmed note be corrected to another account client', async () => {
+      const id = await confirmedNoteOf(ana);
+      const brunoRow = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: bruno.cognitoSub },
+      });
+      const brunoClient = await prisma.client.create({
+        data: { userId: brunoRow.id, type: 'CLINIC', name: 'Do Bruno' },
+      });
+      const stored = await readNote(id);
 
       const response = await request(http)
-        .get('/service-invoices')
-        .set('Authorization', bearer(bruno))
-        .expect(200);
+        .patch(`/service-invoices/${id}`)
+        .set('Authorization', bearer(ana))
+        .send({ issueDate: '2026-05-01', amount: 1, clientId: brunoClient.id })
+        .expect(404);
 
-      const ids = (response.body as { id: string }[]).map(note => note.id);
-      expect(ids).toEqual([brunoNote]);
+      expect(body(response)).toMatchObject({ code: 'CLIENT_NOT_FOUND' });
+      expect(await readNote(id)).toMatchObject({
+        clientId: stored.clientId,
+        amount: stored.amount,
+      });
     });
 
     it('answers 404, not 403, when reading or downloading another account note', async () => {

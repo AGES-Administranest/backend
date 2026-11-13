@@ -1,5 +1,6 @@
 import {
   GetObjectCommand,
+  DeleteObjectCommand,
   HeadObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -117,11 +118,21 @@ export class S3DocumentStorage extends DocumentStorage {
         ...(request.fileName && {
           ResponseContentDisposition: attachmentNamed(request.fileName),
         }),
+        ...(request.contentType && {
+          ResponseContentType: request.contentType,
+        }),
       }),
       { expiresIn: Math.floor(request.expiresInMs / 1000) },
     );
 
     return { url, expiresAt: signedAt + request.expiresInMs };
+  }
+
+  /** S3 answers 204 for a key that is not there, so this never throws on it. */
+  async deleteDocument(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
   }
 
   /**

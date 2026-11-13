@@ -78,6 +78,91 @@ describe('ServiceInvoiceDraftService', () => {
     });
   });
 
+  describe('detail of a confirmed note', () => {
+    const confirmedNote = (fields = {}) =>
+      draftNote({
+        status: 'CONFIRMED',
+        issueDate: new Date('2026-04-22T00:00:00Z'),
+        amount: new Prisma.Decimal('1284.5'),
+        number: '000458',
+        clientId: CLIENT_ID,
+        location: 'São Paulo, SP',
+        uploadedAt: new Date('2026-04-22T13:02:11Z'),
+        ...fields,
+      });
+
+    beforeEach(() => {
+      repository.clientSummary = {
+        id: CLIENT_ID,
+        name: 'HospVet Sul',
+        taxId: '12345678000190',
+      };
+    });
+
+    it('carries the invoice with the values as they stand', async () => {
+      repository.invoice = confirmedNote();
+
+      await expect(service.get(USER_ID, INVOICE_ID)).resolves.toMatchObject({
+        status: 'CONFIRMED',
+        uploadedAt: '2026-04-22T13:02:11.000Z',
+        review: { status: 'PENDING' },
+        invoice: {
+          id: INVOICE_ID,
+          number: '000458',
+          issueDate: '2026-04-22',
+          amount: 1284.5,
+          client: {
+            id: CLIENT_ID,
+            name: 'HospVet Sul',
+            taxId: '12345678000190',
+          },
+          location: 'São Paulo, SP',
+          hasFile: true,
+          file: { name: 'nfse-1287.pdf', bytesSize: 184320 },
+        },
+      });
+    });
+
+    it('has no file and no tax id when there are none', async () => {
+      repository.invoice = confirmedNote({ uploadedAt: null, location: null });
+      repository.clientSummary = { id: CLIENT_ID, name: 'Ana', taxId: null };
+
+      const { invoice } = await service.get(USER_ID, INVOICE_ID);
+
+      expect(invoice).toMatchObject({
+        hasFile: false,
+        file: null,
+        location: null,
+        client: { taxId: null },
+      });
+    });
+
+    it('is absent on a draft, so resuming it works as before', async () => {
+      repository.invoice = draftNote();
+
+      const detail = await service.get(USER_ID, INVOICE_ID);
+
+      expect(detail).not.toHaveProperty('invoice');
+    });
+
+    it('is what a correction answers, with the new values', async () => {
+      repository.invoice = confirmedNote();
+
+      const detail = await service.update(USER_ID, INVOICE_ID, {
+        issueDate: '2026-04-23',
+        amount: 1300,
+        clientId: CLIENT_ID,
+        location: 'Campinas, SP',
+      });
+
+      expect(detail.invoice).toMatchObject({
+        issueDate: '2026-04-23',
+        amount: 1300,
+        location: 'Campinas, SP',
+      });
+    });
+  });
+
   describe('reports list', () => {
     const query = (fields: Partial<QueryServiceInvoiceReportDto> = {}) =>
       Object.assign(new QueryServiceInvoiceReportDto(), fields);
@@ -262,6 +347,60 @@ describe('ServiceInvoiceDraftService', () => {
       await expect(
         service.downloadUrl(USER_ID, INVOICE_ID),
       ).rejects.toMatchObject({ code: 'SERVICE_INVOICE_UPLOAD_NOT_FINISHED' });
+    });
+  });
+
+  describe('download of the PDF', () => {
+    const confirmed = (fields = {}) =>
+      draftNote({
+        status: 'CONFIRMED',
+        uploadedAt: new Date('2026-04-22T13:02:11Z'),
+        ...fields,
+      });
+
+    it('signs the note key and names the file safely', async () => {
+      repository.invoice = confirmed({ fileName: '../../etc/pas"swd\n.PDF' });
+
+      const download = await service.downloadFile(USER_ID, INVOICE_ID);
+
+      expect(download).toEqual({
+        url: `https://bucket/${documentKey(USER_ID, 'service-invoices', INVOICE_ID)}`,
+        filename: '_.._etc_pas_swd.pdf',
+        expiresAt: '1970-01-01T00:00:00.000Z',
+      });
+    });
+
+    it('answers FILE_NOT_FOUND for a note that is missing or not the userʼs', async () => {
+      repository.invoice = confirmed();
+
+      for (const [user, id] of [
+        [USER_ID, 'other-id'],
+        ['another-user', INVOICE_ID],
+      ]) {
+        await expect(service.downloadFile(user, id)).rejects.toMatchObject({
+          code: 'SERVICE_INVOICE_FILE_NOT_FOUND',
+          kind: 'NOT_FOUND',
+        });
+      }
+    });
+
+    it('answers FILE_NOT_FOUND for a note without its file', async () => {
+      repository.invoice = confirmed({ uploadedAt: null });
+
+      await expect(
+        service.downloadFile(USER_ID, INVOICE_ID),
+      ).rejects.toMatchObject({ code: 'SERVICE_INVOICE_FILE_NOT_FOUND' });
+    });
+
+    it('answers 409 for a draft', async () => {
+      repository.invoice = draftNote({ uploadedAt: new Date() });
+
+      await expect(
+        service.downloadFile(USER_ID, INVOICE_ID),
+      ).rejects.toMatchObject({
+        code: 'SERVICE_INVOICE_NOT_CONFIRMED',
+        kind: 'CONFLICT',
+      });
     });
   });
 });
