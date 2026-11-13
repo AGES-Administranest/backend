@@ -77,8 +77,8 @@ class MemoryStorage extends DocumentStorage {
 interface HistoryItem {
   id: string;
   kind: ReportKind;
-  fileName: string | null;
-  fileBytesSize: number | null;
+  fileName: string;
+  fileBytesSize: number;
   period: { from: string; to: string } | null;
   generatedAt: string;
 }
@@ -452,6 +452,43 @@ describe('Report history (e2e)', () => {
 
     it('requires a token', async () => {
       await request(server()).delete(`/reports/${listed.oldest}`).expect(401);
+    });
+  });
+
+  describe('the report_done_has_file CHECK', () => {
+    it.each([
+      ['fileUrl', { fileUrl: null }],
+      ['fileName', { fileName: null }],
+      ['fileBytesSize', { fileBytesSize: null }],
+    ])('refuses a DONE row without %s', async (_column, missing) => {
+      const id = randomUUID();
+      try {
+        await expect(seedReport(ownerId, id, missing)).rejects.toThrow(
+          /report_done_has_file/,
+        );
+        expect(await prisma.report.findUnique({ where: { id } })).toBeNull();
+      } finally {
+        await prisma.report.deleteMany({ where: { id } });
+        storage.objects.delete(keyOf(ownerId, id));
+      }
+    });
+
+    it('accepts a row without them while it is not DONE', async () => {
+      const id = randomUUID();
+      try {
+        await seedReport(ownerId, id, {
+          status: ReportStatus.PENDING,
+          fileUrl: null,
+          fileName: null,
+          fileBytesSize: null,
+        });
+        expect(await readRow(id)).toMatchObject({
+          status: ReportStatus.PENDING,
+        });
+      } finally {
+        await prisma.report.deleteMany({ where: { id } });
+        storage.objects.delete(keyOf(ownerId, id));
+      }
     });
   });
 

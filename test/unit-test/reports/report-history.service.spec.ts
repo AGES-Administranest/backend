@@ -89,23 +89,27 @@ describe('ReportHistoryService', () => {
       ]);
     });
 
-    it('answers null for what the row does not have', async () => {
+    it('answers a null period for a row without one', async () => {
       repository.findPage.mockResolvedValue([
-        row({
-          periodStart: null,
-          periodEnd: null,
-          fileName: null,
-          fileBytesSize: null,
-        }),
+        row({ periodStart: null, periodEnd: null }),
       ]);
 
       const [item] = await service.list(USER_ID, { page: 1, limit: 20 });
 
-      expect(item).toMatchObject({
-        fileName: null,
-        fileBytesSize: null,
-        period: null,
-      });
+      expect(item.period).toBeNull();
+    });
+
+    // The report_done_has_file CHECK rules these rows out; reaching one means
+    // the database lost it, which must not reach the app as a null.
+    it.each([
+      ['file_name', { fileName: null }],
+      ['file_bytes_size', { fileBytesSize: null }],
+    ])('fails on a DONE row without %s', async (column, missing) => {
+      repository.findPage.mockResolvedValue([row(missing)]);
+
+      await expect(
+        service.list(USER_ID, { page: 1, limit: 20 }),
+      ).rejects.toThrow(`Report ${REPORT_ID} is DONE without ${column}`);
     });
 
     it('does not expose the filters, the key or the status', async () => {
@@ -137,15 +141,13 @@ describe('ReportHistoryService', () => {
       });
     });
 
-    it('signs without a name when the row has none', async () => {
+    it('signs nothing for a DONE row without a file name', async () => {
       repository.findListed.mockResolvedValue(row({ fileName: null }));
 
-      await service.downloadUrl(USER_ID, REPORT_ID);
-
-      expect(storage.createPresignedGet).toHaveBeenCalledWith({
-        key: KEY,
-        expiresInMs: 5 * 60 * 1000,
-      });
+      await expect(service.downloadUrl(USER_ID, REPORT_ID)).rejects.toThrow(
+        `Report ${REPORT_ID} is DONE without file_name`,
+      );
+      expect(storage.createPresignedGet).not.toHaveBeenCalled();
     });
 
     it('answers REPORT_NOT_FOUND and signs nothing for a report the history does not list', async () => {

@@ -102,8 +102,9 @@ total: **a page shorter than `limit` is the last one**.
 ```
 
 - `period` has both days included, as `YYYY-MM-DD`.
-- `fileName`, `fileBytesSize` and `period` are `null` only for a report that
-  was recorded without them; `store` always fills them in.
+- `fileName` and `fileBytesSize` are always present: the database refuses a
+  `DONE` report without them. `period` is `null` only for a report recorded
+  without one; `store` always fills it in.
 - What the file was generated from (`filters`) is not part of the answer.
 
 `400 VALIDATION_ERROR` for an unknown `kind`, a `page` or `limit` out of range,
@@ -163,7 +164,5 @@ failure is logged with the report id, so the leftover file can be found by
 
 ## Follow-ups
 
-- Add a CHECK that a `DONE` row has `file_url`, `file_name` and
-  `file_bytes_size`.
 - Rows left `PENDING`, and files left behind by a failed delete, are not cleaned
   up: nothing removes them yet.

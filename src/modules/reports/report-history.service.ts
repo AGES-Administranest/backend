@@ -46,7 +46,7 @@ export class ReportHistoryService {
     return this.storage.createPresignedGet({
       key: documentKey(userId, 'reports', id),
       expiresInMs: DOWNLOAD_TTL_MS,
-      ...(report.fileName && { fileName: report.fileName }),
+      fileName: stored(report.fileName, 'file_name', report.id),
     });
   }
 
@@ -73,12 +73,23 @@ export class ReportHistoryService {
   }
 }
 
+/**
+ * A column the `report_done_has_file` CHECK requires on a `DONE` row, and the
+ * history reads `DONE` rows only. Null here means the database lost the CHECK.
+ */
+function stored<T>(value: T | null, column: string, id: string): T {
+  if (value === null) {
+    throw new Error(`Report ${id} is DONE without ${column}`);
+  }
+  return value;
+}
+
 function toItem(report: Report): ReportHistoryItemEntity {
   return {
     id: report.id,
     kind: report.kind,
-    fileName: report.fileName,
-    fileBytesSize: report.fileBytesSize,
+    fileName: stored(report.fileName, 'file_name', report.id),
+    fileBytesSize: stored(report.fileBytesSize, 'file_bytes_size', report.id),
     period:
       report.periodStart && report.periodEnd
         ? {

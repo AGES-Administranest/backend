@@ -320,3 +320,9 @@ and downloads their files again — see [`reports.md`](reports.md).
 The history lists rows that are `DONE` and not deleted, newest `created_at`
 first. Every row is written by `ReportArchiveService.store`, which sets
 `file_url`, `file_name` and `file_bytes_size` when it creates the row.
+
+The CHECK `report_done_has_file` (`20261113190000_report_done_requires_file`)
+refuses a `DONE` row without any of the three, so the history can always name
+and download what it lists. The columns stay nullable for the other statuses.
+The migration first marked `FAILED` the rows the PDF recording of US28 had
+written `DONE` without a name or a size; their files stay in the bucket.

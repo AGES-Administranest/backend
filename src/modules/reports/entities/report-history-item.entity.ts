@@ -27,21 +27,17 @@ export class ReportHistoryItemEntity {
 
   @ApiProperty({
     type: String,
-    nullable: true,
     example: 'administranest_relatorio-geral_2026-10-15_2026-11-14.pdf',
-    description:
-      'The name the file downloads under. Null only for a report recorded without one',
+    description: 'The name the file downloads under, with its extension',
   })
-  fileName!: string | null;
+  fileName!: string;
 
   @ApiProperty({
     type: Number,
-    nullable: true,
     example: 184320,
-    description:
-      'Size of the file in bytes. Null only for a report recorded without one',
+    description: 'Size of the file in bytes',
   })
-  fileBytesSize!: number | null;
+  fileBytesSize!: number;
 
   @ApiProperty({
     type: ReportHistoryPeriod,
