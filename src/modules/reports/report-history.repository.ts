@@ -83,16 +83,17 @@ export class ReportHistoryRepository {
    * Removes the report from the history; the row and its key stay. The
    * condition is in the write, so of two concurrent deletes only one wins.
    *
-   * @returns False when the history did not list it.
+   * @returns The deleted row, whose `file_url` locates the file; null when the
+   * history did not list it.
    */
-  async softDelete(id: string, userId: string): Promise<boolean> {
-    const { count } = await runQuery(() =>
-      this.prisma.report.updateMany({
+  async softDelete(id: string, userId: string): Promise<Report | null> {
+    const [deleted] = await runQuery(() =>
+      this.prisma.report.updateManyAndReturn({
         where: { id, ...listed(userId) },
         data: { deletedAt: new Date() },
       }),
     );
-    return count === 1;
+    return deleted ?? null;
   }
 
   /** False when the row is no longer `PENDING`: a report is finished once. */

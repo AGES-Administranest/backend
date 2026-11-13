@@ -81,15 +81,16 @@ describe('ReportHistoryRepository history', () => {
   let report: {
     findMany: jest.Mock;
     findFirst: jest.Mock;
-    updateMany: jest.Mock;
+    updateManyAndReturn: jest.Mock;
   };
   let repository: ReportHistoryRepository;
+  const deletedRow = { id: REPORT_ID, fileUrl: 'the-key' };
 
   beforeEach(() => {
     report = {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn().mockResolvedValue(null),
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateManyAndReturn: jest.fn().mockResolvedValue([deletedRow]),
     };
     repository = new ReportHistoryRepository({
       report,
@@ -130,20 +131,20 @@ describe('ReportHistoryRepository history', () => {
     });
   });
 
-  it('deletes only a listed report, in the same write that checks it', async () => {
-    await expect(repository.softDelete(REPORT_ID, USER_ID)).resolves.toBe(true);
+  it('deletes only a listed report, in the same write that checks it, and returns it', async () => {
+    await expect(repository.softDelete(REPORT_ID, USER_ID)).resolves.toBe(
+      deletedRow,
+    );
 
-    expect(report.updateMany).toHaveBeenCalledWith({
+    expect(report.updateManyAndReturn).toHaveBeenCalledWith({
       where: { id: REPORT_ID, ...LISTED },
       data: { deletedAt: expect.any(Date) as Date },
     });
   });
 
-  it('answers false when there was nothing to delete', async () => {
-    report.updateMany.mockResolvedValue({ count: 0 });
+  it('answers null when there was nothing to delete', async () => {
+    report.updateManyAndReturn.mockResolvedValue([]);
 
-    await expect(repository.softDelete(REPORT_ID, USER_ID)).resolves.toBe(
-      false,
-    );
+    await expect(repository.softDelete(REPORT_ID, USER_ID)).resolves.toBeNull();
   });
 });

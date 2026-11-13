@@ -46,7 +46,7 @@ describe('ReportHistoryService', () => {
     repository = {
       findPage: jest.fn().mockResolvedValue([row()]),
       findListed: jest.fn().mockResolvedValue(row()),
-      softDelete: jest.fn().mockResolvedValue(true),
+      softDelete: jest.fn().mockResolvedValue(row()),
     };
     storage = {
       createPresignedGet: jest
@@ -141,6 +141,27 @@ describe('ReportHistoryService', () => {
       });
     });
 
+    it('signs the key stored in file_url, not one rebuilt from the id', async () => {
+      repository.findListed.mockResolvedValue(
+        row({ fileUrl: 'users/elsewhere/original' }),
+      );
+
+      await service.downloadUrl(USER_ID, REPORT_ID);
+
+      expect(storage.createPresignedGet).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'users/elsewhere/original' }),
+      );
+    });
+
+    it('signs nothing for a DONE row without a key', async () => {
+      repository.findListed.mockResolvedValue(row({ fileUrl: null }));
+
+      await expect(service.downloadUrl(USER_ID, REPORT_ID)).rejects.toThrow(
+        `Report ${REPORT_ID} is DONE without file_url`,
+      );
+      expect(storage.createPresignedGet).not.toHaveBeenCalled();
+    });
+
     it('signs nothing for a DONE row without a file name', async () => {
       repository.findListed.mockResolvedValue(row({ fileName: null }));
 
@@ -170,8 +191,20 @@ describe('ReportHistoryService', () => {
       expect(deleted).toBeLessThan(removed);
     });
 
+    it('deletes the file under the key stored in file_url', async () => {
+      repository.softDelete.mockResolvedValue(
+        row({ fileUrl: 'users/elsewhere/original' }),
+      );
+
+      await service.remove(USER_ID, REPORT_ID);
+
+      expect(storage.deleteDocument).toHaveBeenCalledWith(
+        'users/elsewhere/original',
+      );
+    });
+
     it('answers REPORT_NOT_FOUND and touches no file when the history does not list it', async () => {
-      repository.softDelete.mockResolvedValue(false);
+      repository.softDelete.mockResolvedValue(null);
 
       await expectNotFound(service.remove(USER_ID, REPORT_ID));
       expect(storage.deleteDocument).not.toHaveBeenCalled();

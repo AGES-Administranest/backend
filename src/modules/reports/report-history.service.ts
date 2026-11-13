@@ -6,17 +6,16 @@ import { ReportDownloadUrlEntity } from './entities/report-download-url.entity';
 import { ReportHistoryItemEntity } from './entities/report-history-item.entity';
 import { reportNotFound } from './report-history.errors';
 import { ReportHistoryRepository } from './report-history.repository';
-import {
-  documentKey,
-  DocumentStorage,
-  DOWNLOAD_TTL_MS,
-} from '../../infra/storage';
+import { DocumentStorage, DOWNLOAD_TTL_MS } from '../../infra/storage';
 import { toIsoDate } from '../../shared/dates/iso-date';
 
 /**
  * The history of generated reports (US32): list, download again, delete.
  * Only stored reports (`DONE`) that were not deleted exist here; anything
  * else answers `REPORT_NOT_FOUND`, the same as another user's (ADR-11).
+ *
+ * The file is found by the key in `file_url`, the one it was stored under:
+ * the key is built once, by `ReportArchiveService.store`.
  */
 @Injectable()
 export class ReportHistoryService {
@@ -44,7 +43,7 @@ export class ReportHistoryService {
     if (!report) throw reportNotFound(id);
 
     return this.storage.createPresignedGet({
-      key: documentKey(userId, 'reports', id),
+      key: stored(report.fileUrl, 'file_url', report.id),
       expiresInMs: DOWNLOAD_TTL_MS,
       fileName: stored(report.fileName, 'file_name', report.id),
     });
@@ -63,7 +62,9 @@ export class ReportHistoryService {
     if (!removed) throw reportNotFound(id);
 
     try {
-      await this.storage.deleteDocument(documentKey(userId, 'reports', id));
+      await this.storage.deleteDocument(
+        stored(removed.fileUrl, 'file_url', removed.id),
+      );
     } catch (error) {
       this.logger.error(
         `Report ${id} was deleted but its file was not`,
