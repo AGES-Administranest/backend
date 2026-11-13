@@ -23,6 +23,22 @@ export class SupplierRepository {
     );
   }
 
+  /**
+   * The names of these suppliers, deleted ones included: a report still has to
+   * name the supplier of a past record (US29). Scoped to the owner (ADR-11).
+   */
+  findNames(
+    userId: string,
+    ids: readonly string[],
+  ): Promise<{ id: string; name: string }[]> {
+    return runQuery(() =>
+      this.prisma.supplier.findMany({
+        where: { userId, id: { in: [...ids] } },
+        select: { id: true, name: true },
+      }),
+    );
+  }
+
   findById(id: string, userId: string): Promise<Supplier | null> {
     return runQuery(() =>
       this.prisma.supplier.findFirst({
