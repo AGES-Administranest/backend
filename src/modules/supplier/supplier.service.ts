@@ -46,6 +46,16 @@ export class SupplierService {
     return suppliers.map(supplier => this.sanitize(supplier));
   }
 
+  /** Id to name, deleted suppliers included (US29). */
+  async findNames(
+    userId: string,
+    ids: readonly string[],
+  ): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.supplierRepository.findNames(userId, ids);
+    return new Map(rows.map(row => [row.id, row.name]));
+  }
+
   async findOne(id: string, userId: string): Promise<SupplierEntity> {
     const supplier = await this.supplierRepository.findById(id, userId);
     if (!supplier) throw this.notFound(id);

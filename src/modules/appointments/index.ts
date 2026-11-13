@@ -5,6 +5,8 @@ export type {
   AppointmentTotals,
   ClientAppointment,
   ClientAppointmentPage,
+  ClientAppointmentTotals,
+  ReportAppointment,
 } from './appointments.repository';
 export * from './dto/create-appointment.dto';
 export * from './dto/update-appointment.dto';
