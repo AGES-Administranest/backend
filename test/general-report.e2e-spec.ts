@@ -25,6 +25,48 @@ import {
   TestUser,
 } from './helpers/test-app';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
+import {
+  DocumentStorage,
+  PresignedGet,
+  PresignedGetRequest,
+  PresignedPost,
+  StoredDocument,
+} from '../src/infra/storage';
+import { readPdfText } from '../src/modules/extraction/core/pdf/pdf-text-reader';
+
+/** The bucket, in memory: CI has no S3, and the spec reads back what was put. */
+class MemoryStorage extends DocumentStorage {
+  readonly objects = new Map<string, { body: Uint8Array; type: string }>();
+
+  createPresignedPost(): Promise<PresignedPost> {
+    return Promise.resolve({ url: 'https://bucket', fields: {}, expiresAt: 0 });
+  }
+
+  headDocument(key: string): Promise<StoredDocument | null> {
+    const object = this.objects.get(key);
+    return Promise.resolve(
+      object
+        ? { contentLength: object.body.byteLength, contentType: object.type }
+        : null,
+    );
+  }
+
+  getDocument(key: string): Promise<Uint8Array | null> {
+    return Promise.resolve(this.objects.get(key)?.body ?? null);
+  }
+
+  putDocument(key: string, bytes: Uint8Array, type: string): Promise<void> {
+    this.objects.set(key, { body: bytes, type });
+    return Promise.resolve();
+  }
+
+  createPresignedGet(request: PresignedGetRequest): Promise<PresignedGet> {
+    return Promise.resolve({
+      url: `https://bucket/${request.key}?name=${request.fileName ?? ''}`,
+      expiresAt: Date.now() + request.expiresInMs,
+    });
+  }
+}
 
 type Section = Record<string, unknown> & { type: string; empty: boolean };
 interface ReportBody {
@@ -34,7 +76,7 @@ interface ReportBody {
 }
 
 /**
- * The general report (US29) against a real database.
+ * The general report (US29) and its PDF (US28) against a real database.
  *
  * One account with a record of every kind inside 15/10–14/11/2026 and the ones
  * that must be left out (outside the period by a minute, deleted, not
@@ -43,6 +85,7 @@ interface ReportBody {
 describe('General report (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  const storage = new MemoryStorage();
 
   const owner: TestUser = {
     cognitoSub: `e2e-general-${randomUUID()}`,
@@ -72,6 +115,11 @@ describe('General report (e2e)', () => {
     request(server())
       .get('/reports/general')
       .query(query)
+      .set('Authorization', bearer(user));
+  const generate = (user: TestUser, payload: object) =>
+    request(server())
+      .post('/reports')
+      .send(payload)
       .set('Authorization', bearer(user));
   const section = (report: ReportBody, type: string) => {
     const found = report.sections.find(item => item.type === type);
@@ -448,7 +496,9 @@ describe('General report (e2e)', () => {
   };
 
   beforeAll(async () => {
-    ({ app, prisma } = await createTestApp());
+    ({ app, prisma } = await createTestApp(builder =>
+      builder.overrideProvider(DocumentStorage).useValue(storage),
+    ));
     await ensureDefaultFinancialCategories(prisma);
     await mintTokens([owner, other, empty]);
 
@@ -462,6 +512,10 @@ describe('General report (e2e)', () => {
     ownerId = await provision(owner);
     const otherId = await provision(other);
     await provision(empty);
+    await prisma.user.update({
+      where: { id: ownerId },
+      data: { crmv: 'RS 12345' },
+    });
 
     const owned = await seed(ownerId);
     pampaId = owned.pampa.id;
@@ -833,6 +887,113 @@ describe('General report (e2e)', () => {
 
     it('requires a token', async () => {
       await request(server()).get('/reports/general').query(period).expect(401);
+    });
+  });
+
+  describe('POST /reports', () => {
+    const pdfTextOf = async (bytes: Uint8Array) =>
+      (await readPdfText(bytes)).pages
+        .flatMap(page => page.fragments.map(fragment => fragment.text))
+        .join(' ')
+        .replace(/\s+/g, ' ');
+
+    it('generates the PDF, stores it, records it and answers a download link', async () => {
+      const response = await generate(owner, {
+        ...period,
+        sections: ['FINANCIAL', 'APPOINTMENTS', 'SUPPLIERS'],
+      }).expect(201);
+      const generated = body(response) as {
+        id: string;
+        fileName: string;
+        downloadUrl: string;
+      };
+
+      expect(generated).toMatchObject({
+        kind: 'GENERAL_REPORT',
+        fileName: 'administranest_relatorio-geral_2026-10-15_2026-11-14.pdf',
+        period,
+        sections: ['FINANCIAL', 'APPOINTMENTS', 'SUPPLIERS'],
+        professionalIdComplete: true,
+      });
+      expect(generated.downloadUrl).toContain(generated.fileName);
+
+      const key = `users/${ownerId}/reports/${generated.id}/original`;
+      expect(
+        await prisma.report.findUniqueOrThrow({ where: { id: generated.id } }),
+      ).toMatchObject({
+        userId: ownerId,
+        kind: 'GENERAL_REPORT',
+        periodStart: new Date('2026-10-15'),
+        periodEnd: new Date('2026-11-14'),
+        filters: { sections: ['FINANCIAL', 'APPOINTMENTS', 'SUPPLIERS'] },
+        fileUrl: key,
+        status: 'DONE',
+      });
+
+      const stored = storage.objects.get(key);
+      expect(stored?.type).toBe('application/pdf');
+      const text = await pdfTextOf(stored!.body);
+      for (const expected of [
+        'Ana Souza',
+        'CRMV RS 12345',
+        'Relatório Geral',
+        '15/10/2026 a 14/11/2026',
+        'Página 1 de',
+        'Financeiro',
+        'Atendimentos',
+        'Fornecedores',
+        'Thor',
+        'Distribuidora Vet Sul',
+        'Comparação mês a mês',
+      ]) {
+        expect(text).toContain(expected);
+      }
+      // Only the selected sections are in the document: what only the
+      // others would print is absent ("Deslocamento" is also an expense group).
+      for (const absent of [
+        'Clínicas',
+        'Estoque e Insumos',
+        'Quilômetros rodados',
+        'Hora Trabalhada',
+      ]) {
+        expect(text).not.toContain(absent);
+      }
+    });
+
+    it('warns of an incomplete professional id and keeps an empty section', async () => {
+      const response = await generate(empty, {
+        ...period,
+        sections: ['TRIPS'],
+      }).expect(201);
+      const generated = body(response) as { id: string };
+      const row = await prisma.report.findUniqueOrThrow({
+        where: { id: generated.id },
+      });
+      const text = await pdfTextOf(storage.objects.get(row.fileUrl!)!.body);
+
+      expect(body(response).professionalIdComplete).toBe(false);
+      expect(text).toContain('Bia Lima');
+      expect(text).not.toContain('CRMV');
+      expect(text).toContain('Deslocamento');
+      expect(text).toContain('Sem registros no período.');
+    });
+
+    it('stores and records nothing for an invalid request', async () => {
+      const files = storage.objects.size;
+      const rows = await prisma.report.count();
+
+      const response = await generate(owner, {
+        ...period,
+        sections: [],
+      }).expect(400);
+
+      expect(response.body).toMatchObject({ code: 'REPORT_SECTIONS_EMPTY' });
+      expect(storage.objects.size).toBe(files);
+      expect(await prisma.report.count()).toBe(rows);
+    });
+
+    it('requires a token', async () => {
+      await request(server()).post('/reports').send(period).expect(401);
     });
   });
 });
