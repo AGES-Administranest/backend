@@ -124,8 +124,57 @@ those months come back with `hourlyRate: null`, the section has
 `notice: "PRICING_SETTINGS_NOT_FOUND"`, and the app tells the user to fill in
 the calculator.
 
+## The PDF — `POST /reports` (US28)
+
+```
+POST /reports
+{ "from": "2026-10-15", "to": "2026-11-14", "sections": ["FINANCIAL", "TRIPS"] }
+```
+
+Same fields and same errors as `GET /reports/general`. It builds that report,
+draws it as a PDF, stores the file and records it in `report` for the history
+(US32). `201` with:
+
+```json
+{
+  "id": "…",
+  "kind": "GENERAL_REPORT",
+  "fileName": "administranest_relatorio-geral_2026-10-15_2026-11-14.pdf",
+  "period": { "from": "2026-10-15", "to": "2026-11-14" },
+  "sections": ["FINANCIAL", "TRIPS"],
+  "generatedAt": "2026-11-11T21:00:00.000Z",
+  "downloadUrl": "https://…",
+  "downloadUrlExpiresAt": 1794430000000,
+  "professionalIdComplete": true
+}
+```
+
+- `downloadUrl` is a signed link that expires in five minutes and already
+  names the file `fileName`. The app downloads it right away.
+- `professionalIdComplete` is false when the profile has no CRMV: the header
+  then shows the name only, and the app warns the user.
+
+The document (`pdf/general-report-document.ts`) only arranges what the service
+computed:
+
+| Part | What it has |
+|---|---|
+| Header, every page | Name, CRMV, "Relatório Geral", period |
+| Footer, every page | Date and time of generation (Brasília), "Página X de Y" |
+| Table of contents | Only the sections of this report, which is also its scope |
+| Tables | Header repeated on each page; a row is never cut by a page break |
+| Chart | Income and expenses month by month, when the period has more than one month |
+| Empty section | Its title and "Sem registros no período." |
+
+The layout is provisional until the Figma of the PDF exists. Library and
+storage decisions are in ADR-04.
+
+The `report` table is used as it is: `kind = GENERAL_REPORT`, the period, the
+sections in `filters`, and the **key** of the file in `file_url` (a signed URL
+would expire). The file is stored before the row is written, so a failure
+leaves at most an unused file, never a history item without a file.
+
 ## Not covered here
 
-- The PDF itself (US28): see ADR-04 and the US28 task. It must reuse this
-  service rather than recompute any section.
+- Listing, downloading again and deleting generated reports: US32.
 - Remembering the last selection of sections is the app's job.
