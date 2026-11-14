@@ -1,4 +1,5 @@
 import {
+  DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -189,6 +190,13 @@ export class S3DocumentStorage extends DocumentStorage {
     } while (continuationToken);
 
     return deleted;
+  }
+
+  /** S3 answers 204 for a key that is not there, so this never throws on it. */
+  async deleteDocument(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
   }
 
   /**

@@ -305,7 +305,7 @@ describe('DELETE /users/me (e2e)', () => {
         calculatedAt: new Date(),
       },
     });
-    await prisma.report.create({ data: { userId, kind: 'MONTHLY' } });
+    await prisma.report.create({ data: { userId, kind: 'GENERAL_REPORT' } });
   }
 
   /** Every table an account owns, soft-deleted rows included. */

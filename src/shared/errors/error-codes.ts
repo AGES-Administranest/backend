@@ -185,6 +185,9 @@ export const ERROR_CODES = [
   // The period is longer than a report covers (MAX_REPORT_DAYS). Each month
   // of a report costs a few queries, so a decade would exhaust the database.
   'REPORT_PERIOD_TOO_LONG',
+  // A generated report that is not this user's, not stored yet, failed or
+  // deleted from the history (US32): the app only knows the ones it listed.
+  'REPORT_NOT_FOUND',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

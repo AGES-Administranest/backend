@@ -265,6 +265,7 @@ O guia completo, com o checklist de PR, está em **[`docs/swagger.md`](docs/swag
 | [`docs/pricing-settings.md`](docs/pricing-settings.md) | `/pricing-settings` routes (US19): the contract with the app, real responses, and what a `404` means |
 | [`docs/hourly-rate.md`](docs/hourly-rate.md) | `GET /pricing/hourly-rate` (US20): the formula, where each part comes from, the response and the `404` before the goals are saved. Its history (US22): when a month is stored and the two `/history` routes |
 | [`docs/profile.md`](docs/profile.md) | `/users/me` routes (US23): the profile fields, what a `null` means and real responses |
+| [`docs/reports.md`](docs/reports.md) | `/reports` history routes (US32): the lifecycle of a generated report, the list, the five-minute download link, what a delete removes, and how a new kind is recorded |
 | [`docs/ADRs/`](docs/ADRs/)                                   | 13 registros de decisão arquitetural: camada repository, espelho de usuário do Cognito, upload por presigned URL, geração de PDFs, extração assíncrona, contratos da API, tratamento de erros, sincronização offline, identificadores gerados no cliente, estoque como livro de movimentos, isolamento por usuário, emulação local de AWS e login com Google |
 
 ## Git, CI e PRs

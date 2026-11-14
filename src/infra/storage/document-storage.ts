@@ -45,6 +45,9 @@ export abstract class DocumentStorage {
    * The prefix must end in `/`, so `users/1/` cannot take `users/10/` with it.
    */
   abstract deletePrefix(prefix: string): Promise<number>;
+
+  /** Idempotent: nothing at the key is not an error, so a retry is safe. */
+  abstract deleteDocument(key: string): Promise<void>;
 }
 
 export type PresignedPostRequest = {

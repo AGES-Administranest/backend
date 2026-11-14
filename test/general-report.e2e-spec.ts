@@ -37,6 +37,8 @@ import { readPdfText } from '../src/modules/extraction/core/pdf/pdf-text-reader'
 /** The bucket, in memory: CI has no S3, and the spec reads back what was put. */
 class MemoryStorage extends DocumentStorage {
   readonly objects = new Map<string, { body: Uint8Array; type: string }>();
+  /** Makes the next putDocument throw, as an unreachable bucket would. */
+  failNextPut = false;
 
   createPresignedPost(): Promise<PresignedPost> {
     return Promise.resolve({ url: 'https://bucket', fields: {}, expiresAt: 0 });
@@ -56,7 +58,16 @@ class MemoryStorage extends DocumentStorage {
   }
 
   putDocument(key: string, bytes: Uint8Array, type: string): Promise<void> {
+    if (this.failNextPut) {
+      this.failNextPut = false;
+      return Promise.reject(new Error('bucket unavailable'));
+    }
     this.objects.set(key, { body: bytes, type });
+    return Promise.resolve();
+  }
+
+  deleteDocument(key: string): Promise<void> {
+    this.objects.delete(key);
     return Promise.resolve();
   }
 
@@ -924,6 +935,7 @@ describe('General report (e2e)', () => {
       expect(generated.downloadUrl).toContain(generated.fileName);
 
       const key = `users/${ownerId}/reports/${generated.id}/original`;
+      const stored = storage.objects.get(key);
       expect(
         await prisma.report.findUniqueOrThrow({ where: { id: generated.id } }),
       ).toMatchObject({
@@ -933,10 +945,11 @@ describe('General report (e2e)', () => {
         periodEnd: new Date('2026-11-14'),
         filters: { sections: ['FINANCIAL', 'APPOINTMENTS', 'SUPPLIERS'] },
         fileUrl: key,
+        fileName: generated.fileName,
+        fileBytesSize: stored?.body.byteLength,
         status: 'DONE',
       });
 
-      const stored = storage.objects.get(key);
       expect(stored?.type).toBe('application/pdf');
       const text = await pdfTextOf(stored!.body);
       for (const expected of [
@@ -996,6 +1009,45 @@ describe('General report (e2e)', () => {
       expect(response.body).toMatchObject({ code: 'REPORT_SECTIONS_EMPTY' });
       expect(storage.objects.size).toBe(files);
       expect(await prisma.report.count()).toBe(rows);
+    });
+
+    it('fails and keeps the report out of the history when the file cannot be stored', async () => {
+      const before = await prisma.report.findMany({
+        where: { userId: ownerId },
+        select: { id: true },
+      });
+      const files = storage.objects.size;
+      storage.failNextPut = true;
+      try {
+        const response = await generate(owner, {
+          ...period,
+          sections: ['TRIPS'],
+        }).expect(500);
+        expect(response.body).toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
+        expect(storage.objects.size).toBe(files);
+
+        // The row was recorded before the upload, and the failure marked it.
+        const added = await prisma.report.findMany({
+          where: {
+            userId: ownerId,
+            id: { notIn: before.map(row => row.id) },
+          },
+        });
+        expect(added).toEqual([expect.objectContaining({ status: 'FAILED' })]);
+
+        const history = await request(server())
+          .get('/reports')
+          .set('Authorization', bearer(owner))
+          .expect(200);
+        expect(
+          (history.body as { id: string }[]).map(item => item.id),
+        ).not.toContain(added[0].id);
+      } finally {
+        storage.failNextPut = false;
+        await prisma.report.deleteMany({
+          where: { userId: ownerId, status: 'FAILED' },
+        });
+      }
     });
 
     it('requires a token', async () => {
