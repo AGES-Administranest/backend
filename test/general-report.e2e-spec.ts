@@ -60,6 +60,10 @@ class MemoryStorage extends DocumentStorage {
     return Promise.resolve();
   }
 
+  putDocumentStream(): Promise<void> {
+    return Promise.reject(new Error('putDocumentStream is not used here'));
+  }
+
   createPresignedGet(request: PresignedGetRequest): Promise<PresignedGet> {
     return Promise.resolve({
       url: `https://bucket/${request.key}?name=${request.fileName ?? ''}`,

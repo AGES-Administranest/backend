@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
@@ -15,6 +16,7 @@ import {
   PresignedGetRequest,
   PresignedPost,
   PresignedPostRequest,
+  PutDocumentRequest,
   StoredDocument,
 } from './document-storage';
 
@@ -138,6 +140,28 @@ export class S3DocumentStorage extends DocumentStorage {
     );
 
     return { url, expiresAt: signedAt + request.expiresInMs };
+  }
+
+  /** Multipart under the hood: parts go up as the stream fills them. */
+  async putDocumentStream(request: PutDocumentRequest): Promise<void> {
+    const upload = new Upload({
+      client: this.client,
+      params: {
+        Bucket: this.bucket,
+        Key: request.key,
+        Body: request.body,
+        ContentType: request.contentType,
+      },
+    });
+
+    const abort = () => void upload.abort();
+    if (request.signal?.aborted) abort();
+    request.signal?.addEventListener('abort', abort, { once: true });
+    try {
+      await upload.done();
+    } finally {
+      request.signal?.removeEventListener('abort', abort);
+    }
   }
 
   /**

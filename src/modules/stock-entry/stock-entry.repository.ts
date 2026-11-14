@@ -4,6 +4,7 @@ import { Prisma, PurchaseInvoice } from '@prisma/client';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { Period } from '../../shared/dates/period';
+import { TaxPackageTotals } from '../../shared/tax-package/tax-package.types';
 
 const WITH_SUPPLIER_NAME = {
   supplier: { select: { name: true } },
@@ -43,6 +44,28 @@ export type SupplierInvoiceFilters = {
   issuedFrom?: Date;
   issuedTo?: Date;
 };
+
+/**
+ * `fileUrl` is filled when the upload is signed, `uploadedAt` when the app
+ * confirmed it: only both together mean the file is in the bucket.
+ */
+const WITH_STORED_FILE = {
+  fileUrl: { not: null },
+  uploadedAt: { not: null },
+} satisfies Prisma.PurchaseInvoiceWhereInput;
+
+const TAX_PACKAGE_SELECT = {
+  id: true,
+  issueDate: true,
+  totalAmount: true,
+  fileName: true,
+  fileMimeType: true,
+  supplier: { select: { name: true } },
+} satisfies Prisma.PurchaseInvoiceSelect;
+
+export type TaxPackageInvoice = Prisma.PurchaseInvoiceGetPayload<{
+  select: typeof TAX_PACKAGE_SELECT;
+}>;
 
 /** The module's only point of contact with the database (ADR-01). */
 @Injectable()
@@ -107,6 +130,67 @@ export class StockEntryRepository {
       status: 'CONFIRMED',
       issueDate: { gte: period.days.from, lt: period.days.to },
     };
+  }
+
+  /**
+   * Confirmed invoices issued in the period, split by whether their file is
+   * stored. One without an issue date is in no period.
+   */
+  summarizeTaxPackage(
+    userId: string,
+    period: Period,
+  ): Promise<TaxPackageTotals> {
+    const confirmed = {
+      userId,
+      deletedAt: null,
+      status: 'CONFIRMED',
+      issueDate: { gte: period.days.from, lt: period.days.to },
+    } satisfies Prisma.PurchaseInvoiceWhereInput;
+
+    return runQuery(async () => {
+      const [stored, missingFiles] = await Promise.all([
+        this.prisma.purchaseInvoice.aggregate({
+          where: { ...confirmed, ...WITH_STORED_FILE },
+          _count: { _all: true },
+          _sum: { totalAmount: true, fileBytesSize: true },
+        }),
+        this.prisma.purchaseInvoice.count({
+          where: {
+            ...confirmed,
+            OR: [{ fileUrl: null }, { uploadedAt: null }],
+          },
+        }),
+      ]);
+
+      return {
+        count: stored._count._all,
+        totalAmount: stored._sum.totalAmount?.toNumber() ?? 0,
+        bytesSize: stored._sum.fileBytesSize ?? 0,
+        missingFiles,
+      };
+    });
+  }
+
+  /** The invoices the tax package holds, oldest first. `take` bounds the read. */
+  findTaxPackageInvoices(
+    userId: string,
+    period: Period,
+    take: number,
+  ): Promise<TaxPackageInvoice[]> {
+    return runQuery(() =>
+      this.prisma.purchaseInvoice.findMany({
+        where: {
+          userId,
+          deletedAt: null,
+          status: 'CONFIRMED',
+          issueDate: { gte: period.days.from, lt: period.days.to },
+          ...WITH_STORED_FILE,
+        },
+        select: TAX_PACKAGE_SELECT,
+        orderBy: [{ issueDate: 'asc' }, { id: 'asc' }],
+        take,
+      }),
+    );
   }
 
   /** The id comes from the client (ADR-09): `userId` is the ownership check. */
