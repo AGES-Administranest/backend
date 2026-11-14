@@ -1257,6 +1257,75 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     });
   });
 
+  describe('reports', () => {
+    /** A stored report, as the history lists it. */
+    const reportOf = async (user: TestUser): Promise<string> => {
+      const owner = await prisma.user.findUniqueOrThrow({
+        where: { cognitoSub: user.cognitoSub },
+      });
+      const id = randomUUID();
+      await prisma.report.create({
+        data: {
+          id,
+          userId: owner.id,
+          kind: 'GENERAL_REPORT',
+          periodStart: new Date('2026-10-01'),
+          periodEnd: new Date('2026-10-31'),
+          fileUrl: `users/${owner.id}/reports/${id}/original`,
+          fileName: 'report.pdf',
+          fileBytesSize: 1024,
+          status: 'DONE',
+        },
+      });
+      return id;
+    };
+
+    it('does not list another account reports', async () => {
+      await reportOf(ana);
+      const brunoReport = await reportOf(bruno);
+
+      const response = await request(http)
+        .get('/reports')
+        .set('Authorization', bearer(bruno))
+        .expect(200);
+
+      const ids = (response.body as { id: string }[]).map(report => report.id);
+      expect(ids).toEqual([brunoReport]);
+    });
+
+    it('answers 404, not 403, when downloading another account report', async () => {
+      const id = await reportOf(ana);
+
+      const response = await request(http)
+        .get(`/reports/${id}/file`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'REPORT_NOT_FOUND' });
+    });
+
+    it('refuses to delete another account report, and leaves it in the history', async () => {
+      const id = await reportOf(ana);
+
+      const response = await request(http)
+        .delete(`/reports/${id}`)
+        .set('Authorization', bearer(bruno))
+        .expect(404);
+
+      expect(body(response)).toMatchObject({ code: 'REPORT_NOT_FOUND' });
+      expect(
+        await prisma.report.findUniqueOrThrow({ where: { id } }),
+      ).toMatchObject({ status: 'DONE', deletedAt: null });
+      const listed = await request(http)
+        .get('/reports')
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      expect(
+        (listed.body as { id: string }[]).map(report => report.id),
+      ).toEqual([id]);
+    });
+  });
+
   describe('users', () => {
     it('keeps each account terms consent to itself', async () => {
       await request(http)

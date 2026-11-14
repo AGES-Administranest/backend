@@ -290,3 +290,39 @@ months and a month opened from it) shows exactly what was calculated:
 `owner_draw` and `monthly_income_goal` hold the same value today: the owner's
 draw part is the income goal. They are kept apart because one is a part of the
 result and the other a parameter, and the formula may stop equating them.
+
+## Reports — `report`
+
+One row per file the API generated for the user: the general report PDF (US28)
+or the package for the accountant (US30). The history (US32) lists these rows
+and downloads their files again — see [`reports.md`](reports.md).
+
+| Column | Rule |
+|---|---|
+| `kind` | `report_kind_enum`: `GENERAL_REPORT` (US28), `TAX_PACKAGE` (US30). |
+| `period_start`, `period_end` | The period the file covers, both days included. |
+| `filters` | What the file was generated from. `GENERAL_REPORT`: `{ "sections": ["FINANCIAL", …] }`, the sections in the order of the document. `TAX_PACKAGE`: defined by US30. |
+| `file_url` | The S3 **key**, not a URL: a signed URL expires, the key does not. Always `users/<user_id>/reports/<id>/original`. |
+| `file_name` | The name the file is downloaded under, with its extension (the key has none). Set by whoever generates the file. |
+| `file_bytes_size` | Size of the stored file in bytes. `INTEGER`: the file is built in memory before it is stored, so it never gets near 2 GB. |
+| `deleted_at` | Removed from the history. The row and `file_url` stay; the object is deleted from the bucket. |
+
+### Status
+
+`status` (`report_status_enum`):
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | The row exists and the file is being stored. A row left here (the process stopped mid-way) is never listed. |
+| `DONE` | The file is in the bucket. The only status the history lists. |
+| `FAILED` | Storing the file failed; the error reached the app. Never listed. |
+
+The history lists rows that are `DONE` and not deleted, newest `created_at`
+first. Every row is written by `ReportArchiveService.store`, which sets
+`file_url`, `file_name` and `file_bytes_size` when it creates the row.
+
+The CHECK `report_done_has_file` (`20261113190000_report_done_requires_file`)
+refuses a `DONE` row without any of the three, so the history can always name
+and download what it lists. The columns stay nullable for the other statuses.
+The migration first marked `FAILED` the rows the PDF recording of US28 had
+written `DONE` without a name or a size; their files stay in the bucket.

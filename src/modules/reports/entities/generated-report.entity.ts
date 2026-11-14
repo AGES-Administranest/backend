@@ -1,17 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { ReportKind } from '@prisma/client';
 
 import { ReportPeriod } from './general-report.entity';
 import { REPORT_SECTIONS, type ReportSection } from '../domain/report-sections';
-
-/** The value of `report.kind` for a general report (US29). */
-export const GENERAL_REPORT_KIND = 'GENERAL_REPORT';
 
 export class GeneratedReportEntity {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ enum: [GENERAL_REPORT_KIND] })
-  kind!: typeof GENERAL_REPORT_KIND;
+  @ApiProperty({ enum: [ReportKind.GENERAL_REPORT] })
+  kind!: typeof ReportKind.GENERAL_REPORT;
 
   @ApiProperty({
     example: 'administranest_relatorio-geral_2026-10-15_2026-11-14.pdf',

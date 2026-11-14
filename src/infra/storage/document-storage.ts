@@ -36,6 +36,9 @@ export abstract class DocumentStorage {
   abstract createPresignedGet(
     request: PresignedGetRequest,
   ): Promise<PresignedGet>;
+
+  /** Idempotent: nothing at the key is not an error, so a retry is safe. */
+  abstract deleteDocument(key: string): Promise<void>;
 }
 
 export type PresignedPostRequest = {
