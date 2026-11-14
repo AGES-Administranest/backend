@@ -40,7 +40,14 @@ class FakeStorage extends DocumentStorage {
       expiresAt: 1_800_000_000_000,
     });
   }
-  async putDocument({ key, body, signal }: PutDocumentRequest): Promise<void> {
+  putDocument(): Promise<void> {
+    return Promise.reject(new Error('putDocument is not used here'));
+  }
+  async putDocumentStream({
+    key,
+    body,
+    signal,
+  }: PutDocumentRequest): Promise<void> {
     const chunks: Buffer[] = [];
     const aborted = new Promise<never>((_, reject) =>
       signal?.addEventListener('abort', () => reject(signal.reason as Error)),

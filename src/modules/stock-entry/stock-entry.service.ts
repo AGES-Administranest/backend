@@ -83,6 +83,9 @@ export class StockEntryService {
             },
           ]
         : [],
+    );
+  }
+
   purchaseTotalsInPeriod(
     userId: string,
     period: Period,

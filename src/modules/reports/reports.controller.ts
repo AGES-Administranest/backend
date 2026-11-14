@@ -1,12 +1,9 @@
 import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
-  ApiNotFoundResponse,
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import {
-  ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiExtraModels,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiPayloadTooLargeResponse,
@@ -19,15 +16,14 @@ import { GenerateReportDto } from './dto/generate-report.dto';
 import { QueryGeneralReportDto } from './dto/query-general-report.dto';
 import { QueryReportsAvailabilityDto } from './dto/query-reports-availability.dto';
 import { TaxPackagePeriodDto } from './dto/tax-package-period.dto';
-import { ReportsAvailabilityEntity } from './entities/reports-availability.entity';
-import { TaxPackageExportEntity } from './entities/tax-package-export.entity';
-import { TaxPackageSummaryEntity } from './entities/tax-package-summary.entity';
 import {
   GeneralReportEntity,
   SECTION_MODELS,
 } from './entities/general-report.entity';
 import { GeneratedReportEntity } from './entities/generated-report.entity';
 import { ReportsAvailabilityEntity } from './entities/reports-availability.entity';
+import { TaxPackageExportEntity } from './entities/tax-package-export.entity';
+import { TaxPackageSummaryEntity } from './entities/tax-package-summary.entity';
 import { GeneralReportService } from './general-report.service';
 import { ReportExportService } from './report-export.service';
 import { ReportsService } from './reports.service';
@@ -109,6 +105,8 @@ export class ReportsController {
     @Body() body: TaxPackagePeriodDto,
   ) {
     return this.taxPackageService.generate(user.id, body);
+  }
+
   @Get('general')
   @ApiOperation({
     summary: 'The general report of a period (US29)',

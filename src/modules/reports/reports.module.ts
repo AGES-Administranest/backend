@@ -38,9 +38,9 @@ import { GeneralReportService } from './general-report.service';
     UsersModule,
   ],
   controllers: [ReportsController],
-  providers: [ReportsService, TaxPackageService],
   providers: [
     ReportsService,
+    TaxPackageService,
     GeneralReportService,
     FinancialSectionBuilder,
     OperationsSectionBuilder,

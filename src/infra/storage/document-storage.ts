@@ -44,7 +44,7 @@ export abstract class DocumentStorage {
    * it whole in memory (multipart). Aborting `signal` cancels the upload and
    * leaves no object behind: the promise then rejects.
    */
-  abstract putDocument(request: PutDocumentRequest): Promise<void>;
+  abstract putDocumentStream(request: PutDocumentRequest): Promise<void>;
 }
 
 export type PutDocumentRequest = {

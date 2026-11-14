@@ -32,8 +32,8 @@ export class FakeStorage {
     return Promise.resolve(this.objects.get(key)?.document ?? null);
   }
 
-  putDocument(): Promise<void> {
-    return Promise.reject(new Error('putDocument is not used by these tests'));
+  putDocumentStream(): Promise<void> {
+    return Promise.reject(new Error('putDocumentStream is not used here'));
   }
 
   getDocument(key: string): Promise<Uint8Array | null> {

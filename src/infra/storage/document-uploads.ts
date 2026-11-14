@@ -88,8 +88,8 @@ export class DocumentUploads {
   }
 
   /** For files the API generates, such as a zip of documents. */
-  putDocument(request: PutDocumentRequest): Promise<void> {
-    return this.storage.putDocument(request);
+  putDocumentStream(request: PutDocumentRequest): Promise<void> {
+    return this.storage.putDocumentStream(request);
   }
 
   createDownloadUrl(key: string, fileName?: string): Promise<PresignedGet> {

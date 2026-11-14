@@ -172,7 +172,7 @@ export class TaxPackageService {
     // written, not wait for the zip to finish to be noticed.
     let uploadError: unknown;
     const upload = this.documentUploads
-      .putDocument({
+      .putDocumentStream({
         key,
         body: output,
         contentType: TAX_PACKAGE_MIME_TYPE,

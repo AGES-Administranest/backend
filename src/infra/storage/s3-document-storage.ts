@@ -143,7 +143,7 @@ export class S3DocumentStorage extends DocumentStorage {
   }
 
   /** Multipart under the hood: parts go up as the stream fills them. */
-  async putDocument(request: PutDocumentRequest): Promise<void> {
+  async putDocumentStream(request: PutDocumentRequest): Promise<void> {
     const upload = new Upload({
       client: this.client,
       params: {
