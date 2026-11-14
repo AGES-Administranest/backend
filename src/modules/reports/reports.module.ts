@@ -12,6 +12,7 @@ import { ReportHistoryRepository } from './report-history.repository';
 import { ReportHistoryService } from './report-history.service';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
+import { TaxPackageService } from './tax-package.service';
 import { AppointmentsModule } from '../appointments';
 import { ClientModule } from '../client';
 import { EquipmentModule } from '../equipment';
@@ -42,6 +43,7 @@ import { GeneralReportService } from './general-report.service';
   controllers: [ReportsController, ReportHistoryController],
   providers: [
     ReportsService,
+    TaxPackageService,
     GeneralReportService,
     FinancialSectionBuilder,
     OperationsSectionBuilder,
