@@ -1,6 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { Test } from '@nestjs/testing';
+import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { generateKeyPair, JWTVerifyGetKey, SignJWT } from 'jose';
 
 import { AppModule } from '../../src/app.module';
@@ -152,8 +152,14 @@ export interface TestAppOptions {
   storage?: DocumentStorage;
 }
 
+/**
+ * `configure` swaps more providers for one spec, such as the bucket for a spec
+ * whose route writes files: CI has no S3.
+ */
 export async function createTestApp(
-  options: TestAppOptions = {},
+  configure: (
+    builder: TestingModuleBuilder,
+  ) => TestingModuleBuilder = builder => builder,
 ): Promise<TestContext> {
   const pair = await generateKeyPair('RS256', { extractable: true });
   const stranger = await generateKeyPair('RS256', { extractable: true });
@@ -189,12 +195,7 @@ export async function createTestApp(
     // moment earlier. The cache itself has its own unit spec.
     .overrideProvider(SubIdCache)
     .useValue(new SubIdCache(0, 0));
-
-  if (options.storage) {
-    builder.overrideProvider(DocumentStorage).useValue(options.storage);
-  }
-
-  const moduleRef = await builder.compile();
+  const moduleRef = await configure(builder).compile();
 
   const app = moduleRef.createNestApplication<NestExpressApplication>();
 

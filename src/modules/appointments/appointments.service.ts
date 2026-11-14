@@ -15,9 +15,11 @@ import {
   AppointmentsRepository,
   AppointmentTotals,
   ClientAppointmentPage,
+  ClientAppointmentTotals,
   ItemUsage,
   ItemWithLots,
   RecordedItemUsage,
+  ReportAppointment,
   SupplyMovement,
 } from './appointments.repository';
 import { FinancialEntryEntity } from '../financial';
@@ -93,6 +95,23 @@ export class AppointmentsService {
     return this.appointmentsRepository.sumCompletedByClient(
       userId,
       clientId,
+      period,
+    );
+  }
+
+  findCompletedInPeriod(
+    userId: string,
+    period: AppointmentPeriod,
+  ): Promise<ReportAppointment[]> {
+    return this.appointmentsRepository.findCompletedInPeriod(userId, period);
+  }
+
+  sumCompletedGroupedByClient(
+    userId: string,
+    period: AppointmentPeriod,
+  ): Promise<ClientAppointmentTotals[]> {
+    return this.appointmentsRepository.sumCompletedGroupedByClient(
+      userId,
       period,
     );
   }
