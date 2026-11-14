@@ -78,4 +78,24 @@ describe('S3DocumentStorage presigned download', () => {
       expect.objectContaining({ input: { Bucket: 'documents', Key: KEY } }),
     );
   });
+
+  it('writes the bytes at the key with their content type', async () => {
+    const send = jest.fn().mockResolvedValue({});
+    Object.assign(storage, { client: { send } });
+    const body = new Uint8Array([37, 80, 68, 70]);
+
+    await storage.putDocument(KEY, body, 'application/pdf');
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: {
+          Bucket: 'documents',
+          Key: KEY,
+          Body: body,
+          ContentType: 'application/pdf',
+        },
+      }),
+    );
+  });
 });

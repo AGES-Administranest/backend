@@ -174,3 +174,60 @@ function mostCommonSpelling(counts: Map<string, number> | undefined): string {
   if (!counts || counts.size === 0) return UNNAMED_PROCEDURE;
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
+
+/** What a movement needs to count as consumption in a report (US29). */
+export interface ConsumableMovement {
+  type: StockMovementType;
+  quantity: Prisma.Decimal;
+  unitCost: Prisma.Decimal;
+  appointmentId: string | null;
+  item: { id: string; name: string; unit: string };
+}
+
+export interface ItemConsumption {
+  itemId: string;
+  itemName: string;
+  unit: string;
+  /** Net quantity used, in the item's unit. */
+  quantity: Prisma.Decimal;
+  /** Net quantity x unit cost, in reais. */
+  cost: Prisma.Decimal;
+}
+
+/**
+ * What the procedures used, by item, most expensive first (US29).
+ *
+ * Only movements tied to an appointment count; the caller picks which
+ * appointments. A supply that was corrected or removed leaves a reversal with
+ * the same appointment, item and cost (`reversalOf`), so it is subtracted here
+ * and the two net to zero. Losses and manual adjustments are not consumption:
+ * they belong to the stock summary.
+ */
+export function consumptionByItem(
+  movements: readonly ConsumableMovement[],
+): ItemConsumption[] {
+  const byItem = new Map<string, ItemConsumption>();
+
+  for (const movement of movements) {
+    if (movement.appointmentId === null) continue;
+
+    const sign = movement.type === StockMovementType.OUTBOUND ? 1 : -1;
+    const quantity = movement.quantity.times(sign);
+    const current = byItem.get(movement.item.id) ?? {
+      itemId: movement.item.id,
+      itemName: movement.item.name,
+      unit: movement.item.unit,
+      quantity: ZERO,
+      cost: ZERO,
+    };
+    byItem.set(movement.item.id, {
+      ...current,
+      quantity: current.quantity.plus(quantity),
+      cost: current.cost.plus(quantity.times(movement.unitCost)),
+    });
+  }
+
+  return [...byItem.values()]
+    .filter(item => !item.quantity.isZero())
+    .sort((a, b) => b.cost.comparedTo(a.cost));
+}

@@ -10,7 +10,13 @@ import { QueryTripDto } from './dto/query-trip.dto';
 import { UpdateTripDto } from './dto/update-trip.dto';
 import { TripEntity, TripListEntity } from './entities/trip.entity';
 import { TRIP_ESTIMATE_DAYS } from './trips.constants';
-import { TripPeriod, TripsRepository, TripTotals } from './trips.repository';
+import {
+  ClientTripTotals,
+  TripPeriod,
+  TripPeriodTotals,
+  TripsRepository,
+  TripTotals,
+} from './trips.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
 import { Period } from '../../shared/dates/period';
@@ -102,6 +108,20 @@ export class TripsService {
     period: TripPeriod,
   ): Promise<TripTotals> {
     return this.tripsRepository.sumByClient(userId, clientId, period);
+  }
+
+  totalsInPeriod(
+    userId: string,
+    period: TripPeriod,
+  ): Promise<TripPeriodTotals> {
+    return this.tripsRepository.sumInPeriod(userId, period);
+  }
+
+  totalsGroupedByClient(
+    userId: string,
+    period: TripPeriod,
+  ): Promise<ClientTripTotals[]> {
+    return this.tripsRepository.sumGroupedByClient(userId, period);
   }
 
   async findOne(id: string, userId: string): Promise<TripEntity> {

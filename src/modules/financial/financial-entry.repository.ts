@@ -135,6 +135,27 @@ export class FinancialEntryRepository {
     });
   }
 
+  /** The income of the statement, by where it came from (US29). */
+  sumIncomeBySource(
+    userId: string,
+    filter: StatementFilter,
+  ): Promise<{ source: EntrySource; total: Prisma.Decimal }[]> {
+    return runQuery(async () => {
+      const rows = await this.prisma.financialEntry.groupBy({
+        by: ['source'],
+        where: this.statementWhere(userId, {
+          ...filter,
+          nature: EntryNature.INCOME,
+        }),
+        _sum: { amount: true },
+      });
+      return rows.map(row => ({
+        source: row.source,
+        total: row._sum.amount ?? new Prisma.Decimal(0),
+      }));
+    });
+  }
+
   findStatement(
     userId: string,
     filter: StatementFilter,

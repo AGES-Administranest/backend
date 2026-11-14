@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  AppointmentStatus,
   AdjustmentReason,
   Item,
   Prisma,
@@ -21,8 +22,10 @@ import {
 } from './domain/stock-movement.rules';
 import {
   adjustmentsByReason,
+  consumptionByItem,
   consumptionByProcedure,
   directionTotals,
+  type ItemConsumption,
   itemPeriodBalance,
 } from './domain/stock-summary.rules';
 import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
@@ -165,6 +168,28 @@ export class StockMovementsService {
 
   countInPeriod(userId: string, period: Period): Promise<number> {
     return this.repository.countInPeriod(userId, period);
+  }
+
+  /**
+   * What the procedures of the period used, by item (US29): the supplies of
+   * completed appointments that were not deleted, as the appointments section
+   * lists them. A deleted appointment's reversal is dated on the deletion, so
+   * its supply and its reversal are left out together, never split across
+   * two periods.
+   */
+  async consumptionInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<ItemConsumption[]> {
+    const movements = await this.repository.findForSummary({
+      userId,
+      deletedAt: null,
+      appointment: {
+        is: { deletedAt: null, status: AppointmentStatus.COMPLETED },
+      },
+      occurredAt: { gte: period.instants.from, lt: period.instants.to },
+    });
+    return consumptionByItem(movements);
   }
 
   /** One movement — a batch of one, with the same guarantees. */

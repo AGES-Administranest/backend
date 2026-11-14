@@ -11,17 +11,47 @@ import {
   FinancialEntryResponse,
   FinancialEntrySyncResult,
 } from './entities/financial-entry.entity';
-import { EXPENSE_GROUPS, expenseGroupOf } from './expense-groups';
+import {
+  EXPENSE_GROUPS,
+  type ExpenseGroup,
+  expenseGroupOf,
+} from './expense-groups';
 import { FinancialCategoryRepository } from './financial-category.repository';
 import {
   FinancialEntryRepository,
   OwnedEntry,
   StatementRow,
 } from './financial-entry.repository';
+import {
+  INCOME_ORIGINS,
+  type IncomeOrigin,
+  incomeOriginOf,
+} from './income-origins';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 import { EquipmentService } from '../equipment';
+
+/** A balance before it is formatted, in reais. */
+export interface BalanceTotals {
+  totalIncome: Prisma.Decimal;
+  totalExpenses: Prisma.Decimal;
+  professionalExpenses: Prisma.Decimal;
+  personalExpenses: Prisma.Decimal;
+  netBalance: Prisma.Decimal;
+  /** Every group of `EXPENSE_GROUPS`, zero included. */
+  expensesByGroup: Map<ExpenseGroup, Prisma.Decimal>;
+}
+
+/** The balance of a span of days, with the income split by origin (US29). */
+export interface PeriodBalance extends BalanceTotals {
+  /** Every origin of `INCOME_ORIGINS`, zero included. */
+  incomeByOrigin: Map<IncomeOrigin, Prisma.Decimal>;
+  /** False when the span has no statement entry at all. */
+  hasEntries: boolean;
+}
+
+const ZERO = new Prisma.Decimal(0);
 
 export function accrualMonth(year?: number, month?: number, now = new Date()) {
   const y = year ?? now.getUTCFullYear();
@@ -157,6 +187,66 @@ export class FinancialEntryService {
         from.getUTCMonth() + 1,
       ),
     ]);
+    const totals = await this.foldBalance(
+      userId,
+      rows,
+      new Prisma.Decimal(depreciation),
+    );
+
+    return {
+      totalIncome: money(totals.totalIncome),
+      totalExpenses: money(totals.totalExpenses),
+      professionalExpenses: money(totals.professionalExpenses),
+      personalExpenses: money(totals.personalExpenses),
+      netBalance: money(totals.netBalance),
+      expensesByCategory: {
+        items: EXPENSE_GROUPS.map(category => ({
+          category,
+          subtotal: money(totals.expensesByGroup.get(category) ?? ZERO),
+        })),
+        total: money(totals.totalExpenses),
+      },
+    };
+  }
+
+  /**
+   * The balance of any span of days, by the same rule as `getBalance` (US29).
+   * The depreciation comes from the caller: it is computed per month, and a
+   * span may cover only part of one.
+   */
+  async summarizeRange(
+    userId: string,
+    range: { from: Date; to: Date },
+    depreciation: Prisma.Decimal,
+  ): Promise<PeriodBalance> {
+    const [rows, incomeRows] = await Promise.all([
+      this.repository.sumByNatureScopeCategory(userId, range),
+      this.repository.sumIncomeBySource(userId, range),
+    ]);
+    const totals = await this.foldBalance(userId, rows, depreciation);
+
+    const incomeByOrigin = new Map<IncomeOrigin, Prisma.Decimal>(
+      INCOME_ORIGINS.map(origin => [origin, ZERO]),
+    );
+    for (const row of incomeRows) {
+      const origin = incomeOriginOf(row.source);
+      incomeByOrigin.set(
+        origin,
+        (incomeByOrigin.get(origin) ?? ZERO).plus(row.total),
+      );
+    }
+
+    return { ...totals, incomeByOrigin, hasEntries: rows.length > 0 };
+  }
+
+  /** The one place the statement rows become a balance. */
+  private async foldBalance(
+    userId: string,
+    rows: Awaited<
+      ReturnType<FinancialEntryRepository['sumByNatureScopeCategory']>
+    >,
+    depreciation: Prisma.Decimal,
+  ): Promise<BalanceTotals> {
     const expenseCategoryIds = [
       ...new Set(
         rows
@@ -171,20 +261,18 @@ export class FinancialEntryService {
       names.map(category => [category.id, category.name]),
     );
 
-    const zero = new Prisma.Decimal(0);
-    let totalIncome = zero;
-    // Depreciation (US15) is computed here, never posted to financial_entry,
-    // so the statement has no duplicate line. It is a professional expense.
+    let totalIncome = ZERO;
+    // Depreciation (US15) is computed, never posted to financial_entry, so the
+    // statement has no duplicate line. It is a professional expense.
     // Trips are already in the rows (US14), so nothing is added for transport.
     // The fixed costs of the calculator card are these same parts: personal
     // expenses and trips come from the rows, depreciation from here.
-    const monthDepreciation = new Prisma.Decimal(depreciation);
-    let professionalExpenses = monthDepreciation;
-    let personalExpenses = zero;
-    const byGroup = new Map(
+    let professionalExpenses = depreciation;
+    let personalExpenses = ZERO;
+    const expensesByGroup = new Map<ExpenseGroup, Prisma.Decimal>(
       EXPENSE_GROUPS.map(
         group =>
-          [group, group === 'DEPRECIATION' ? monthDepreciation : zero] as const,
+          [group, group === 'DEPRECIATION' ? depreciation : ZERO] as const,
       ),
     );
 
@@ -199,23 +287,20 @@ export class FinancialEntryService {
         personalExpenses = personalExpenses.plus(row.total);
       }
       const group = expenseGroupOf(nameById.get(row.categoryId) ?? '');
-      byGroup.set(group, (byGroup.get(group) ?? zero).plus(row.total));
+      expensesByGroup.set(
+        group,
+        (expensesByGroup.get(group) ?? ZERO).plus(row.total),
+      );
     }
 
     const totalExpenses = professionalExpenses.plus(personalExpenses);
     return {
-      totalIncome: money(totalIncome),
-      totalExpenses: money(totalExpenses),
-      professionalExpenses: money(professionalExpenses),
-      personalExpenses: money(personalExpenses),
-      netBalance: money(totalIncome.minus(totalExpenses)),
-      expensesByCategory: {
-        items: EXPENSE_GROUPS.map(category => ({
-          category,
-          subtotal: money(byGroup.get(category) ?? zero),
-        })),
-        total: money(totalExpenses),
-      },
+      totalIncome,
+      totalExpenses,
+      professionalExpenses,
+      personalExpenses,
+      netBalance: totalIncome.minus(totalExpenses),
+      expensesByGroup,
     };
   }
 

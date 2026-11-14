@@ -2,7 +2,10 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { calculateHourlyRate } from './domain/hourly-rate';
-import { snapshotWriteFor } from './domain/hourly-rate-snapshot';
+import {
+  snapshotWriteFor,
+  type YearMonth,
+} from './domain/hourly-rate-snapshot';
 import { QueryHourlyRateDto } from './dto/query-hourly-rate.dto';
 import { HourlyRateResponse } from './entities/hourly-rate.entity';
 import { HourlyRateSnapshotRepository } from './hourly-rate-snapshot.repository';
@@ -46,9 +49,56 @@ export class HourlyRateService implements OnModuleInit {
     query: QueryHourlyRateDto,
   ): Promise<HourlyRateResponse> {
     const now = new Date();
-    const year = query.year ?? now.getUTCFullYear();
-    const month = query.month ?? now.getUTCMonth() + 1;
+    const period = this.periodOf(query, now);
+    const { result, goals } = await this.compute(userId, period, now);
 
+    const write = snapshotWriteFor(period, now);
+    if (write !== 'SKIP') {
+      const [fixed, variable, ownerDraw, safetyMargin] = result.parts;
+      await this.snapshots.save(
+        {
+          userId,
+          ...period,
+          hourlyRate: result.hourlyRate,
+          fixedCosts: fixed.amount,
+          variableCosts: variable.amount,
+          ownerDraw: ownerDraw.amount,
+          safetyMargin: safetyMargin.amount,
+          ...goals,
+          calculatedAt: now,
+        },
+        { replace: write === 'REPLACE' },
+      );
+    }
+
+    return toHourlyRateResponse(period, result, now);
+  }
+
+  /**
+   * The same value as `calculate`, without touching the history: for readers
+   * such as the general report (US29), where a past month calculated with
+   * today's goals must not be stored as what the hour was worth back then.
+   *
+   * @throws DomainError `PRICING_SETTINGS_NOT_FOUND` while the goals are not saved.
+   */
+  async calculateWithoutStoring(
+    userId: string,
+    query: QueryHourlyRateDto,
+  ): Promise<HourlyRateResponse> {
+    const now = new Date();
+    const period = this.periodOf(query, now);
+    const { result } = await this.compute(userId, period, now);
+    return toHourlyRateResponse(period, result, now);
+  }
+
+  private periodOf(query: QueryHourlyRateDto, now: Date): YearMonth {
+    return {
+      year: query.year ?? now.getUTCFullYear(),
+      month: query.month ?? now.getUTCMonth() + 1,
+    };
+  }
+
+  private async compute(userId: string, { year, month }: YearMonth, now: Date) {
     // Goals first: without them there is nothing to calculate, so the costs
     // are not read at all.
     const settings = await this.pricingSettings.find(userId);
@@ -78,27 +128,6 @@ export class HourlyRateService implements OnModuleInit {
       safetyMarginPct: goals.safetyMarginPct,
       weeklyHours: goals.weeklyHours,
     });
-
-    const write = snapshotWriteFor({ year, month }, now);
-    if (write !== 'SKIP') {
-      const [fixed, variable, ownerDraw, safetyMargin] = result.parts;
-      await this.snapshots.save(
-        {
-          userId,
-          year,
-          month,
-          hourlyRate: result.hourlyRate,
-          fixedCosts: fixed.amount,
-          variableCosts: variable.amount,
-          ownerDraw: ownerDraw.amount,
-          safetyMargin: safetyMargin.amount,
-          ...goals,
-          calculatedAt: now,
-        },
-        { replace: write === 'REPLACE' },
-      );
-    }
-
-    return toHourlyRateResponse({ year, month }, result, now);
+    return { result, goals };
   }
 }
