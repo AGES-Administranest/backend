@@ -725,28 +725,6 @@ describe('service-invoices (e2e)', () => {
     });
   });
 
-  it('signs the download only after the upload was confirmed', async () => {
-    const id = await newDraft();
-    const download = () =>
-      request(http)
-        .get(`/service-invoices/${id}/file`)
-        .set('Authorization', bearer(ana));
-
-    const early = await download().expect(409);
-    expect(body(early)).toMatchObject({
-      code: 'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
-    });
-
-    await prisma.serviceInvoice.update({
-      where: { id },
-      data: { uploadedAt: new Date() },
-    });
-    const response = await download().expect(200);
-    expect(body(response).url).toContain(
-      `users/${userId}/service-invoices/${id}/original`,
-    );
-  });
-
   describe('consulting, correcting and deleting a confirmed note (US02)', () => {
     type Page = {
       items: {

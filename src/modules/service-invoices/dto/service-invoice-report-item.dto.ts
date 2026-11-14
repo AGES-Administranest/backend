@@ -15,7 +15,7 @@ export class ServiceInvoiceReportItemDto {
 
   @ApiProperty({
     description:
-      'Whether the original PDF is available (GET /service-invoices/:id/file)',
+      'Whether the original PDF is available (GET /service-invoices/:id/download-url)',
   })
   hasFile!: boolean;
 }

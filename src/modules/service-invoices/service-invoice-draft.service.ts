@@ -2,10 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { downloadFileNameOf } from './domain/download-file-name';
 import { parseSearch } from './domain/search';
-import {
-  ServiceInvoiceDownloadDto,
-  ServiceInvoiceDownloadUrlDto,
-} from './dto/download-url-response.dto';
+import { ServiceInvoiceDownloadDto } from './dto/download-url-response.dto';
 import { QueryServiceInvoiceReportDto } from './dto/query-service-invoice-report.dto';
 import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
@@ -25,7 +22,6 @@ import {
   notConfirmed,
   refusalOf,
   serviceInvoiceNotFound,
-  uploadNotFinished,
 } from './service-invoices.errors';
 import { ServiceInvoicesRepository } from './service-invoices.repository';
 import { documentKey, DocumentUploads } from '../../infra/storage';
@@ -137,19 +133,6 @@ export class ServiceInvoiceDraftService {
     if (!discarded) throw await this.refusal(userId, id);
   }
 
-  async downloadUrl(
-    userId: string,
-    id: string,
-  ): Promise<ServiceInvoiceDownloadUrlDto> {
-    const invoice = await this.findOrFail(userId, id);
-    if (!invoice.uploadedAt) throw uploadNotFinished(id);
-
-    return this.documentUploads.createDownloadUrl(
-      documentKey(userId, 'service-invoices', id),
-      { fileName: invoice.fileName ?? undefined },
-    );
-  }
-
   /**
    * The PDF of a confirmed note. A note that is missing, another account's or
    * without a file answers the same 404, so the code tells nothing about it.
@@ -166,7 +149,8 @@ export class ServiceInvoiceDraftService {
     const filename = downloadFileNameOf(invoice.fileName);
     const { url, expiresAt } = await this.documentUploads.createDownloadUrl(
       documentKey(userId, 'service-invoices', id),
-      { fileName: filename, contentType: 'application/pdf' },
+      filename,
+      'application/pdf',
     );
     return { url, filename, expiresAt: new Date(expiresAt).toISOString() };
   }

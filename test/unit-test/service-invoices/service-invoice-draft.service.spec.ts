@@ -330,26 +330,6 @@ describe('ServiceInvoiceDraftService', () => {
     });
   });
 
-  describe('download', () => {
-    it('signs a GET on the note key', async () => {
-      repository.invoice = draftNote({ uploadedAt: new Date() });
-
-      await expect(
-        service.downloadUrl(USER_ID, INVOICE_ID),
-      ).resolves.toMatchObject({
-        url: `https://bucket/${documentKey(USER_ID, 'service-invoices', INVOICE_ID)}`,
-      });
-    });
-
-    it('has nothing to download before the upload is confirmed', async () => {
-      repository.invoice = draftNote();
-
-      await expect(
-        service.downloadUrl(USER_ID, INVOICE_ID),
-      ).rejects.toMatchObject({ code: 'SERVICE_INVOICE_UPLOAD_NOT_FINISHED' });
-    });
-  });
-
   describe('download of the PDF', () => {
     const confirmed = (fields = {}) =>
       draftNote({

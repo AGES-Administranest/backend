@@ -83,13 +83,14 @@ export class DocumentUploads {
 
   createDownloadUrl(
     key: string,
-    file: { fileName?: string; contentType?: string } = {},
+    fileName?: string,
+    contentType?: string,
   ): Promise<PresignedGet> {
     return this.storage.createPresignedGet({
       key,
       expiresInMs: DOWNLOAD_TTL_MS,
-      ...(file.fileName && { fileName: file.fileName }),
-      ...(file.contentType && { contentType: file.contentType }),
+      ...(fileName && { fileName }),
+      ...(contentType && { contentType }),
     });
   }
 

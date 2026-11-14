@@ -26,10 +26,7 @@ import {
 import { ConfirmServiceInvoiceDto } from './dto/confirm-service-invoice.dto';
 import { ServiceInvoiceConfirmationDto } from './dto/confirmation-response.dto';
 import { CreateServiceInvoiceUploadUrlDto } from './dto/create-upload-url.dto';
-import {
-  ServiceInvoiceDownloadDto,
-  ServiceInvoiceDownloadUrlDto,
-} from './dto/download-url-response.dto';
+import { ServiceInvoiceDownloadDto } from './dto/download-url-response.dto';
 import { QueryServiceInvoiceReportDto } from './dto/query-service-invoice-report.dto';
 import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
@@ -233,27 +230,6 @@ export class ServiceInvoicesController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ServiceInvoiceDownloadDto> {
     return this.draftService.downloadFile(user.id, id);
-  }
-
-  @Get(':id/file')
-  @ApiOperation({
-    summary: 'Issues a download URL for the original PDF (US02)',
-  })
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiOkResponse({ type: ServiceInvoiceDownloadUrlDto })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
-  @ApiNotFoundResponse({
-    description: 'Missing, or another account (SERVICE_INVOICE_NOT_FOUND)',
-  })
-  @ApiConflictResponse({
-    description:
-      'The upload was never confirmed (SERVICE_INVOICE_UPLOAD_NOT_FINISHED)',
-  })
-  downloadUrl(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<ServiceInvoiceDownloadUrlDto> {
-    return this.draftService.downloadUrl(user.id, id);
   }
 
   @Post(':id/upload-url')

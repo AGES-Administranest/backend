@@ -579,17 +579,18 @@ describe('isolation between accounts (ADR-11) (e2e)', () => {
     it('answers 404, not 403, when reading or downloading another account note', async () => {
       const id = await noteOf(ana);
 
-      for (const path of [
-        `/service-invoices/${id}`,
-        `/service-invoices/${id}/file`,
+      for (const [path, code] of [
+        [`/service-invoices/${id}`, 'SERVICE_INVOICE_NOT_FOUND'],
+        [
+          `/service-invoices/${id}/download-url`,
+          'SERVICE_INVOICE_FILE_NOT_FOUND',
+        ],
       ]) {
         const response = await request(http)
           .get(path)
           .set('Authorization', bearer(bruno))
           .expect(404);
-        expect(body(response)).toMatchObject({
-          code: 'SERVICE_INVOICE_NOT_FOUND',
-        });
+        expect(body(response)).toMatchObject({ code });
       }
     });
 
