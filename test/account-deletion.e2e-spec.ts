@@ -69,9 +69,9 @@ describe('DELETE /users/me (e2e)', () => {
 
   beforeAll(async () => {
     storage = new FlakyStorage();
-    ({ app, prisma, identityProvider } = await createTestApp({
-      storage: storage as unknown as DocumentStorage,
-    }));
+    ({ app, prisma, identityProvider } = await createTestApp(builder =>
+      builder.overrideProvider(DocumentStorage).useValue(storage),
+    ));
     http = app.getHttpServer() as App;
 
     await mintTokens(

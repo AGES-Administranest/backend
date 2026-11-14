@@ -5,7 +5,6 @@ import { generateKeyPair, JWTVerifyGetKey, SignJWT } from 'jose';
 
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/infra/prisma/prisma.service';
-import { DocumentStorage } from '../../src/infra/storage';
 import { IdentityProviderGateway } from '../../src/modules/account-deletion/identity-provider.gateway';
 import { CognitoJwtVerifier, SubIdCache } from '../../src/shared/auth';
 import { AllExceptionsFilter } from '../../src/shared/filters/all-exceptions.filter';
@@ -145,11 +144,6 @@ export interface TestContext {
   app: INestApplication;
   prisma: PrismaService;
   identityProvider: FakeIdentityProvider;
-}
-
-export interface TestAppOptions {
-  /** Replaces the S3 client, for specs that look at what is stored. */
-  storage?: DocumentStorage;
 }
 
 /**
