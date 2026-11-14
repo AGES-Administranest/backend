@@ -214,7 +214,7 @@ describe('TaxPackageService.generate', () => {
     const [key] = [...storage.written.keys()];
     expect(key).toMatch(
       new RegExp(
-        `^users/${USER}/exports/tax-package/2026-03-01_2026-03-31_[0-9a-f-]{36}\\.zip$`,
+        `^exports/users/${USER}/tax-package/2026-03-01_2026-03-31_[0-9a-f-]{36}\\.zip$`,
       ),
     );
     expect(result.url).toContain(key);

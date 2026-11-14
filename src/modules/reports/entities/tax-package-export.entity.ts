@@ -18,7 +18,7 @@ export class TaxPackageExportEntity {
   @ApiProperty({
     description: 'A GET on this URL downloads the zip',
     example:
-      'http://localhost:4566/administranest-local/users/8f1c.../exports/...',
+      'http://localhost:4566/administranest-local/exports/users/8f1c.../tax-package/...',
   })
   url!: string;
 
