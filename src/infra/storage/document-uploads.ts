@@ -81,11 +81,20 @@ export class DocumentUploads {
     return { status: 'stored', document: stored };
   }
 
-  createDownloadUrl(key: string, fileName?: string): Promise<PresignedGet> {
+  createDownloadUrl(
+    key: string,
+    fileName?: string,
+    contentType?: string,
+  ): Promise<PresignedGet> {
     return this.storage.createPresignedGet({
       key,
       expiresInMs: DOWNLOAD_TTL_MS,
       ...(fileName && { fileName }),
+      ...(contentType && { contentType }),
     });
+  }
+
+  deleteDocument(key: string): Promise<void> {
+    return this.storage.deleteDocument(key);
   }
 }

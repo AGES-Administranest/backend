@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, ServiceInvoice, ServiceInvoiceStatus } from '@prisma/client';
+import { Prisma, ServiceInvoice } from '@prisma/client';
 
 import { DuplicateCriteria } from './domain/find-duplicates';
+import { escapeLike, InvoiceSearch } from './domain/search';
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { Period } from '../../shared/dates/period';
@@ -16,11 +17,14 @@ export type DuplicateNote = ServiceInvoice & {
   client: { name: string } | null;
 };
 
-export type ServiceInvoiceFilters = {
-  status?: ServiceInvoiceStatus;
-  issuedFrom?: Date;
-  issuedTo?: Date;
+/** A confirmed note with the client it was issued to. */
+export type ListedNote = ServiceInvoice & {
+  client: { id: string; name: string } | null;
 };
+
+export type NotePage = { notes: ListedNote[]; total: number };
+
+export type ClientSummary = { id: string; name: string; taxId: string | null };
 
 /** A confirmed note with what the Reports list shows of its taker. */
 export type ReportNote = Pick<
@@ -35,12 +39,6 @@ export type ReportFilters = {
   issuedFrom?: Date;
   issuedTo?: Date;
 };
-
-/**
- * Prisma passes `contains` through to LIKE as is, so a typed `%` or `_`
- * would match anything. Postgres reads `\` as the escape character.
- */
-const escapeLike = (text: string): string => text.replace(/[\\%_]/g, '\\$&');
 
 /** The module's only point of contact with the database (ADR-01). */
 @Injectable()
@@ -70,26 +68,63 @@ export class ServiceInvoicesRepository {
     );
   }
 
-  /** A discarded draft only shows up when asked for by its status. */
-  findPage(
+  /**
+   * The user's confirmed notes, newest issue date first. The search is raw SQL
+   * because Prisma cannot compare without accents (`unaccent`) nor against a
+   * date written as `DD/MM/YYYY`; the rows themselves are read back through
+   * Prisma, in the order the ids came out.
+   */
+  findConfirmedPage(
     userId: string,
-    filters: ServiceInvoiceFilters,
+    search: InvoiceSearch | null,
     skip: number,
     take: number,
-  ): Promise<ServiceInvoice[]> {
+  ): Promise<NotePage> {
+    const matching = Prisma.sql`
+      FROM service_invoice AS note
+      LEFT JOIN client ON client.id = note.client_id
+      WHERE note.user_id = ${userId}::uuid
+        AND note.status = 'CONFIRMED'
+        AND note.deleted_at IS NULL
+        ${search ? Prisma.sql`AND ${searchCondition(search)}` : Prisma.empty}`;
+
+    return runQuery(async () => {
+      const [rows, counted] = await Promise.all([
+        this.prisma.$queryRaw<{ id: string }[]>`
+          SELECT note.id ${matching}
+          ORDER BY note.issue_date DESC, note.id DESC
+          LIMIT ${take} OFFSET ${skip}`,
+        this.prisma.$queryRaw<{ total: bigint }[]>`
+          SELECT COUNT(*) AS total ${matching}`,
+      ]);
+
+      const ids = rows.map(row => row.id);
+      const notes = await this.prisma.serviceInvoice.findMany({
+        where: { id: { in: ids }, userId },
+        include: { client: { select: { id: true, name: true } } },
+      });
+      const byId = new Map(notes.map(note => [note.id, note]));
+
+      return {
+        notes: ids.flatMap(id => byId.get(id) ?? []),
+        total: Number(counted[0]?.total ?? 0),
+      };
+    });
+  }
+
+  /**
+   * The taker as the note shows it. A client deleted since the note was
+   * confirmed still shows: the note keeps the name it was issued to. The
+   * `userId` is the ownership check, as everywhere else.
+   */
+  findClientSummary(
+    clientId: string,
+    userId: string,
+  ): Promise<ClientSummary | null> {
     return runQuery(() =>
-      this.prisma.serviceInvoice.findMany({
-        where: {
-          userId,
-          deletedAt: null,
-          status: filters.status ?? { not: 'CANCELLED' },
-          ...((filters.issuedFrom || filters.issuedTo) && {
-            issueDate: { gte: filters.issuedFrom, lte: filters.issuedTo },
-          }),
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        skip,
-        take,
+      this.prisma.client.findFirst({
+        where: { id: clientId, userId },
+        select: { id: true, name: true, taxId: true },
       }),
     );
   }
@@ -223,11 +258,13 @@ export class ServiceInvoicesRepository {
   confirmDraft(
     id: string,
     userId: string,
+    changes: Prisma.ServiceInvoiceUncheckedUpdateManyInput,
     recordIncome: IncomeWrite<string>,
   ): Promise<string | null> {
     return runQuery(() =>
       this.prisma.$transaction(async tx => {
         const confirmed = await this.updateInStatus(tx, id, userId, 'DRAFT', {
+          ...changes,
           status: 'CONFIRMED',
           reviewedAt: new Date(),
         });
@@ -332,4 +369,21 @@ export class ServiceInvoicesRepository {
     );
     return count === 1;
   }
+}
+
+/**
+ * The three things a search can mean. The date is compared by its digits, so
+ * `22/04` and `2204` are the same search and either finds 22/04/2026.
+ */
+function searchCondition({ text, dateDigits }: InvoiceSearch): Prisma.Sql {
+  const like = `%${escapeLike(text)}%`;
+  const byDate = dateDigits
+    ? Prisma.sql`OR to_char(note.issue_date, 'DDMMYYYY') LIKE ${`%${dateDigits}%`}`
+    : Prisma.empty;
+
+  return Prisma.sql`(
+    unaccent(client.name) ILIKE unaccent(${like})
+    OR unaccent(note.number) ILIKE unaccent(${like})
+    ${byDate}
+  )`;
 }

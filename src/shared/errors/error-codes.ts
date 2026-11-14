@@ -156,6 +156,12 @@ export const ERROR_CODES = [
   'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
   'SERVICE_INVOICE_UPLOAD_MISMATCH',
   'SERVICE_INVOICE_NOT_READY',
+  // The note has no PDF to download: missing, another account's, or its
+  // upload never arrived. One code for all three, so the code does not tell
+  // another account's note from a missing one.
+  'SERVICE_INVOICE_FILE_NOT_FOUND',
+  // The operation needs a confirmed note and this one is still a draft.
+  'SERVICE_INVOICE_NOT_CONFIRMED',
   // A confirmed note has the same amount and date, or the same number and
   // taker. The app shows it and resends with allowDuplicate.
   'SERVICE_INVOICE_POSSIBLE_DUPLICATE',

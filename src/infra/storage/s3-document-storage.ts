@@ -134,6 +134,9 @@ export class S3DocumentStorage extends DocumentStorage {
         ...(request.fileName && {
           ResponseContentDisposition: attachmentNamed(request.fileName),
         }),
+        ...(request.contentType && {
+          ResponseContentType: request.contentType,
+        }),
       }),
       { expiresIn: Math.floor(request.expiresInMs / 1000) },
     );

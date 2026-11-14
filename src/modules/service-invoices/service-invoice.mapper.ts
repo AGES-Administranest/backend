@@ -1,19 +1,28 @@
 import { Prisma, ServiceInvoice } from '@prisma/client';
 
+import { ClientEntity } from '../client';
+import { NfseResult } from '../extraction';
 import { DuplicateReason } from './domain/find-duplicates';
+import { normalizeLocation } from './domain/location';
 import {
   ClientOptionDto,
   DuplicateServiceInvoiceDto,
   NfseReviewDto,
 } from './dto/nfse-review.dto';
-import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
+import {
+  ServiceInvoiceDataDto,
+  ServiceInvoiceDetailDto,
+} from './dto/service-invoice-detail.dto';
 import { ServiceInvoiceReportItemDto } from './dto/service-invoice-report-item.dto';
 import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
-import { DuplicateNote, ReportNote } from './service-invoices.repository';
+import {
+  ClientSummary,
+  DuplicateNote,
+  ListedNote,
+  ReportNote,
+} from './service-invoices.repository';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
-import { ClientEntity } from '../client';
-import { NfseResult } from '../extraction';
 
 /** The reading as it came out, kept in `raw_extraction`. */
 export function storedReadingOf(invoice: ServiceInvoice): NfseResult | null {
@@ -43,22 +52,48 @@ export function toReview(invoice: ServiceInvoice): NfseReviewDto {
   };
 }
 
-export function toSummary(invoice: ServiceInvoice): ServiceInvoiceSummaryDto {
-  const takerName = storedReadingOf(invoice)?.taker?.name;
+/**
+ * A confirmed note always has a date, an amount and a client (confirming
+ * demands them), so the list can promise them. The file counts as kept once
+ * its upload was verified; the list does not ask the bucket for every row.
+ */
+export function toSummary(note: ListedNote): ServiceInvoiceSummaryDto {
+  const ready = note as ReadyListedNote;
+  return {
+    id: ready.id,
+    number: ready.number,
+    issueDate: toIsoDate(ready.issueDate),
+    amount: Number(ready.amount),
+    client: { id: ready.client.id, name: ready.client.name },
+    location: ready.location,
+    hasFile: ready.uploadedAt !== null,
+  };
+}
 
+type ReadyListedNote = ListedNote & {
+  issueDate: Date;
+  amount: Prisma.Decimal;
+  client: { id: string; name: string };
+};
+
+/** What a confirmed note is, with the values as they stand. */
+export function toInvoiceData(
+  invoice: ServiceInvoice,
+  client: ClientSummary,
+): ServiceInvoiceDataDto {
+  const hasFile = invoice.uploadedAt !== null;
   return {
     id: invoice.id,
-    status: invoice.status,
-    ...(invoice.fileName && { fileName: invoice.fileName }),
-    ...(invoice.number && { number: invoice.number }),
-    ...(invoice.issueDate && { issueDate: toIsoDate(invoice.issueDate) }),
-    ...(invoice.amount !== null && { amount: Number(invoice.amount) }),
-    ...(takerName && { takerName }),
-    ...(invoice.clientId && { clientId: invoice.clientId }),
-    extractionStatus: invoice.extractionStatus,
-    ...(invoice.failureReason && { failureReason: invoice.failureReason }),
-    ...(invoice.uploadedAt && { uploadedAt: invoice.uploadedAt.toISOString() }),
-    createdAt: invoice.createdAt.toISOString(),
+    number: invoice.number,
+    issueDate: toIsoDate(invoice.issueDate as Date),
+    amount: Number(invoice.amount),
+    client: { id: client.id, name: client.name, taxId: client.taxId },
+    location: invoice.location,
+    hasFile,
+    file:
+      hasFile && invoice.fileName
+        ? { name: invoice.fileName, bytesSize: invoice.fileBytesSize ?? 0 }
+        : null,
   };
 }
 
@@ -97,6 +132,7 @@ export function toDuplicate(
 export function toDetail(
   invoice: ServiceInvoice,
   review: NfseReviewDto,
+  client?: ClientSummary | null,
 ): ServiceInvoiceDetailDto {
   return {
     id: invoice.id,
@@ -105,20 +141,29 @@ export function toDetail(
     review,
     ...(invoice.uploadedAt && { uploadedAt: invoice.uploadedAt.toISOString() }),
     ...(invoice.reviewedAt && { reviewedAt: invoice.reviewedAt.toISOString() }),
+    ...(invoice.status === 'CONFIRMED' &&
+      client && { invoice: toInvoiceData(invoice, client) }),
   };
 }
 
-/** Only the fields sent are written; `null` clears one. */
+/**
+ * Only the fields sent are written; `null` clears one. The number is read from
+ * the PDF and printed on it: once the note is confirmed it is not edited.
+ */
 export function toReviewChanges(
   dto: UpdateServiceInvoiceDto,
+  { confirmed = false }: { confirmed?: boolean } = {},
 ): Prisma.ServiceInvoiceUncheckedUpdateManyInput {
   return {
     ...(dto.issueDate !== undefined && {
       issueDate: dto.issueDate === null ? null : fromIsoDate(dto.issueDate),
     }),
     ...(dto.amount !== undefined && { amount: dto.amount }),
-    ...(dto.number !== undefined && { number: dto.number }),
+    ...(dto.number !== undefined && !confirmed && { number: dto.number }),
     ...(dto.clientId !== undefined && { clientId: dto.clientId }),
+    ...(dto.location !== undefined && {
+      location: dto.location === null ? null : normalizeLocation(dto.location),
+    }),
     reviewedAt: new Date(),
   };
 }

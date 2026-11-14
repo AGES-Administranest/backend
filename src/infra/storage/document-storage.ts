@@ -60,6 +60,8 @@ export type PresignedGetRequest = {
   expiresInMs: number;
   /** The key has no extension, so without this the file saves as `original`. */
   fileName?: string;
+  /** Pinned in the signature, so the browser does not sniff the type. */
+  contentType?: string;
 };
 
 export type PresignedGet = {
