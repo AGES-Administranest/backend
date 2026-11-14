@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 
-import { ServiceInvoiceDownloadUrlDto } from './dto/download-url-response.dto';
+import { downloadFileNameOf } from './domain/download-file-name';
+import { parseSearch } from './domain/search';
+import { ServiceInvoiceDownloadDto } from './dto/download-url-response.dto';
 import { QueryServiceInvoiceReportDto } from './dto/query-service-invoice-report.dto';
 import { QueryServiceInvoiceDto } from './dto/query-service-invoice.dto';
 import { ServiceInvoiceDetailDto } from './dto/service-invoice-detail.dto';
 import { ServiceInvoiceReportItemDto } from './dto/service-invoice-report-item.dto';
-import { ServiceInvoiceSummaryDto } from './dto/service-invoice-summary.dto';
+import { ServiceInvoicePageDto } from './dto/service-invoice-summary.dto';
 import { UpdateServiceInvoiceDto } from './dto/update-service-invoice.dto';
 import { ServiceInvoiceConfirmationService } from './service-invoice-confirmation.service';
 import { ServiceInvoiceReviewService } from './service-invoice-review.service';
@@ -16,9 +18,10 @@ import {
   toSummary,
 } from './service-invoice.mapper';
 import {
+  fileNotFound,
+  notConfirmed,
   refusalOf,
   serviceInvoiceNotFound,
-  uploadNotFinished,
 } from './service-invoices.errors';
 import { ServiceInvoicesRepository } from './service-invoices.repository';
 import { documentKey, DocumentUploads } from '../../infra/storage';
@@ -40,18 +43,14 @@ export class ServiceInvoiceDraftService {
   async list(
     userId: string,
     query: QueryServiceInvoiceDto,
-  ): Promise<ServiceInvoiceSummaryDto[]> {
-    const invoices = await this.repository.findPage(
+  ): Promise<ServiceInvoicePageDto> {
+    const { notes, total } = await this.repository.findConfirmedPage(
       userId,
-      {
-        status: query.status,
-        ...(query.from && { issuedFrom: fromIsoDate(query.from) }),
-        ...(query.to && { issuedTo: fromIsoDate(query.to) }),
-      },
-      (query.page - 1) * query.limit,
-      query.limit,
+      parseSearch(query.search),
+      (query.page - 1) * query.pageSize,
+      query.pageSize,
     );
-    return invoices.map(toSummary);
+    return { items: notes.map(toSummary), total };
   }
 
   /** The confirmed notes for the Reports tab, newest issue date first. */
@@ -83,10 +82,13 @@ export class ServiceInvoiceDraftService {
 
   async get(userId: string, id: string): Promise<ServiceInvoiceDetailDto> {
     const invoice = await this.findOrFail(userId, id);
-    return toDetail(
-      invoice,
-      await this.reviewService.reviewOf(userId, invoice),
-    );
+    const [review, client] = await Promise.all([
+      this.reviewService.reviewOf(userId, invoice),
+      invoice.status === 'CONFIRMED' && invoice.clientId
+        ? this.repository.findClientSummary(invoice.clientId, userId)
+        : null,
+    ]);
+    return toDetail(invoice, review, client);
   }
 
   /** A confirmed note is edited along with its income entry. */
@@ -94,10 +96,11 @@ export class ServiceInvoiceDraftService {
     userId: string,
     id: string,
     dto: UpdateServiceInvoiceDto,
-  ): Promise<void> {
+  ): Promise<ServiceInvoiceDetailDto> {
     const invoice = await this.findOrFail(userId, id);
     if (invoice.status === 'CONFIRMED') {
-      return this.confirmationService.update(userId, id, dto);
+      await this.confirmationService.update(userId, id, dto);
+      return this.get(userId, id);
     }
 
     // Someone else's client answers 404, as a missing one (ADR-11).
@@ -109,6 +112,7 @@ export class ServiceInvoiceDraftService {
       toReviewChanges(dto),
     );
     if (!saved) throw await this.refusal(userId, id);
+    return this.get(userId, id);
   }
 
   /**
@@ -129,17 +133,26 @@ export class ServiceInvoiceDraftService {
     if (!discarded) throw await this.refusal(userId, id);
   }
 
-  async downloadUrl(
+  /**
+   * The PDF of a confirmed note. A note that is missing, another account's or
+   * without a file answers the same 404, so the code tells nothing about it.
+   */
+  async downloadFile(
     userId: string,
     id: string,
-  ): Promise<ServiceInvoiceDownloadUrlDto> {
-    const invoice = await this.findOrFail(userId, id);
-    if (!invoice.uploadedAt) throw uploadNotFinished(id);
+  ): Promise<ServiceInvoiceDownloadDto> {
+    const invoice = await this.repository.findByIdAndUser(id, userId);
+    if (!invoice) throw fileNotFound(id);
+    if (invoice.status !== 'CONFIRMED') throw notConfirmed(invoice);
+    if (!invoice.uploadedAt) throw fileNotFound(id);
 
-    return this.documentUploads.createDownloadUrl(
+    const filename = downloadFileNameOf(invoice.fileName);
+    const { url, expiresAt } = await this.documentUploads.createDownloadUrl(
       documentKey(userId, 'service-invoices', id),
-      invoice.fileName ?? undefined,
+      filename,
+      'application/pdf',
     );
+    return { url, filename, expiresAt: new Date(expiresAt).toISOString() };
   }
 
   private async findOrFail(userId: string, id: string) {

@@ -54,4 +54,48 @@ describe('S3DocumentStorage presigned download', () => {
       `attachment; filename="nota d'_gua.pdf"; filename*=UTF-8''nota%20d%27%C3%A1gua.pdf`,
     );
   });
+
+  it('pins the content type of the download', async () => {
+    const { url } = await storage.createPresignedGet({
+      key: KEY,
+      expiresInMs: 60_000,
+      contentType: 'application/pdf',
+    });
+
+    expect(new URL(url).searchParams.get('response-content-type')).toBe(
+      'application/pdf',
+    );
+  });
+
+  it('deletes the object at the key', async () => {
+    const send = jest.fn().mockResolvedValue({});
+    Object.assign(storage, { client: { send } });
+
+    await storage.deleteDocument(KEY);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ input: { Bucket: 'documents', Key: KEY } }),
+    );
+  });
+
+  it('writes the bytes at the key with their content type', async () => {
+    const send = jest.fn().mockResolvedValue({});
+    Object.assign(storage, { client: { send } });
+    const body = new Uint8Array([37, 80, 68, 70]);
+
+    await storage.putDocument(KEY, body, 'application/pdf');
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: {
+          Bucket: 'documents',
+          Key: KEY,
+          Body: body,
+          ContentType: 'application/pdf',
+        },
+      }),
+    );
+  });
 });

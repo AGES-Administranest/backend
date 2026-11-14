@@ -169,12 +169,16 @@ computed:
 The layout is provisional until the Figma of the PDF exists. Library and
 storage decisions are in ADR-04.
 
-The `report` table is used as it is: `kind = GENERAL_REPORT`, the period, the
-sections in `filters`, and the **key** of the file in `file_url` (a signed URL
-would expire). The file is stored before the row is written, so a failure
-leaves at most an unused file, never a history item without a file.
+The file is kept by `ReportArchiveService.store`, the recording cycle of the
+history (US32): a `report` row is created `PENDING` with `kind =
+GENERAL_REPORT`, the period, the sections in `filters`, the **key** of the file
+in `file_url` (a signed URL would expire), its name and its size; the file goes
+to the bucket; the row turns `DONE`. If the file cannot be stored, the row
+turns `FAILED`, which the history never lists, and the request answers `500`.
+See [`reports.md`](reports.md#lifecycle-of-a-report).
 
 ## Not covered here
 
-- Listing, downloading again and deleting generated reports: US32.
+- Listing, downloading again and deleting generated reports: US32, in
+  [`reports.md`](reports.md).
 - Remembering the last selection of sections is the app's job.

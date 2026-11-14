@@ -27,18 +27,15 @@ describe('ReportExportService.generate', () => {
       render: jest.fn().mockResolvedValue(Buffer.from('%PDF-fake')),
     };
     const storage = {
-      putDocument: jest.fn(() => {
-        calls.push('put');
-        return Promise.resolve();
+      createPresignedGet: jest.fn(() => {
+        calls.push('link');
+        return Promise.resolve({ url: 'https://bucket/file', expiresAt: 123 });
       }),
-      createPresignedGet: jest
-        .fn()
-        .mockResolvedValue({ url: 'https://bucket/file', expiresAt: 123 }),
     };
-    const repository = {
-      createGenerated: jest.fn(() => {
-        calls.push('record');
-        return Promise.resolve({});
+    const archive = {
+      store: jest.fn(() => {
+        calls.push('store');
+        return Promise.resolve('report-1');
       }),
     };
     const service = new ReportExportService(
@@ -46,41 +43,35 @@ describe('ReportExportService.generate', () => {
       users as never,
       renderer,
       storage as never,
-      repository as never,
+      archive as never,
     );
-    return { service, calls, generalReport, renderer, storage, repository };
+    return { service, calls, generalReport, renderer, storage, archive };
   };
 
-  it('stores the PDF, records it and answers with a download link', async () => {
-    const { service, calls, generalReport, storage, repository } = build();
+  it('keeps the PDF in the history and answers with a download link', async () => {
+    const { service, calls, generalReport, storage, archive } = build();
 
     const result = await service.generate(userId, dto);
 
     expect(generalReport.generate).toHaveBeenCalledWith(userId, dto);
-    const key = `users/user-1/reports/${result.id}/original`;
-    expect(storage.putDocument).toHaveBeenCalledWith(
-      key,
-      Buffer.from('%PDF-fake'),
-      'application/pdf',
-    );
-    expect(repository.createGenerated).toHaveBeenCalledWith({
-      id: result.id,
-      userId,
+    expect(archive.store).toHaveBeenCalledWith(userId, {
       kind: 'GENERAL_REPORT',
-      periodStart: new Date('2026-10-15T00:00:00Z'),
-      periodEnd: new Date('2026-11-14T00:00:00Z'),
+      period: report.period,
       filters: { sections: ['TRIPS'] },
-      fileKey: key,
+      fileName: 'administranest_relatorio-geral_2026-10-15_2026-11-14.pdf',
+      contentType: 'application/pdf',
+      body: Buffer.from('%PDF-fake'),
     });
-    // The file first: a row without a file would be a broken history item.
-    expect(calls).toEqual(['put', 'record']);
+    // The link points at the file store() kept, under the id it returned.
+    expect(calls).toEqual(['store', 'link']);
     expect(storage.createPresignedGet).toHaveBeenCalledWith(
       expect.objectContaining({
-        key,
+        key: 'users/user-1/reports/report-1/original',
         fileName: 'administranest_relatorio-geral_2026-10-15_2026-11-14.pdf',
       }),
     );
     expect(result).toMatchObject({
+      id: 'report-1',
       kind: 'GENERAL_REPORT',
       fileName: 'administranest_relatorio-geral_2026-10-15_2026-11-14.pdf',
       period: report.period,
@@ -102,11 +93,11 @@ describe('ReportExportService.generate', () => {
     },
   );
 
-  it('records nothing when the file cannot be stored', async () => {
-    const { service, storage, repository } = build();
-    storage.putDocument.mockRejectedValue(new Error('bucket down'));
+  it('fails without a download link when the file cannot be stored', async () => {
+    const { service, storage, archive } = build();
+    archive.store.mockRejectedValue(new Error('bucket down'));
 
     await expect(service.generate(userId, dto)).rejects.toThrow('bucket down');
-    expect(repository.createGenerated).not.toHaveBeenCalled();
+    expect(storage.createPresignedGet).not.toHaveBeenCalled();
   });
 });

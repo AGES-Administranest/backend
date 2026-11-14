@@ -156,6 +156,12 @@ export const ERROR_CODES = [
   'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
   'SERVICE_INVOICE_UPLOAD_MISMATCH',
   'SERVICE_INVOICE_NOT_READY',
+  // The note has no PDF to download: missing, another account's, or its
+  // upload never arrived. One code for all three, so the code does not tell
+  // another account's note from a missing one.
+  'SERVICE_INVOICE_FILE_NOT_FOUND',
+  // The operation needs a confirmed note and this one is still a draft.
+  'SERVICE_INVOICE_NOT_CONFIRMED',
   // A confirmed note has the same amount and date, or the same number and
   // taker. The app shows it and resends with allowDuplicate.
   'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
@@ -175,6 +181,9 @@ export const ERROR_CODES = [
   // The period is longer than a report covers (MAX_REPORT_DAYS). Each month
   // of a report costs a few queries, so a decade would exhaust the database.
   'REPORT_PERIOD_TOO_LONG',
+  // A generated report that is not this user's, not stored yet, failed or
+  // deleted from the history (US32): the app only knows the ones it listed.
+  'REPORT_NOT_FOUND',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

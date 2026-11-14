@@ -11,7 +11,7 @@
 
 **Decisão (revista em 11/11/2026):** (c) o backend gera e guarda no S3. A decisão original era (a), gerar sob demanda sem persistir; ela mudou porque o histórico de relatórios (US32) precisa reabrir um arquivo já gerado sem gerá-lo de novo. O motivo de gerar no backend continua o mesmo: o relatório sai de dados que só o servidor tem completos, e gerar no app significaria reimplementar as regras de cálculo em dois lugares.
 
-**Como funciona:** `POST /reports` monta os dados com o `GeneralReportService` (o mesmo do `GET /reports/general`), gera o PDF, grava em `users/<id>/reports/<id>/original`, registra em `report` e devolve um link temporário de download.
+**Como funciona:** `POST /reports` monta os dados com o `GeneralReportService` (o mesmo do `GET /reports/general`), gera o PDF e o guarda pelo ciclo do histórico (US32): registra em `report` como `PENDING`, grava em `users/<id>/reports/<id>/original`, marca `DONE` e devolve um link temporário de download. Se a gravação falhar, a linha fica `FAILED`, fora do histórico.
 
 **Biblioteca: `pdfmake`.** JavaScript puro, sem navegador nem canvas. Já traz o que a US28 pede: cabeçalho de tabela repetido em cada página, linhas que não são cortadas na quebra, rodapé com "Página X de Y" e SVG para os gráficos. Medido em Node 22 com tabela de atendimentos e gráfico: 2.000 linhas geram 55 páginas em ~1,2 s com pico de ~154 MB; 5.000 linhas, 135 páginas em ~2 s com ~209 MB. A instância tem 1 GB.
 

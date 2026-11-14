@@ -43,6 +43,9 @@ class FakeStorage extends DocumentStorage {
   putDocument(): Promise<void> {
     return Promise.reject(new Error('putDocument is not used here'));
   }
+  deleteDocument(): Promise<void> {
+    return Promise.reject(new Error('deleteDocument is not used here'));
+  }
   async putDocumentStream({
     key,
     body,

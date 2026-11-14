@@ -5,9 +5,12 @@ import { FinancialSectionBuilder } from './general-report/financial-section.buil
 import { OperationsSectionBuilder } from './general-report/operations-section.builder';
 import { StockSectionBuilder } from './general-report/stock-section.builder';
 import { PdfRenderer } from './pdf/pdf-renderer';
+import { ReportArchiveService } from './report-archive.service';
 import { ReportExportService } from './report-export.service';
+import { ReportHistoryController } from './report-history.controller';
+import { ReportHistoryRepository } from './report-history.repository';
+import { ReportHistoryService } from './report-history.service';
 import { ReportsController } from './reports.controller';
-import { ReportsRepository } from './reports.repository';
 import { ReportsService } from './reports.service';
 import { TaxPackageService } from './tax-package.service';
 import { AppointmentsModule } from '../appointments';
@@ -37,7 +40,7 @@ import { GeneralReportService } from './general-report.service';
     PricingModule,
     UsersModule,
   ],
-  controllers: [ReportsController],
+  controllers: [ReportsController, ReportHistoryController],
   providers: [
     ReportsService,
     TaxPackageService,
@@ -47,9 +50,11 @@ import { GeneralReportService } from './general-report.service';
     StockSectionBuilder,
     CostsSectionBuilder,
     ReportExportService,
-    ReportsRepository,
     PdfRenderer,
+    ReportArchiveService,
+    ReportHistoryService,
+    ReportHistoryRepository,
   ],
-  exports: [ReportsService],
+  exports: [ReportsService, ReportArchiveService],
 })
 export class ReportsModule {}
