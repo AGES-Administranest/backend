@@ -54,6 +54,12 @@ export class JwtAuthGuard implements CanActivate {
       cognitoSub: claims.sub,
       email: claims.email!,
       ...(claims.name ? { name: claims.name } : {}),
+      ...(typeof claims.auth_time === 'number'
+        ? { authTime: claims.auth_time }
+        : {}),
+      ...(claims['cognito:username']
+        ? { cognitoUsername: claims['cognito:username'] }
+        : {}),
     };
 
     if (this.hasFlag(context, ALLOWS_UNPROVISIONED_KEY)) {

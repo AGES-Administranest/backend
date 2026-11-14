@@ -106,6 +106,7 @@ jobs:
     env:
       COGNITO_ISSUER: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ci
       COGNITO_CLIENT_ID: ci-client
+      COGNITO_USER_POOL_ID: us-east-1_ci
       S3_BUCKET: ci-bucket
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test

@@ -1,4 +1,8 @@
-export { documentKey, type DocumentCollection } from './document-key';
+export {
+  documentKey,
+  type DocumentCollection,
+  userDocumentsPrefix,
+} from './document-key';
 export {
   DocumentStorage,
   type PresignedGet,

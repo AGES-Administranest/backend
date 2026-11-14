@@ -245,6 +245,27 @@ describe('auth (e2e)', () => {
       });
     });
 
+    it('returns version and both dates as ISO 8601 on /auth/terms and /auth/session', async () => {
+      // What the Privacy screen shows (US25): the app reads these three fields
+      // from either response.
+      const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+      const session = () =>
+        request(http).post('/auth/session').set('Authorization', bearer(ana));
+
+      await session().expect(200);
+      const accepted = await accept(ana, { termsVersion: '2026-09-01' }).expect(
+        200,
+      );
+      const again = await session().expect(200);
+
+      for (const response of [accepted, again]) {
+        expect(body(response).termsVersion).toBe('2026-09-01');
+        expect(body(response).termsAcceptedAt).toMatch(ISO);
+        expect(body(response).privacyAcceptedAt).toMatch(ISO);
+      }
+      expect(body(again).termsAcceptedAt).toBe(body(accepted).termsAcceptedAt);
+    });
+
     it('persists the date and the version', async () => {
       await request(http)
         .post('/auth/session')

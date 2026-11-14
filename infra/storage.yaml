@@ -84,11 +84,14 @@ Resources:
         Statement:
           # A presigned POST carries the signer's permissions: the API needs
           # PutObject for the app's upload to be accepted.
+          # DeleteObject is for account deletion (US25), which removes
+          # everything under the user's own `users/<id>/` prefix.
           - Sid: SignUploadsAndReadDocuments
             Effect: Allow
             Action:
               - s3:PutObject
               - s3:GetObject
+              - s3:DeleteObject
             Resource: !Sub '${DocumentsBucket.Arn}/users/*'
           # Without ListBucket, HeadObject on a missing key answers 403 instead
           # of 404, and the API reads "the upload never arrived" as a failure.

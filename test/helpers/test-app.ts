@@ -5,6 +5,8 @@ import { generateKeyPair, JWTVerifyGetKey, SignJWT } from 'jose';
 
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/infra/prisma/prisma.service';
+import { DocumentStorage } from '../../src/infra/storage';
+import { IdentityProviderGateway } from '../../src/modules/account-deletion/identity-provider.gateway';
 import { CognitoJwtVerifier, SubIdCache } from '../../src/shared/auth';
 import { AllExceptionsFilter } from '../../src/shared/filters/all-exceptions.filter';
 import { JSON_BODY_LIMIT } from '../../src/shared/validation/json-body-limit';
@@ -20,6 +22,10 @@ export interface BearerOptions {
   expired?: boolean;
   /** Well formed, but signed by a key the pool does not publish. */
   foreign?: boolean;
+  /** How long ago the user logged in (`auth_time`). Default: just now. */
+  authAgeSec?: number;
+  /** A token that carries no `auth_time` at all. */
+  withoutAuthTime?: boolean;
 }
 
 const ISSUER = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test';
@@ -50,7 +56,13 @@ const keyFor = (user: TestUser, options: BearerOptions): string =>
     user.name ?? '',
     String(options.expired ?? false),
     String(options.foreign ?? false),
+    String(options.authAgeSec ?? 0),
+    String(options.withoutAuthTime ?? false),
   ].join('|');
+
+/** The `cognito:username` the tokens carry, so a spec can assert it was used. */
+export const usernameOf = (user: TestUser): string =>
+  `username-of-${user.cognitoSub}`;
 
 async function mint(
   user: TestUser,
@@ -60,6 +72,12 @@ async function mint(
     token_use: 'id',
     aud: CLIENT_ID,
     email: user.email,
+    'cognito:username': usernameOf(user),
+    ...(options.withoutAuthTime
+      ? {}
+      : {
+          auth_time: Math.floor(Date.now() / 1000) - (options.authAgeSec ?? 0),
+        }),
     ...(user.name ? { name: user.name } : {}),
   })
     .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
@@ -103,12 +121,40 @@ export function bearer(user: TestUser, options: BearerOptions = {}): string {
   return `Bearer ${token}`;
 }
 
+/**
+ * Stands in for Cognito's admin API. No spec needs the emulator for it, and
+ * the deletion specs need to make it fail on demand.
+ */
+export class FakeIdentityProvider extends IdentityProviderGateway {
+  readonly deleted: string[] = [];
+  /** When set, the next call throws it once and then clears it. */
+  failNextWith: Error | null = null;
+
+  deleteUser(username: string): Promise<void> {
+    if (this.failNextWith) {
+      const error = this.failNextWith;
+      this.failNextWith = null;
+      return Promise.reject(error);
+    }
+    this.deleted.push(username);
+    return Promise.resolve();
+  }
+}
+
 export interface TestContext {
   app: INestApplication;
   prisma: PrismaService;
+  identityProvider: FakeIdentityProvider;
 }
 
-export async function createTestApp(): Promise<TestContext> {
+export interface TestAppOptions {
+  /** Replaces the S3 client, for specs that look at what is stored. */
+  storage?: DocumentStorage;
+}
+
+export async function createTestApp(
+  options: TestAppOptions = {},
+): Promise<TestContext> {
   const pair = await generateKeyPair('RS256', { extractable: true });
   const stranger = await generateKeyPair('RS256', { extractable: true });
   signingKey = pair.privateKey;
@@ -116,10 +162,13 @@ export async function createTestApp(): Promise<TestContext> {
   tokens.clear();
 
   const keys: JWTVerifyGetKey = () => Promise.resolve(pair.publicKey);
+  const identityProvider = new FakeIdentityProvider();
 
-  const moduleRef = await Test.createTestingModule({
+  const builder = Test.createTestingModule({
     imports: [AppModule],
   })
+    .overrideProvider(IdentityProviderGateway)
+    .useValue(identityProvider)
     .overrideProvider(CognitoJwtVerifier)
     .useValue(
       new CognitoJwtVerifier(
@@ -139,8 +188,13 @@ export async function createTestApp(): Promise<TestContext> {
     // to the very next request rather than being masked by an entry cached a
     // moment earlier. The cache itself has its own unit spec.
     .overrideProvider(SubIdCache)
-    .useValue(new SubIdCache(0, 0))
-    .compile();
+    .useValue(new SubIdCache(0, 0));
+
+  if (options.storage) {
+    builder.overrideProvider(DocumentStorage).useValue(options.storage);
+  }
+
+  const moduleRef = await builder.compile();
 
   const app = moduleRef.createNestApplication<NestExpressApplication>();
 
@@ -162,7 +216,7 @@ export async function createTestApp(): Promise<TestContext> {
   // which looks like an application bug and is not one.
   await app.listen(0);
 
-  return { app, prisma: app.get(PrismaService) };
+  return { app, prisma: app.get(PrismaService), identityProvider };
 }
 
 /**
@@ -175,7 +229,8 @@ export function body(response: { body: unknown }): Record<string, unknown> {
 }
 
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
+  // `account_deletion` has no foreign key to "user", so the cascade misses it.
   await prisma.$executeRawUnsafe(
-    'TRUNCATE TABLE "user" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "user", "account_deletion" RESTART IDENTITY CASCADE',
   );
 }

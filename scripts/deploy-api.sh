@@ -34,6 +34,7 @@ TAG=$(git -C "${ROOT}" rev-parse --short=12 HEAD)
 PARAMS=(
   "CognitoIssuer=$(output administranest-prod-cognito Issuer)"
   "CognitoClientId=$(output administranest-prod-cognito ClientId)"
+  "CognitoUserPoolId=$(output administranest-prod-cognito UserPoolId)"
   "DocumentsBucket=$(output administranest-prod-storage BucketName)"
   "DocumentsPolicyArn=$(output administranest-prod-storage ApiPolicyArn)"
   "DatabaseUrlSecretArn=$(output administranest-prod-database DatabaseUrlSecretArn)"

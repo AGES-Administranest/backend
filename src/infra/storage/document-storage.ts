@@ -25,6 +25,15 @@ export abstract class DocumentStorage {
   abstract createPresignedGet(
     request: PresignedGetRequest,
   ): Promise<PresignedGet>;
+
+  /**
+   * Deletes every object whose key starts with `prefix` and returns how many
+   * went. Idempotent: an empty prefix is a success that deleted nothing, which
+   * is what lets an interrupted account deletion be retried.
+   *
+   * The prefix must end in `/`, so `users/1/` cannot take `users/10/` with it.
+   */
+  abstract deletePrefix(prefix: string): Promise<number>;
 }
 
 export type PresignedPostRequest = {

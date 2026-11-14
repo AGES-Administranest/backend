@@ -990,3 +990,32 @@ model Report {
   @@index([userId, createdAt])
   @@map("report")
 }
+
+/// Audit of an account deletion (US25, LGPD). One row per deleted account.
+///
+/// Deliberately NOT related to `user`: that row is gone by the time this one
+/// exists. It holds no personal data — only the former user id (a random UUID),
+/// a hash of the Cognito sub, and what was done. The hash is what lets
+/// POST /auth/session refuse an old token and DELETE /users/me answer 204 again
+/// without keeping the sub itself.
+///
+/// The row is written in the same transaction that removes the data. The two
+/// `*_at` columns track the steps that cannot join that transaction (S3 and
+/// Cognito): NULL means pending, and a repeated DELETE /users/me finishes them.
+model AccountDeletion {
+  id                String    @id @default(uuid()) @db.Uuid
+  /// the id the user had; no foreign key, the row it pointed at is deleted
+  userId            String    @unique @map("user_id") @db.Uuid
+  /// sha256 (hex) of the Cognito sub
+  cognitoSubHash    String    @unique @map("cognito_sub_hash") @db.VarChar(64)
+  /// why anything was kept after the deletion: NONE, or the legal basis
+  retentionBasis    String    @map("retention_basis")
+  /// when the database part committed
+  deletedAt         DateTime  @default(now()) @map("deleted_at") @db.Timestamptz(6)
+  /// the user's objects removed from the bucket. NULL = pending
+  storagePurgedAt   DateTime? @map("storage_purged_at") @db.Timestamptz(6)
+  /// the Cognito user removed. NULL = pending
+  identityRemovedAt DateTime? @map("identity_removed_at") @db.Timestamptz(6)
+
+  @@map("account_deletion")
+}

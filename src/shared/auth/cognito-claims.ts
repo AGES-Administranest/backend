@@ -23,6 +23,14 @@ export interface CognitoClaims {
   email?: string;
   /** Absent on accounts created through `admin-create-user`. */
   name?: string;
+  /**
+   * Id tokens only. Seconds since the epoch of the last time the user proved
+   * who they are. A token refresh keeps the original value, so unlike `iat` it
+   * tells a fresh password (or social) login from a long-lived session.
+   */
+  auth_time?: number;
+  /** The pool's username: an e-mail-like string, or `Google_<id>` for social. */
+  'cognito:username'?: string;
 }
 
 /**

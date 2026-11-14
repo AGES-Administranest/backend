@@ -11,3 +11,12 @@ export function documentKey(
 ): string {
   return `users/${userId}/${collection}/${documentId}/original`;
 }
+
+/**
+ * Everything stored for one user. The layout above is the only one the API
+ * writes, so removing this prefix removes every file the account ever uploaded,
+ * including objects whose row is already gone.
+ */
+export function userDocumentsPrefix(userId: string): string {
+  return `users/${userId}/`;
+}
