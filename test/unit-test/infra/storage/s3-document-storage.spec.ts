@@ -87,3 +87,82 @@ describe('S3DocumentStorage presigned download', () => {
     );
   });
 });
+
+describe('S3DocumentStorage.deletePrefix', () => {
+  const previous = { ...process.env };
+  let storage: S3DocumentStorage;
+  let send: jest.Mock;
+
+  beforeAll(() =>
+    Object.assign(process.env, {
+      AWS_ACCESS_KEY_ID: 'test',
+      AWS_SECRET_ACCESS_KEY: 'test',
+    }),
+  );
+  afterAll(() => {
+    process.env = previous;
+  });
+
+  beforeEach(() => {
+    storage = new S3DocumentStorage({
+      get: (name: string) =>
+        ({ S3_BUCKET: 'documents', AWS_ENDPOINT_URL: 'http://localhost:4566' })[
+          name
+        ],
+    } as unknown as ConfigService);
+    send = jest.fn();
+    (storage as unknown as { client: { send: jest.Mock } }).client = { send };
+  });
+
+  const commandInput = (call: number) =>
+    (send.mock.calls[call] as [{ input: Record<string, unknown> }])[0].input;
+
+  it('deletes every page of the listing', async () => {
+    send
+      .mockResolvedValueOnce({
+        Contents: [{ Key: 'users/1/a' }, { Key: 'users/1/b' }],
+        IsTruncated: true,
+        NextContinuationToken: 'page-2',
+      })
+      .mockResolvedValueOnce({}) // DeleteObjects, page 1
+      .mockResolvedValueOnce({ Contents: [{ Key: 'users/1/c' }] })
+      .mockResolvedValueOnce({}); // DeleteObjects, page 2
+
+    await expect(storage.deletePrefix('users/1/')).resolves.toBe(3);
+
+    expect(commandInput(0)).toMatchObject({
+      Bucket: 'documents',
+      Prefix: 'users/1/',
+    });
+    expect(commandInput(2)).toMatchObject({ ContinuationToken: 'page-2' });
+    expect(commandInput(3)).toMatchObject({
+      Delete: { Objects: [{ Key: 'users/1/c' }] },
+    });
+  });
+
+  it('is a success when there is nothing under the prefix', async () => {
+    send.mockResolvedValueOnce({});
+
+    await expect(storage.deletePrefix('users/1/')).resolves.toBe(0);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report success when S3 refuses to delete an object', async () => {
+    send
+      .mockResolvedValueOnce({ Contents: [{ Key: 'users/1/a' }] })
+      .mockResolvedValueOnce({
+        Errors: [{ Key: 'users/1/a', Code: 'AccessDenied' }],
+      });
+
+    await expect(storage.deletePrefix('users/1/')).rejects.toThrow(
+      /refused to delete 1 of 1/,
+    );
+  });
+
+  it('refuses a prefix that could match another user’s keys', async () => {
+    await expect(storage.deletePrefix('users/1')).rejects.toThrow(
+      /trailing slash/,
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+});

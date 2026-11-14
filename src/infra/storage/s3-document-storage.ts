@@ -1,7 +1,9 @@
 import {
-  GetObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -139,6 +141,55 @@ export class S3DocumentStorage extends DocumentStorage {
     );
 
     return { url, expiresAt: signedAt + request.expiresInMs };
+  }
+
+  async deletePrefix(prefix: string): Promise<number> {
+    if (!prefix.endsWith('/')) {
+      throw new Error(
+        `Refusing to delete a prefix without a trailing slash: ${prefix}`,
+      );
+    }
+
+    let deleted = 0;
+    let continuationToken: string | undefined;
+
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+
+      const keys = (page.Contents ?? []).flatMap(({ Key }) =>
+        Key ? [{ Key }] : [],
+      );
+
+      if (keys.length > 0) {
+        // `Quiet` drops the per-key successes; only failures come back, and a
+        // failure must not look like a success to the caller.
+        const result = await this.client.send(
+          new DeleteObjectsCommand({
+            Bucket: this.bucket,
+            Delete: { Objects: keys, Quiet: true },
+          }),
+        );
+
+        if (result.Errors?.length) {
+          throw new Error(
+            `S3 refused to delete ${result.Errors.length} of ${keys.length} objects under ${prefix}`,
+          );
+        }
+        deleted += keys.length;
+      }
+
+      continuationToken = page.IsTruncated
+        ? page.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    return deleted;
   }
 
   /** S3 answers 204 for a key that is not there, so this never throws on it. */

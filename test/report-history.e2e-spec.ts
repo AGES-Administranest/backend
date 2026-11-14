@@ -56,6 +56,12 @@ class MemoryStorage extends DocumentStorage {
     return Promise.resolve();
   }
 
+  deletePrefix(prefix: string): Promise<number> {
+    const keys = [...this.objects.keys()].filter(key => key.startsWith(prefix));
+    keys.forEach(key => this.objects.delete(key));
+    return Promise.resolve(keys.length);
+  }
+
   deleteDocument(key: string): Promise<void> {
     if (this.failNextDelete) {
       this.failNextDelete = false;

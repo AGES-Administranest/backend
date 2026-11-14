@@ -15,6 +15,11 @@ Parameters:
     Type: String
   CognitoClientId:
     Type: String
+  CognitoUserPoolId:
+    Type: String
+    Description: >-
+      The user pool, from the Cognito stack. Account deletion (US25) removes the
+      user with AdminDeleteUser, which needs the pool id and not only the issuer.
   DocumentsBucket:
     Type: String
   DocumentsPolicyArn:
@@ -91,6 +96,15 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Ref DatabaseUrlSecretArn
+        # Account deletion (US25): the API removes the Cognito user itself once
+        # the data is gone. This one action on this one pool, nothing wider.
+        - PolicyName: delete-cognito-user
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: cognito-idp:AdminDeleteUser
+                Resource: !Sub arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}
 
   Service:
     Type: AWS::AppRunner::Service
@@ -119,6 +133,8 @@ Resources:
                 Value: !Ref CognitoIssuer
               - Name: COGNITO_CLIENT_ID
                 Value: !Ref CognitoClientId
+              - Name: COGNITO_USER_POOL_ID
+                Value: !Ref CognitoUserPoolId
               - Name: CORS_ORIGINS
                 Value: !Ref CorsOrigins
               # App Runner's proxy appends the caller's address to

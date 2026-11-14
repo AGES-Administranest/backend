@@ -57,6 +57,12 @@ export class FakeStorage {
   createPresignedGet({ key }: { key: string }) {
     return Promise.resolve({ url: `https://bucket/${key}`, expiresAt: 0 });
   }
+
+  deletePrefix(prefix: string): Promise<number> {
+    const keys = [...this.objects.keys()].filter(key => key.startsWith(prefix));
+    keys.forEach(key => this.objects.delete(key));
+    return Promise.resolve(keys.length);
+  }
 }
 
 /** One invoice, stored as the repository would leave it. */

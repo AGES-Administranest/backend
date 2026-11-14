@@ -77,6 +77,12 @@ class MemoryStorage extends DocumentStorage {
       expiresAt: Date.now() + request.expiresInMs,
     });
   }
+
+  deletePrefix(prefix: string): Promise<number> {
+    const keys = [...this.objects.keys()].filter(key => key.startsWith(prefix));
+    keys.forEach(key => this.objects.delete(key));
+    return Promise.resolve(keys.length);
+  }
 }
 
 type Section = Record<string, unknown> & { type: string; empty: boolean };
