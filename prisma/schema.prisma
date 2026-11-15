@@ -184,6 +184,15 @@ enum ReportStatus {
   @@map("report_status_enum")
 }
 
+/// What a generated file is: the general report PDF (US28) or the package of
+/// notes for the accountant (US30).
+enum ReportKind {
+  GENERAL_REPORT
+  TAX_PACKAGE
+
+  @@map("report_kind_enum")
+}
+
 enum MeasurementUnit {
   UNIT
   AMPOULE
@@ -194,6 +203,10 @@ enum MeasurementUnit {
   GRAM
   TABLET
   OTHER
+  LITER
+  MICROGRAM
+  MG_PER_ML
+  MCG_PER_ML
 
   @@map("measurement_unit_enum")
 }
@@ -661,6 +674,9 @@ model ServiceInvoice {
   /// gross amount of the services, before deductions and withheld taxes
   amount      Decimal?  @db.Decimal(14, 2)
   description String?
+  /// where the service was rendered, shown in the list ("São Paulo, SP");
+  /// filled from the taker's city and state when the note is confirmed
+  location    String?   @db.VarChar(120)
   /// CNPJ or CPF of the taker as read from the note, unmasked; used to find
   /// the client, and to pre-fill a new one when none matches
   takerTaxId  String?   @map("taker_tax_id") @db.VarChar(14)
@@ -970,19 +986,58 @@ model HourlyRateSnapshot {
 }
 
 model Report {
-  id          String       @id @default(uuid()) @db.Uuid
-  userId      String       @map("user_id") @db.Uuid
-  kind        String
-  periodStart DateTime?    @map("period_start") @db.Date
-  periodEnd   DateTime?    @map("period_end") @db.Date
-  filters     Json?
-  /// storage URL
-  fileUrl     String?      @map("file_url")
-  status      ReportStatus @default(PENDING)
-  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @map("user_id") @db.Uuid
+  kind          ReportKind
+  periodStart   DateTime?    @map("period_start") @db.Date
+  periodEnd     DateTime?    @map("period_end") @db.Date
+  /// what the file was generated from; the shape depends on `kind` (see
+  /// docs/data-dictionary.md)
+  filters       Json?
+  /// Holds the object's deterministic KEY, not a signed URL: a signed URL
+  /// expires, the key does not. The name is kept for compatibility. A DONE row
+  /// always has it, with file_name and file_bytes_size (CHECK
+  /// report_done_has_file); ReportArchiveService sets the three on creation.
+  fileUrl       String?      @map("file_url")
+  /// name the file is downloaded under, set by whoever generates it
+  fileName      String?      @map("file_name")
+  fileBytesSize Int?         @map("file_bytes_size")
+  status        ReportStatus @default(PENDING)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// removed from the history (US32); the row and its key stay
+  deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
   @@map("report")
+}
+
+/// Audit of an account deletion (US25, LGPD). One row per deleted account.
+///
+/// Deliberately NOT related to `user`: that row is gone by the time this one
+/// exists. It holds no personal data — only the former user id (a random UUID),
+/// a hash of the Cognito sub, and what was done. The hash is what lets
+/// POST /auth/session refuse an old token and DELETE /users/me answer 204 again
+/// without keeping the sub itself.
+///
+/// The row is written in the same transaction that removes the data. The two
+/// `*_at` columns track the steps that cannot join that transaction (S3 and
+/// Cognito): NULL means pending, and a repeated DELETE /users/me finishes them.
+model AccountDeletion {
+  id                String    @id @default(uuid()) @db.Uuid
+  /// the id the user had; no foreign key, the row it pointed at is deleted
+  userId            String    @unique @map("user_id") @db.Uuid
+  /// sha256 (hex) of the Cognito sub
+  cognitoSubHash    String    @unique @map("cognito_sub_hash") @db.VarChar(64)
+  /// why anything was kept after the deletion: NONE, or the legal basis
+  retentionBasis    String    @map("retention_basis")
+  /// when the database part committed
+  deletedAt         DateTime  @default(now()) @map("deleted_at") @db.Timestamptz(6)
+  /// the user's objects removed from the bucket. NULL = pending
+  storagePurgedAt   DateTime? @map("storage_purged_at") @db.Timestamptz(6)
+  /// the Cognito user removed. NULL = pending
+  identityRemovedAt DateTime? @map("identity_removed_at") @db.Timestamptz(6)
+
+  @@map("account_deletion")
 }

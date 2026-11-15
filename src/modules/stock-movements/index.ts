@@ -23,6 +23,7 @@ export {
   StockSyncPushEntity,
 } from './entities/stock-sync.entity';
 export { StockMovementsModule } from './stock-movements.module';
+export type { ItemConsumption } from './domain/stock-summary.rules';
 export {
   StockMovementsService,
   type RecordMovementInput,

@@ -16,6 +16,10 @@ export interface CognitoIdentity {
   email: string;
   /** Absent on accounts created through `admin-create-user`. */
   name?: string;
+  /** Seconds since the epoch of the last login; see `CognitoClaims.auth_time`. */
+  authTime?: number;
+  /** What Cognito's admin APIs take as `Username`; the `sub` works as a fallback. */
+  cognitoUsername?: string;
 }
 
 /**

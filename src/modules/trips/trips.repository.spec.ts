@@ -210,6 +210,46 @@ describe('TripsRepository', () => {
     expect(prisma.trip.findFirst).not.toHaveBeenCalled();
   });
 
+  describe('sumByClient', () => {
+    it("adds up the client's trips that were not deleted in the period", async () => {
+      const period = {
+        from: new Date('2026-11-01T00:00:00.000Z'),
+        to: new Date('2026-11-30T00:00:00.000Z'),
+      };
+      prisma.trip.aggregate.mockResolvedValue({
+        _count: { _all: 4 },
+        _sum: { cost: new Prisma.Decimal('96.50') },
+      });
+
+      const totals = await repository.sumByClient('user-1', 'client-1', period);
+
+      expect(prisma.trip.aggregate).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          deletedAt: null,
+          occurredOn: { gte: period.from, lte: period.to },
+          clientId: 'client-1',
+        },
+        _count: { _all: true },
+        _sum: { cost: true },
+      });
+      expect(totals.count).toBe(4);
+      expect(totals.cost.toFixed(2)).toBe('96.50');
+    });
+
+    it('costs zero when the client has no trip', async () => {
+      prisma.trip.aggregate.mockResolvedValue({
+        _count: { _all: 0 },
+        _sum: { cost: null },
+      });
+
+      const totals = await repository.sumByClient('user-1', 'client-1', {});
+
+      expect(totals.count).toBe(0);
+      expect(totals.cost.toFixed(2)).toBe('0.00');
+    });
+  });
+
   describe('softDelete', () => {
     it('sets deleted_at on the owner’s live trip and returns it', async () => {
       const result = await repository.softDelete('trip-1', 'user-1');

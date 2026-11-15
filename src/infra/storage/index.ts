@@ -1,10 +1,16 @@
-export { documentKey, type DocumentCollection } from './document-key';
+export {
+  documentKey,
+  exportKey,
+  type DocumentCollection,
+  userDocumentsPrefix,
+} from './document-key';
 export {
   DocumentStorage,
   type PresignedGet,
   type PresignedGetRequest,
   type PresignedPost,
   type PresignedPostRequest,
+  type PutDocumentRequest,
   type StoredDocument,
 } from './document-storage';
 export {

@@ -1,8 +1,13 @@
 import {
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
@@ -14,6 +19,7 @@ import {
   PresignedGetRequest,
   PresignedPost,
   PresignedPostRequest,
+  PutDocumentRequest,
   StoredDocument,
 } from './document-storage';
 
@@ -101,6 +107,21 @@ export class S3DocumentStorage extends DocumentStorage {
     }
   }
 
+  async putDocument(
+    key: string,
+    body: Uint8Array,
+    contentType: string,
+  ): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      }),
+    );
+  }
+
   /**
    * Unlike the presigned POST, the host is part of the signature: the URL only
    * works against the `AWS_ENDPOINT_URL` this API was started with.
@@ -117,11 +138,92 @@ export class S3DocumentStorage extends DocumentStorage {
         ...(request.fileName && {
           ResponseContentDisposition: attachmentNamed(request.fileName),
         }),
+        ...(request.contentType && {
+          ResponseContentType: request.contentType,
+        }),
       }),
       { expiresIn: Math.floor(request.expiresInMs / 1000) },
     );
 
     return { url, expiresAt: signedAt + request.expiresInMs };
+  }
+
+  async deletePrefix(prefix: string): Promise<number> {
+    if (!prefix.endsWith('/')) {
+      throw new Error(
+        `Refusing to delete a prefix without a trailing slash: ${prefix}`,
+      );
+    }
+
+    let deleted = 0;
+    let continuationToken: string | undefined;
+
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+
+      const keys = (page.Contents ?? []).flatMap(({ Key }) =>
+        Key ? [{ Key }] : [],
+      );
+
+      if (keys.length > 0) {
+        // `Quiet` drops the per-key successes; only failures come back, and a
+        // failure must not look like a success to the caller.
+        const result = await this.client.send(
+          new DeleteObjectsCommand({
+            Bucket: this.bucket,
+            Delete: { Objects: keys, Quiet: true },
+          }),
+        );
+
+        if (result.Errors?.length) {
+          throw new Error(
+            `S3 refused to delete ${result.Errors.length} of ${keys.length} objects under ${prefix}`,
+          );
+        }
+        deleted += keys.length;
+      }
+
+      continuationToken = page.IsTruncated
+        ? page.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    return deleted;
+  }
+
+  /** Multipart under the hood: parts go up as the stream fills them. */
+  async putDocumentStream(request: PutDocumentRequest): Promise<void> {
+    const upload = new Upload({
+      client: this.client,
+      params: {
+        Bucket: this.bucket,
+        Key: request.key,
+        Body: request.body,
+        ContentType: request.contentType,
+      },
+    });
+
+    const abort = () => void upload.abort();
+    if (request.signal?.aborted) abort();
+    request.signal?.addEventListener('abort', abort, { once: true });
+    try {
+      await upload.done();
+    } finally {
+      request.signal?.removeEventListener('abort', abort);
+    }
+  }
+
+  /** S3 answers 204 for a key that is not there, so this never throws on it. */
+  async deleteDocument(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
   }
 
   /**

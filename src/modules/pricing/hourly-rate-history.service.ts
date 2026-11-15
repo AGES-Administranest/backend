@@ -43,12 +43,18 @@ export class HourlyRateHistoryService {
     }
 
     const rows = await this.snapshots.findInRange(userId, from, to);
-    return rows.map(row => ({
-      year: row.year,
-      month: row.month,
-      hourlyRate: formatHourlyRateValue(row.hourlyRate),
-      calculatedAt: row.calculatedAt,
-    }));
+    return rows.map(row => {
+      // Derived as in findMonth, so a month reads the same in both routes.
+      const result = composeHourlyRate(row, row.weeklyHours);
+      return {
+        year: row.year,
+        month: row.month,
+        hourlyRate: formatHourlyRateValue(row.hourlyRate),
+        productiveHours: formatHourlyRateValue(result.productiveHours),
+        minimumHourlyRate: formatHourlyRateValue(result.minimumHourlyRate),
+        calculatedAt: row.calculatedAt,
+      };
+    });
   }
 
   /**

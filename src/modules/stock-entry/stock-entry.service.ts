@@ -16,7 +16,11 @@ import {
   uploadMismatch,
   uploadNotFinished,
 } from './stock-entry.errors';
-import { StockEntryRepository } from './stock-entry.repository';
+import {
+  PurchaseTotals,
+  StockEntryRepository,
+  SupplierPurchaseTotals,
+} from './stock-entry.repository';
 import { UniqueConstraintError } from '../../infra/prisma/prisma-errors';
 import {
   documentKey,
@@ -25,6 +29,11 @@ import {
   UploadCheck,
 } from '../../infra/storage';
 import { fromIsoDate, toIsoDate } from '../../shared/dates/iso-date';
+import { Period } from '../../shared/dates/period';
+import {
+  TaxPackageDocument,
+  TaxPackageTotals,
+} from '../../shared/tax-package/tax-package.types';
 import { SupplierService } from '../supplier';
 
 @Injectable()
@@ -35,6 +44,64 @@ export class StockEntryService {
     private readonly purchaseReadingService: PurchaseReadingService,
     private readonly supplierService: SupplierService,
   ) {}
+
+  countConfirmedInPeriod(userId: string, period: Period): Promise<number> {
+    return this.stockEntryRepository.countConfirmedInPeriod(userId, period);
+  }
+
+  /** Confirmed invoices of the period that have their file, and those that do not. */
+  summarizeTaxPackage(
+    userId: string,
+    period: Period,
+  ): Promise<TaxPackageTotals> {
+    return this.stockEntryRepository.summarizeTaxPackage(userId, period);
+  }
+
+  async listTaxPackageDocuments(
+    userId: string,
+    period: Period,
+    take: number,
+  ): Promise<TaxPackageDocument[]> {
+    const invoices = await this.stockEntryRepository.findTaxPackageInvoices(
+      userId,
+      period,
+      take,
+    );
+
+    // The query already requires the date; this narrows the type.
+    return invoices.flatMap(invoice =>
+      invoice.issueDate
+        ? [
+            {
+              collection: 'purchase-invoices' as const,
+              id: invoice.id,
+              issueDate: invoice.issueDate,
+              counterpartName: invoice.supplier?.name ?? null,
+              amount: invoice.totalAmount?.toNumber() ?? null,
+              fileName: invoice.fileName,
+              mimeType: invoice.fileMimeType,
+            },
+          ]
+        : [],
+    );
+  }
+
+  purchaseTotalsInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<PurchaseTotals> {
+    return this.stockEntryRepository.sumConfirmedInPeriod(userId, period);
+  }
+
+  purchaseTotalsBySupplierInPeriod(
+    userId: string,
+    period: Period,
+  ): Promise<SupplierPurchaseTotals[]> {
+    return this.stockEntryRepository.sumConfirmedBySupplierInPeriod(
+      userId,
+      period,
+    );
+  }
 
   async listSupplierInvoices(
     userId: string,

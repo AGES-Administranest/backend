@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { User } from '@prisma/client';
 
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ProfileEntity } from './entities/profile.entity';
 import { UsersRepository } from './users.repository';
@@ -8,6 +10,7 @@ import {
   RecordNotFoundError,
   UniqueConstraintError,
 } from '../../infra/prisma/prisma-errors';
+import { fromIsoDate } from '../../shared/dates/iso-date';
 import { DomainError } from '../../shared/errors/domain-error';
 
 /**
@@ -31,9 +34,23 @@ export class UsersService {
 
   /** The caller's own profile: the id comes from the token, never the path (ADR-11). */
   async findProfile(id: string): Promise<ProfileEntity> {
-    const { name, email, crmv, birthDate, sex, city, state } =
-      await this.findOne(id);
-    return { id, name, email, crmv, birthDate, sex, city, state };
+    return this.toProfile(await this.findOne(id));
+  }
+
+  async updateProfile(
+    id: string,
+    { birthDate, ...fields }: UpdateProfileDto,
+  ): Promise<ProfileEntity> {
+    try {
+      const user = await this.usersRepository.update(id, {
+        ...fields,
+        birthDate: birthDate && fromIsoDate(birthDate),
+      });
+      return this.toProfile(user);
+    } catch (error) {
+      if (error instanceof RecordNotFoundError) throw this.notFound(id);
+      throw error;
+    }
   }
 
   async create(dto: CreateUserDto) {
@@ -60,8 +77,9 @@ export class UsersService {
 
   /**
    * Creates the local mirror on first valid login (ADR-02), idempotently: the
-   * app calls this on every login. Cognito wins on e-mail; the name is only
-   * overwritten when the token carries the claim.
+   * app calls this on every login. Cognito wins on e-mail; the name comes from
+   * the token only when the row is created — afterwards the user edits it with
+   * `PATCH /users/me` (US24), and a later login must not undo that edit.
    */
   async provisionFromCognito(claims: {
     cognitoSub: string;
@@ -77,10 +95,7 @@ export class UsersService {
           name: claims.name ?? claims.email,
           updatedAt: new Date(),
         },
-        {
-          email: claims.email,
-          ...(claims.name ? { name: claims.name } : {}),
-        },
+        { email: claims.email },
       );
     } catch (error) {
       // `user` is unique on `cognito_sub` too, and losing the upsert race fails
@@ -119,6 +134,19 @@ export class UsersService {
       if (error instanceof RecordNotFoundError) throw this.notFound(id);
       throw error;
     }
+  }
+
+  private toProfile({
+    id,
+    name,
+    email,
+    crmv,
+    birthDate,
+    sex,
+    city,
+    state,
+  }: User): ProfileEntity {
+    return { id, name, email, crmv, birthDate, sex, city, state };
   }
 
   private notFound(id: string) {

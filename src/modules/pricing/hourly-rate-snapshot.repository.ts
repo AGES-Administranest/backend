@@ -7,9 +7,21 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 
 export type HourlyRateSnapshotData = Omit<HourlyRateSnapshot, 'id'>;
 
+/**
+ * What the history list reads of each month: the stored hour value, plus the
+ * parts and weekly hours its productive hours and minimum are derived from.
+ */
 export type HourlyRateHistoryRow = Pick<
   HourlyRateSnapshot,
-  'year' | 'month' | 'hourlyRate' | 'calculatedAt'
+  | 'year'
+  | 'month'
+  | 'hourlyRate'
+  | 'fixedCosts'
+  | 'variableCosts'
+  | 'ownerDraw'
+  | 'safetyMargin'
+  | 'weeklyHours'
+  | 'calculatedAt'
 >;
 
 /** Every read and write is keyed by the owner from the token (ADR-11). */
@@ -96,6 +108,11 @@ export class HourlyRateSnapshotRepository {
           year: true,
           month: true,
           hourlyRate: true,
+          fixedCosts: true,
+          variableCosts: true,
+          ownerDraw: true,
+          safetyMargin: true,
+          weeklyHours: true,
           calculatedAt: true,
         },
         orderBy: [{ year: 'desc' }, { month: 'desc' }],

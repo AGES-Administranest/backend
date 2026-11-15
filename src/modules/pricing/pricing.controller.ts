@@ -75,9 +75,12 @@ export class PricingController {
       'A month gets one when GET /pricing/hourly-rate calculates it (the ' +
       'current month on every call, a past month only the first time) and ' +
       'when PUT /pricing-settings saves the goals (the current month). ' +
-      'Months without one are left out, not answered as zero. from and to ' +
-      'are inclusive and optional; without both, every stored month is ' +
-      'listed. Amounts are decimal strings with 2 places.',
+      'Months without one are left out, not answered as zero. Each item has ' +
+      'the hour value, the productive hours and the minimum hour value ' +
+      '(without the margin) of the month, equal to the ones of GET ' +
+      '/pricing/hourly-rate/history/:year/:month. from and to are inclusive ' +
+      'and optional; without both, every stored month is listed. Amounts ' +
+      'are decimal strings with 2 places.',
   })
   @ApiOkResponse({ type: HourlyRateHistoryItemResponse, isArray: true })
   @ApiBadRequestResponse({

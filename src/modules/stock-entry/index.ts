@@ -7,3 +7,7 @@
  */
 export { StockEntryModule } from './stock-entry.module';
 export { StockEntryService } from './stock-entry.service';
+export type {
+  PurchaseTotals,
+  SupplierPurchaseTotals,
+} from './stock-entry.repository';

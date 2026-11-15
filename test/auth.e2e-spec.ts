@@ -186,6 +186,26 @@ describe('auth (e2e)', () => {
       expect(body(response).name).toBe('Ana Souza');
     });
 
+    it('keeps a name edited in the profile on the next login (US24)', async () => {
+      await request(http)
+        .post('/auth/session')
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      await request(http)
+        .patch('/users/me')
+        .set('Authorization', bearer(ana))
+        .send({ name: 'Dra. Ana Souza' })
+        .expect(200);
+
+      // The token still carries the name Cognito had at sign-up.
+      const response = await request(http)
+        .post('/auth/session')
+        .set('Authorization', bearer(ana))
+        .expect(200);
+
+      expect(body(response).name).toBe('Dra. Ana Souza');
+    });
+
     it('falls back to the e-mail as name when creating without one', async () => {
       const response = await request(http)
         .post('/auth/session')
@@ -243,6 +263,27 @@ describe('auth (e2e)', () => {
       expect(body(response)).toMatchObject({
         code: 'USER_NOT_PROVISIONED',
       });
+    });
+
+    it('returns version and both dates as ISO 8601 on /auth/terms and /auth/session', async () => {
+      // What the Privacy screen shows (US25): the app reads these three fields
+      // from either response.
+      const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+      const session = () =>
+        request(http).post('/auth/session').set('Authorization', bearer(ana));
+
+      await session().expect(200);
+      const accepted = await accept(ana, { termsVersion: '2026-09-01' }).expect(
+        200,
+      );
+      const again = await session().expect(200);
+
+      for (const response of [accepted, again]) {
+        expect(body(response).termsVersion).toBe('2026-09-01');
+        expect(body(response).termsAcceptedAt).toMatch(ISO);
+        expect(body(response).privacyAcceptedAt).toMatch(ISO);
+      }
+      expect(body(again).termsAcceptedAt).toBe(body(accepted).termsAcceptedAt);
     });
 
     it('persists the date and the version', async () => {

@@ -36,6 +36,8 @@ interface HistoryItemBody {
   year: number;
   month: number;
   hourlyRate: string;
+  productiveHours: string;
+  minimumHourlyRate: string;
   calculatedAt: string;
 }
 
@@ -218,7 +220,7 @@ describe('Hourly rate history (e2e)', () => {
     );
   });
 
-  it('lists the stored months from the latest back, hour values as strings', async () => {
+  it('lists the stored months from the latest back, values as strings', async () => {
     const items = await history(owner);
 
     expect(items.map(({ year, month }) => ({ year, month }))).toEqual([
@@ -227,13 +229,30 @@ describe('Hourly rate history (e2e)', () => {
     ]);
     for (const item of items) {
       expect(item.hourlyRate).toMatch(/^\d+\.\d{2}$/);
+      expect(item.productiveHours).toMatch(/^\d+\.\d{2}$/);
+      expect(item.minimumHourlyRate).toMatch(/^\d+\.\d{2}$/);
       expect(Number.isNaN(Date.parse(item.calculatedAt))).toBe(false);
     }
-    const march = items.find(item => item.month === 3 && item.year === 2026);
-    const marchMonth = (
-      await historyMonth(owner, { year: 2026, month: 3 }).expect(200)
-    ).body as HistoryMonthBody;
-    expect(march?.hourlyRate).toBe(marchMonth.hourlyRate);
+  });
+
+  it('lists each month with the same values its own route answers', async () => {
+    for (const item of await history(owner)) {
+      const month = (
+        await historyMonth(owner, {
+          year: item.year,
+          month: item.month,
+        }).expect(200)
+      ).body as HistoryMonthBody;
+
+      expect(item).toEqual({
+        year: month.year,
+        month: month.month,
+        hourlyRate: month.hourlyRate,
+        productiveHours: month.productiveHours,
+        minimumHourlyRate: month.minimumHourlyRate,
+        calculatedAt: month.calculatedAt,
+      });
+    }
   });
 
   it('filters by from and to, both inclusive', async () => {

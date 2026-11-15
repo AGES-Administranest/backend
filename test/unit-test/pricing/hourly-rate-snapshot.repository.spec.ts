@@ -124,7 +124,17 @@ describe('HourlyRateSnapshotRepository', () => {
           },
         ],
       },
-      select: { year: true, month: true, hourlyRate: true, calculatedAt: true },
+      select: {
+        year: true,
+        month: true,
+        hourlyRate: true,
+        fixedCosts: true,
+        variableCosts: true,
+        ownerDraw: true,
+        safetyMargin: true,
+        weeklyHours: true,
+        calculatedAt: true,
+      },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
     });
   });

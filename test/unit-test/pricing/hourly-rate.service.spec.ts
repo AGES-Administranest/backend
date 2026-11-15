@@ -181,6 +181,40 @@ describe('HourlyRateService', () => {
     expect(hundredths).toBe(10_000);
   });
 
+  describe('calculateWithoutStoring', () => {
+    it.each([
+      ['the current month', {}],
+      ['a past month', { month: 9, year: 2025 }],
+    ])(
+      'answers %s like calculate, and stores nothing',
+      async (_case, plain) => {
+        const stored = await service.calculate('user-1', query(plain));
+        snapshots.save.mockClear();
+
+        const { calculatedAt, ...result } =
+          await service.calculateWithoutStoring('user-1', query(plain));
+
+        const expected: Partial<typeof stored> = { ...stored };
+        delete expected.calculatedAt;
+        expect(result).toEqual(expected);
+        expect(calculatedAt).toBeInstanceOf(Date);
+        expect(snapshots.save).not.toHaveBeenCalled();
+      },
+    );
+
+    it('answers the US19 404 while the goals are not saved', async () => {
+      pricingSettings.find.mockRejectedValue(
+        new DomainError('NOT_FOUND', 'PRICING_SETTINGS_NOT_FOUND', 'no goals'),
+      );
+
+      await expect(
+        service.calculateWithoutStoring('user-1', query()),
+      ).rejects.toMatchObject({ code: 'PRICING_SETTINGS_NOT_FOUND' });
+      expect(fixedCosts.getMonthlyCosts).not.toHaveBeenCalled();
+      expect(snapshots.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('history snapshot (US22)', () => {
     const NOW = new Date('2026-10-19T20:42:00.000Z');
 

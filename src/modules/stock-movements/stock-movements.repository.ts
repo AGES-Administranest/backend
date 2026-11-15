@@ -9,6 +9,7 @@ import {
 
 import { runQuery } from '../../infra/prisma/prisma-errors';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { Period } from '../../shared/dates/period';
 
 /** The origins the history resolves alongside the movement itself. */
 export const MOVEMENT_HISTORY_INCLUDE = {
@@ -53,6 +54,19 @@ const LOCKED_ITEM_COLUMNS = Prisma.sql`
 @Injectable()
 export class StockMovementsRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Movements that happened in the period (`occurredAt`, as on the device). */
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return runQuery(() =>
+      this.prisma.stockMovement.count({
+        where: {
+          userId,
+          deletedAt: null,
+          occurredAt: { gte: period.instants.from, lt: period.instants.to },
+        },
+      }),
+    );
+  }
 
   /** The only insert into `stock_movement`, with the origins already joined. */
   create(

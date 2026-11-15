@@ -38,6 +38,21 @@ export const ERROR_CODES = [
   'USER_EMAIL_ALREADY_REGISTERED',
   'USER_NOT_PROVISIONED',
 
+  // account deletion (US25)
+  // The token is too old for an irreversible action: the app reauthenticates
+  // with the password (or runs the social login again) and resends with the
+  // fresh token.
+  'REAUTH_REQUIRED',
+  // The account was deleted, so its old token cannot open a session again.
+  // The app sends the user to the login screen.
+  'ACCOUNT_DELETED',
+  // The database transaction failed and rolled back: nothing was deleted, and
+  // sending the request again is safe.
+  'ACCOUNT_DELETION_FAILED',
+  // The data is gone, but a step outside the database (the S3 files, the
+  // Cognito user) did not finish. Sending the request again finishes it.
+  'ACCOUNT_DELETION_INCOMPLETE',
+
   // item
   'ITEM_NOT_FOUND',
   'DUPLICATED_ITEM_PRESENTATION',
@@ -156,9 +171,34 @@ export const ERROR_CODES = [
   'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
   'SERVICE_INVOICE_UPLOAD_MISMATCH',
   'SERVICE_INVOICE_NOT_READY',
+  // The note has no PDF to download: missing, another account's, or its
+  // upload never arrived. One code for all three, so the code does not tell
+  // another account's note from a missing one.
+  'SERVICE_INVOICE_FILE_NOT_FOUND',
+  // The operation needs a confirmed note and this one is still a draft.
+  'SERVICE_INVOICE_NOT_CONFIRMED',
   // A confirmed note has the same amount and date, or the same number and
   // taker. The app shows it and resends with allowDuplicate.
   'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
+
+  // reports
+  // `from` is after `to`: the period is empty by construction, so resending
+  // the same dates will never work and the app has to fix the range.
+  'REPORT_PERIOD_INVALID',
+  // tax package (US32): a period with no confirmed document that has its file
+  // in storage. Choosing another period is the only way out.
+  'TAX_PACKAGE_EMPTY',
+  // more documents or bytes than one package holds: a shorter period fits.
+  'TAX_PACKAGE_TOO_LARGE',
+  // The general report (US29) was asked with no section at all. The app
+  // blocks this before sending, so it only happens on a bug.
+  'REPORT_SECTIONS_EMPTY',
+  // The period is longer than a report covers (MAX_REPORT_DAYS). Each month
+  // of a report costs a few queries, so a decade would exhaust the database.
+  'REPORT_PERIOD_TOO_LONG',
+  // A generated report that is not this user's, not stored yet, failed or
+  // deleted from the history (US32): the app only knows the ones it listed.
+  'REPORT_NOT_FOUND',
 
   // financial entries
   'FINANCIAL_ENTRY_NOT_FOUND',

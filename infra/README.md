@@ -80,6 +80,11 @@ Creates or updates the stack `administranest-prod-storage` and prints `S3_BUCKET
   - `s3:ListBucket` on the bucket: without it, `HeadObject` on a missing key answers
     `403` instead of `404`, and the API would read "the upload never arrived" as a
     failure. No `s3:prefix` condition, since S3 sends none for that check.
+  - `s3:PutObject` / `s3:GetObject` / `s3:AbortMultipartUpload` under `exports/*`:
+    the files the API generates, such as the tax package zip.
+- **Generated files expire.** A lifecycle rule deletes everything under `exports/`
+  one day after it was written, and drops incomplete multipart uploads there after a
+  day. Only that prefix: the documents users send live under `users/` and are kept.
 - **CORS** is off: the native app doesn't need it. A hosted web build that uploads
   from the browser needs its origin added once:
   `CORS_ALLOWED_ORIGINS=https://... scripts/deploy-storage.sh`.
@@ -136,8 +141,11 @@ and client, bucket, S3 policy, database URL secret), so the order is Cognito, st
 database, then API. A rollback is a redeploy of an older commit; ECR keeps the last 10
 images.
 
-- **Role `administranest-prod-api`:** the `administranest-prod-api-documents` policy plus
-  reading the database URL secret, nothing else.
+- **Role `administranest-prod-api`:** the `administranest-prod-api-documents` policy,
+  reading the database URL secret, and `cognito-idp:AdminDeleteUser` on the user pool
+  (account deletion, US25), nothing else. The storage policy includes `s3:DeleteObject`
+  on `users/*` for the same reason. Both stacks must be redeployed before the API
+  that ships `DELETE /users/me`, or the S3 and Cognito steps answer `ACCOUNT_DELETION_INCOMPLETE` after the data is already gone.
 - **`TRUST_PROXY_HOPS=1`:** App Runner's proxy appends the caller's address to
   `X-Forwarded-For`; without it the throttler would see every user as the proxy.
 - **Health check:** `GET /`, every 20 seconds.

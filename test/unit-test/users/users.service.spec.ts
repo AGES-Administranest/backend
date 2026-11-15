@@ -198,6 +198,93 @@ describe('UsersService — profile', () => {
   });
 });
 
+describe('UsersService — profile update', () => {
+  let service: UsersService;
+  let repository: FakeUsersRepository;
+  let id: string;
+
+  beforeEach(async () => {
+    repository = new FakeUsersRepository();
+    service = new UsersService(repository as unknown as UsersRepository);
+    ({ id } = await service.provisionFromCognito({
+      cognitoSub: 'sub-123',
+      email: 'ana@example.com',
+      name: 'Ana',
+    }));
+  });
+
+  it('returns the updated profile, the same as findProfile', async () => {
+    const updated = await service.updateProfile(id, {
+      name: 'Ana Souza',
+      crmv: 'RS-12345',
+      birthDate: '1990-04-15',
+      sex: 'FEMALE',
+      city: 'Porto Alegre',
+      state: 'RS',
+    });
+
+    expect(updated).toEqual({
+      id,
+      name: 'Ana Souza',
+      email: 'ana@example.com',
+      crmv: 'RS-12345',
+      birthDate: new Date('1990-04-15T00:00:00.000Z'),
+      sex: 'FEMALE',
+      city: 'Porto Alegre',
+      state: 'RS',
+    });
+    expect(await service.findProfile(id)).toEqual(updated);
+  });
+
+  it('leaves the fields that were not sent untouched', async () => {
+    await service.updateProfile(id, {
+      city: 'Porto Alegre',
+      birthDate: '1990-04-15',
+    });
+
+    const updated = await service.updateProfile(id, { state: 'RS' });
+
+    expect(updated.city).toBe('Porto Alegre');
+    expect(updated.birthDate).toEqual(new Date('1990-04-15T00:00:00.000Z'));
+    expect(updated.state).toBe('RS');
+  });
+
+  it('clears a field sent as null', async () => {
+    await service.updateProfile(id, {
+      crmv: 'RS-12345',
+      birthDate: '1990-04-15',
+    });
+
+    const updated = await service.updateProfile(id, {
+      crmv: null,
+      birthDate: null,
+    });
+
+    expect(updated.crmv).toBeNull();
+    expect(updated.birthDate).toBeNull();
+  });
+
+  it('gives the same result when the same body is sent twice', async () => {
+    const body = { name: 'Ana Souza', birthDate: '1990-04-15', state: 'RS' };
+
+    const first = await service.updateProfile(id, body);
+    const second = await service.updateProfile(id, body);
+
+    expect(second).toEqual(first);
+  });
+
+  it('fails with USER_NOT_FOUND when the user does not exist', async () => {
+    const vanishing = {
+      update: () => Promise.reject(new RecordNotFoundError()),
+    };
+    const isolated = new UsersService(vanishing as unknown as UsersRepository);
+
+    await expect(
+      isolated.updateProfile('missing', { city: 'Porto Alegre' }),
+    ).rejects.toMatchObject({ kind: 'NOT_FOUND', code: 'USER_NOT_FOUND' });
+  });
+});
+
 class FakeUsersRepository {
   private readonly users = new Map<string, User>();
   private sequence = 0;
@@ -261,7 +348,10 @@ class FakeUsersRepository {
     const existing = this.users.get(id);
     if (!existing) return Promise.reject(new Error(`no user ${id}`));
 
-    const updated = { ...existing, ...data };
+    const defined = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined),
+    );
+    const updated = { ...existing, ...defined };
     this.assertEmailFree(updated);
     this.users.set(id, updated);
     return Promise.resolve(updated);

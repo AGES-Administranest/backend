@@ -43,20 +43,36 @@ describe('HourlyRateHistoryService', () => {
   });
 
   describe('list', () => {
-    it('answers each stored month with its hour value as a 2-place string', async () => {
+    /** What the repository reads of a month for the list. */
+    const listed = (snapshot: HourlyRateSnapshot) => ({
+      year: snapshot.year,
+      month: snapshot.month,
+      hourlyRate: snapshot.hourlyRate,
+      fixedCosts: snapshot.fixedCosts,
+      variableCosts: snapshot.variableCosts,
+      ownerDraw: snapshot.ownerDraw,
+      safetyMargin: snapshot.safetyMargin,
+      weeklyHours: snapshot.weeklyHours,
+      calculatedAt: snapshot.calculatedAt,
+    });
+
+    /** September with 40 h a week, no costs and a 10% margin. */
+    const september = october({
+      month: 9,
+      hourlyRate: dec('63.46'),
+      fixedCosts: dec('0'),
+      variableCosts: dec('0'),
+      ownerDraw: dec('10000'),
+      safetyMargin: dec('1000'),
+      monthlyIncomeGoal: dec('10000'),
+      weeklyHours: dec('40'),
+      safetyMarginPct: dec('10'),
+    });
+
+    it('answers each stored month with its hour value, productive hours and minimum as 2-place strings', async () => {
       snapshots.findInRange.mockResolvedValue([
-        {
-          year: 2026,
-          month: 10,
-          hourlyRate: dec('98.07'),
-          calculatedAt: CALCULATED_AT,
-        },
-        {
-          year: 2026,
-          month: 9,
-          hourlyRate: dec('90.5'),
-          calculatedAt: CALCULATED_AT,
-        },
+        listed(october()),
+        listed(september),
       ]);
 
       await expect(service.list('user-1', query())).resolves.toEqual([
@@ -64,15 +80,48 @@ describe('HourlyRateHistoryService', () => {
           year: 2026,
           month: 10,
           hourlyRate: '98.07',
+          productiveHours: '130.00',
+          minimumHourlyRate: '81.72',
           calculatedAt: CALCULATED_AT,
         },
         {
           year: 2026,
           month: 9,
-          hourlyRate: '90.50',
+          hourlyRate: '63.46',
+          productiveHours: '173.33',
+          minimumHourlyRate: '57.69',
           calculatedAt: CALCULATED_AT,
         },
       ]);
+    });
+
+    it('answers a month with the same hour value, productive hours and minimum as findMonth', async () => {
+      for (const snapshot of [october(), september]) {
+        snapshots.findInRange.mockResolvedValue([listed(snapshot)]);
+        snapshots.findMonth.mockResolvedValue(snapshot);
+
+        const [item] = await service.list('user-1', query());
+        const month = await service.findMonth('user-1', snapshot);
+
+        expect(item).toEqual({
+          year: month.year,
+          month: month.month,
+          hourlyRate: month.hourlyRate,
+          productiveHours: month.productiveHours,
+          minimumHourlyRate: month.minimumHourlyRate,
+          calculatedAt: month.calculatedAt,
+        });
+      }
+    });
+
+    it('answers the stored hour value, not one composed again from the parts', async () => {
+      snapshots.findInRange.mockResolvedValue([
+        listed(october({ hourlyRate: dec('97.5') })),
+      ]);
+
+      const [item] = await service.list('user-1', query());
+
+      expect(item.hourlyRate).toBe('97.50');
     });
 
     it('reads only the caller, within the months asked for', async () => {

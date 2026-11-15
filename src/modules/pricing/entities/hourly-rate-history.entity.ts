@@ -18,6 +18,25 @@ export class HourlyRateHistoryItemResponse {
 
   @ApiProperty({
     type: String,
+    example: '130.00',
+    description:
+      "Weekly hours × 52 ÷ 12, from the month's stored weekly hours. Equal " +
+      'to productiveHours of GET /pricing/hourly-rate/history/:year/:month',
+  })
+  productiveHours!: string;
+
+  @ApiProperty({
+    type: String,
+    example: '81.72',
+    description:
+      "The month's hour value without the margin: below it, the month's " +
+      "costs and the owner's draw are not covered. Equal to " +
+      'minimumHourlyRate of GET /pricing/hourly-rate/history/:year/:month',
+  })
+  minimumHourlyRate!: string;
+
+  @ApiProperty({
+    type: String,
     format: 'date-time',
     example: '2026-10-19T20:42:00.000Z',
     description: 'When the stored calculation ran',

@@ -5,3 +5,4 @@
  * inside — the `no-restricted-imports` rule in `eslint.config.mjs` blocks it.
  */
 export { ServiceInvoicesModule } from './service-invoices.module';
+export { ServiceInvoiceCountService } from './service-invoice-count.service';

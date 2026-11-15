@@ -11,10 +11,15 @@ import {
 
 import {
   ActiveSupply,
+  AppointmentPeriod,
   AppointmentsRepository,
+  AppointmentTotals,
+  ClientAppointmentPage,
+  ClientAppointmentTotals,
   ItemUsage,
   ItemWithLots,
   RecordedItemUsage,
+  ReportAppointment,
   SupplyMovement,
 } from './appointments.repository';
 import { FinancialEntryEntity } from '../financial';
@@ -48,6 +53,7 @@ import {
   RecordNotFoundError,
   UniqueConstraintError,
 } from '../../infra/prisma/prisma-errors';
+import { Period } from '../../shared/dates/period';
 import { DomainError } from '../../shared/errors/domain-error';
 import {
   assertValidMovement,
@@ -60,6 +66,55 @@ export class AppointmentsService {
   constructor(
     private readonly appointmentsRepository: AppointmentsRepository,
   ) {}
+
+  countInPeriod(userId: string, period: Period): Promise<number> {
+    return this.appointmentsRepository.countInPeriod(userId, period);
+  }
+
+  findCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+    skip: number,
+    take: number,
+  ): Promise<ClientAppointmentPage> {
+    return this.appointmentsRepository.findCompletedPageByClient(
+      userId,
+      clientId,
+      period,
+      skip,
+      take,
+    );
+  }
+
+  sumCompletedByClient(
+    userId: string,
+    clientId: string,
+    period: AppointmentPeriod,
+  ): Promise<AppointmentTotals> {
+    return this.appointmentsRepository.sumCompletedByClient(
+      userId,
+      clientId,
+      period,
+    );
+  }
+
+  findCompletedInPeriod(
+    userId: string,
+    period: AppointmentPeriod,
+  ): Promise<ReportAppointment[]> {
+    return this.appointmentsRepository.findCompletedInPeriod(userId, period);
+  }
+
+  sumCompletedGroupedByClient(
+    userId: string,
+    period: AppointmentPeriod,
+  ): Promise<ClientAppointmentTotals[]> {
+    return this.appointmentsRepository.sumCompletedGroupedByClient(
+      userId,
+      period,
+    );
+  }
 
   async findAll(
     userId: string,

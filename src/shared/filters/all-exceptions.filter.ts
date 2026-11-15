@@ -29,6 +29,7 @@ const STATUS_BY_KIND: Record<ErrorKind, number> = {
   UNAUTHORIZED: HttpStatus.UNAUTHORIZED,
   FORBIDDEN: HttpStatus.FORBIDDEN,
   PAYLOAD_TOO_LARGE: HttpStatus.PAYLOAD_TOO_LARGE,
+  INTERNAL: HttpStatus.INTERNAL_SERVER_ERROR,
 };
 
 /** Errors NestJS itself throws (unknown route, guard, ParseUUIDPipe…). */
