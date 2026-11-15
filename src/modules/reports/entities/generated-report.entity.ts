@@ -16,6 +16,12 @@ export class GeneratedReportEntity {
   })
   fileName!: string;
 
+  @ApiProperty({
+    example: 43602,
+    description: 'Size of the file in bytes, as the history lists it',
+  })
+  fileBytesSize!: number;
+
   @ApiProperty({ type: ReportPeriod })
   period!: ReportPeriod;
 

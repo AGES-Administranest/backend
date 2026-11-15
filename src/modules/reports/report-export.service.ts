@@ -77,6 +77,7 @@ export class ReportExportService {
       id,
       kind: ReportKind.GENERAL_REPORT,
       fileName,
+      fileBytesSize: pdf.byteLength,
       period: report.period,
       sections,
       generatedAt: report.generatedAt,

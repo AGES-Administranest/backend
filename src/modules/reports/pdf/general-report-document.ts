@@ -120,8 +120,8 @@ const totalRow = (cells: TableCell[]): TableCell[] =>
 const dash = (value: string | null | undefined): string => value?.trim() || '—';
 
 /**
- * A table whose header repeats on every page and whose rows are never cut in
- * two by a page break (US28).
+ * A table whose header repeats on every page, never ends a page without a row
+ * under it, and whose rows are never cut in two by a page break (US28).
  */
 function table(
   widths: (string | number)[],
@@ -131,6 +131,7 @@ function table(
   return {
     table: {
       headerRows: 1,
+      keepWithHeaderRows: 1,
       dontBreakRows: true,
       widths,
       body: [header, ...rows],
@@ -443,6 +444,9 @@ function bodyOf(section: GeneralReportSection): Content[] {
   }
 }
 
+/** Marks the section titles for `pageBreakBefore`. */
+const SECTION_HEADLINE_LEVEL = 1;
+
 /**
  * The hourly rate section is the one that still has something to say when it
  * is empty: why the months have no value.
@@ -518,6 +522,11 @@ export function generalReportDocument(
         { text: `Página ${currentPage} de ${pageCount}`, alignment: 'right' },
       ],
     }),
+    // A section title with nothing of its section under it on the same page
+    // moves to the next one, so it is never left alone at the foot of a page.
+    pageBreakBefore: (currentNode, nodes) =>
+      currentNode.headlineLevel === SECTION_HEADLINE_LEVEL &&
+      nodes.getFollowingNodesOnPage().length === 0,
     content: [
       {
         toc: {
@@ -531,6 +540,7 @@ export function generalReportDocument(
           fontSize: 14,
           bold: true,
           tocItem: true,
+          headlineLevel: SECTION_HEADLINE_LEVEL,
           margin: [0, 10, 0, 4],
         },
         ...sectionContent(section),

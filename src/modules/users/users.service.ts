@@ -77,8 +77,9 @@ export class UsersService {
 
   /**
    * Creates the local mirror on first valid login (ADR-02), idempotently: the
-   * app calls this on every login. Cognito wins on e-mail; the name is only
-   * overwritten when the token carries the claim.
+   * app calls this on every login. Cognito wins on e-mail; the name comes from
+   * the token only when the row is created — afterwards the user edits it with
+   * `PATCH /users/me` (US24), and a later login must not undo that edit.
    */
   async provisionFromCognito(claims: {
     cognitoSub: string;
@@ -94,10 +95,7 @@ export class UsersService {
           name: claims.name ?? claims.email,
           updatedAt: new Date(),
         },
-        {
-          email: claims.email,
-          ...(claims.name ? { name: claims.name } : {}),
-        },
+        { email: claims.email },
       );
     } catch (error) {
       // `user` is unique on `cognito_sub` too, and losing the upsert race fails

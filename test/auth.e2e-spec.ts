@@ -186,6 +186,26 @@ describe('auth (e2e)', () => {
       expect(body(response).name).toBe('Ana Souza');
     });
 
+    it('keeps a name edited in the profile on the next login (US24)', async () => {
+      await request(http)
+        .post('/auth/session')
+        .set('Authorization', bearer(ana))
+        .expect(200);
+      await request(http)
+        .patch('/users/me')
+        .set('Authorization', bearer(ana))
+        .send({ name: 'Dra. Ana Souza' })
+        .expect(200);
+
+      // The token still carries the name Cognito had at sign-up.
+      const response = await request(http)
+        .post('/auth/session')
+        .set('Authorization', bearer(ana))
+        .expect(200);
+
+      expect(body(response).name).toBe('Dra. Ana Souza');
+    });
+
     it('falls back to the e-mail as name when creating without one', async () => {
       const response = await request(http)
         .post('/auth/session')
