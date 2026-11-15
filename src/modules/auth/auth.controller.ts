@@ -17,6 +17,7 @@ import { PasswordRecoveryGateway } from './password-recovery.gateway';
 import { AllowsUnprovisioned, CurrentClaims, Public } from '../../shared/auth';
 // `import type` is required by `emitDecoratorMetadata` on a decorated signature.
 import type { CognitoIdentity } from '../../shared/auth';
+import { AccountDeletionService } from '../account-deletion';
 import { UserEntity, UsersService } from '../users';
 
 /**
@@ -29,6 +30,7 @@ export class AuthController {
   constructor(
     private readonly usersService: UsersService,
     private readonly passwordRecoveryGateway: PasswordRecoveryGateway,
+    private readonly accountDeletion: AccountDeletionService,
   ) {}
 
   @Public()
@@ -73,14 +75,24 @@ export class AuthController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Creates or refreshes the local mirror of the Cognito user',
-    description: 'Idempotent: the app calls it on every login.',
+    description:
+      'Idempotent: the app calls it on every login. The body carries ' +
+      'termsVersion, termsAcceptedAt and privacyAcceptedAt (ISO 8601, null ' +
+      'until the terms are accepted) for the Privacy screen.',
   })
   @ApiOkResponse({ type: UserEntity })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })
+  @ApiUnauthorizedResponse({
+    description:
+      'Missing or invalid token, or ACCOUNT_DELETED: the account was deleted ' +
+      'and its old token cannot open a session again',
+  })
   @ApiConflictResponse({
     description: 'E-mail already belongs to another account',
   })
-  session(@CurrentClaims() claims: CognitoIdentity) {
+  async session(@CurrentClaims() claims: CognitoIdentity) {
+    // A token outlives the Cognito user for up to an hour. Without this check
+    // it would quietly rebuild the mirror of an account that was just deleted.
+    await this.accountDeletion.assertNotDeleted(claims.cognitoSub);
     return this.usersService.provisionFromCognito(claims);
   }
 
@@ -92,7 +104,9 @@ export class AuthController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Records consent to the terms of use and the privacy policy',
-    description: 'Stores the date and the version of the accepted text.',
+    description:
+      'Stores the date and the version of the accepted text, and returns ' +
+      'them as termsVersion, termsAcceptedAt and privacyAcceptedAt (ISO 8601).',
   })
   @ApiOkResponse({ type: UserEntity })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid token' })

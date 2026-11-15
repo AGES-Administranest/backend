@@ -20,7 +20,10 @@ export type ErrorKind =
   | 'INVALID_REFERENCE'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
-  | 'PAYLOAD_TOO_LARGE';
+  | 'PAYLOAD_TOO_LARGE'
+  // Our side failed in a way that has a name the app can act on, instead of the
+  // generic INTERNAL_SERVER_ERROR. Use sparingly.
+  | 'INTERNAL';
 
 export class DomainError extends Error {
   /**

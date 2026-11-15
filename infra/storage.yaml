@@ -97,11 +97,14 @@ Resources:
         Statement:
           # A presigned POST carries the signer's permissions: the API needs
           # PutObject for the app's upload to be accepted.
+          # DeleteObject: removing a single document, and account deletion
+          # (US25), which removes everything under the user's `users/<id>/`.
           - Sid: SignUploadsAndReadDocuments
             Effect: Allow
             Action:
               - s3:PutObject
               - s3:GetObject
+              - s3:DeleteObject
             Resource: !Sub '${DocumentsBucket.Arn}/users/*'
           # The tax package is streamed up as a multipart upload and read back
           # through a presigned GET.

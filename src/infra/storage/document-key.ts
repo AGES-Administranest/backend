@@ -26,3 +26,13 @@ export function exportKey(
 ): string {
   return `exports/users/${userId}/${kind}/${fileName}`;
 }
+
+/**
+ * Every document one user sent or the API archived for them. Removing this
+ * prefix removes every file the account ever uploaded, including objects whose
+ * row is already gone. Generated exports (`exportKey`) live outside it and are
+ * left to the lifecycle rule, which expires them in a day (ADR-15).
+ */
+export function userDocumentsPrefix(userId: string): string {
+  return `users/${userId}/`;
+}

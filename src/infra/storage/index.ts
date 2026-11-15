@@ -2,6 +2,7 @@ export {
   documentKey,
   exportKey,
   type DocumentCollection,
+  userDocumentsPrefix,
 } from './document-key';
 export {
   DocumentStorage,

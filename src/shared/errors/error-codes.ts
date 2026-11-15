@@ -38,6 +38,21 @@ export const ERROR_CODES = [
   'USER_EMAIL_ALREADY_REGISTERED',
   'USER_NOT_PROVISIONED',
 
+  // account deletion (US25)
+  // The token is too old for an irreversible action: the app reauthenticates
+  // with the password (or runs the social login again) and resends with the
+  // fresh token.
+  'REAUTH_REQUIRED',
+  // The account was deleted, so its old token cannot open a session again.
+  // The app sends the user to the login screen.
+  'ACCOUNT_DELETED',
+  // The database transaction failed and rolled back: nothing was deleted, and
+  // sending the request again is safe.
+  'ACCOUNT_DELETION_FAILED',
+  // The data is gone, but a step outside the database (the S3 files, the
+  // Cognito user) did not finish. Sending the request again finishes it.
+  'ACCOUNT_DELETION_INCOMPLETE',
+
   // item
   'ITEM_NOT_FOUND',
   'DUPLICATED_ITEM_PRESENTATION',

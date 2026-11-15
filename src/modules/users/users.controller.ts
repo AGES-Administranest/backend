@@ -8,11 +8,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiInternalServerErrorResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -29,9 +31,15 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ProfileEntity } from './entities/profile.entity';
 import { UserEntity } from './entities/user.entity';
 import { UsersService } from './users.service';
-import { CurrentUser } from '../../shared/auth';
+import {
+  AllowsUnprovisioned,
+  CurrentClaims,
+  CurrentUser,
+} from '../../shared/auth';
 // `import type` is required by `emitDecoratorMetadata` on a decorated signature.
-import type { AuthenticatedUser } from '../../shared/auth';
+import type { AuthenticatedUser, CognitoIdentity } from '../../shared/auth';
+import { DomainError } from '../../shared/errors/domain-error';
+import { AccountDeletionService } from '../account-deletion';
 
 const UPDATE_PROFILE_EXAMPLES = {
   full: {
@@ -95,10 +103,33 @@ const PROFILE_VALIDATION_ERROR_EXAMPLE = {
   timestamp: '2026-11-09T18:20:41.512Z',
 };
 
+/**
+ * The owner of DELETE /users/me comes from the token alone (ADR-11). A body or
+ * a query string is refused outright, in the same shape the global
+ * `ValidationPipe` uses for an unknown property, so a client that tries to name
+ * another account (`userId`) learns it was ignored for a reason and not by luck.
+ */
+function assertNoParameters(source: Record<string, unknown> | undefined): void {
+  const names = Object.keys(source ?? {});
+  if (names.length === 0) return;
+
+  throw new DomainError(
+    'INVALID_INPUT',
+    'VALIDATION_ERROR',
+    'Invalid request',
+    {
+      fields: names.map(name => `property ${name} should not exist`),
+    },
+  );
+}
+
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly accountDeletion: AccountDeletionService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Lista todos os usuários' })
@@ -159,6 +190,52 @@ export class UsersController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.usersService.updateProfile(user.id, dto);
+  }
+
+  // Declared before `@Delete(':id')`, which would otherwise take "me".
+  //
+  // Exempt from the guard's mirror lookup so that asking again after a partial
+  // deletion still reaches the service, which finishes it: by then the mirror
+  // no longer exists and the guard would answer 401 first.
+  @AllowsUnprovisioned()
+  @Delete('me')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Deletes the signed-in account and its data (US25, LGPD)',
+    description:
+      'The account comes from the token (ADR-11); a body or query string, ' +
+      'userId included, is refused. Irreversible, so the token must come from ' +
+      'a login in the last 5 minutes (auth_time): the app asks for the ' +
+      'password again — or runs the Google login again — and sends the new ' +
+      'token. Removes every row the user owns in one transaction, then their ' +
+      'S3 files, then the Cognito user. Idempotent: repeating it after a ' +
+      'complete deletion answers 204, and after a partial one it finishes the ' +
+      'job. The app must not call Cognito DeleteUser itself.',
+  })
+  @ApiNoContentResponse({ description: 'Account deleted' })
+  @ApiBadRequestResponse({
+    description: 'VALIDATION_ERROR: a body or query parameter was sent',
+  })
+  @ApiUnauthorizedResponse({
+    description:
+      'Missing or invalid token (UNAUTHENTICATED, TOKEN_EXPIRED, TOKEN_INVALID); ' +
+      'REAUTH_REQUIRED when the login is older than the window — sign in ' +
+      'again and resend; USER_NOT_PROVISIONED when the account never existed',
+  })
+  @ApiInternalServerErrorResponse({
+    description:
+      'ACCOUNT_DELETION_FAILED: rolled back, nothing was deleted, resend. ' +
+      'ACCOUNT_DELETION_INCOMPLETE: the data is gone but the S3 or Cognito ' +
+      'step did not finish, resend to finish it',
+  })
+  async deleteMe(
+    @CurrentClaims() identity: CognitoIdentity,
+    @Body() body: Record<string, unknown> | undefined,
+    @Query() query: Record<string, unknown>,
+  ): Promise<void> {
+    assertNoParameters(body);
+    assertNoParameters(query);
+    await this.accountDeletion.deleteAccount(identity);
   }
 
   @Get(':id')

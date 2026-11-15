@@ -5,8 +5,10 @@ import { UsersController } from './users.controller';
 import { UsersRepository } from './users.repository';
 import { UsersService } from './users.service';
 import { AUTH_USER_RESOLVER } from '../../shared/auth/auth-user-resolver';
+import { AccountDeletionModule } from '../account-deletion';
 
 @Module({
+  imports: [AccountDeletionModule],
   controllers: [UsersController],
   // O repository é provider do módulo, mas não entra em `exports`:
   // fora daqui, o único caminho para os dados de usuário é o UsersService.

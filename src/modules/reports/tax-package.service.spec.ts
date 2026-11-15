@@ -46,6 +46,9 @@ class FakeStorage extends DocumentStorage {
   deleteDocument(): Promise<void> {
     return Promise.reject(new Error('deleteDocument is not used here'));
   }
+  deletePrefix(): Promise<number> {
+    return Promise.reject(new Error('deletePrefix is not used here'));
+  }
   async putDocumentStream({
     key,
     body,
