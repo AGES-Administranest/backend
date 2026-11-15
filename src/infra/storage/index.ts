@@ -1,5 +1,6 @@
 export {
   documentKey,
+  exportKey,
   type DocumentCollection,
   userDocumentsPrefix,
 } from './document-key';
@@ -9,6 +10,7 @@ export {
   type PresignedGetRequest,
   type PresignedPost,
   type PresignedPostRequest,
+  type PutDocumentRequest,
   type StoredDocument,
 } from './document-storage';
 export {

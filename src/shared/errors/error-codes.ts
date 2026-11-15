@@ -171,6 +171,12 @@ export const ERROR_CODES = [
   'SERVICE_INVOICE_UPLOAD_NOT_FINISHED',
   'SERVICE_INVOICE_UPLOAD_MISMATCH',
   'SERVICE_INVOICE_NOT_READY',
+  // The note has no PDF to download: missing, another account's, or its
+  // upload never arrived. One code for all three, so the code does not tell
+  // another account's note from a missing one.
+  'SERVICE_INVOICE_FILE_NOT_FOUND',
+  // The operation needs a confirmed note and this one is still a draft.
+  'SERVICE_INVOICE_NOT_CONFIRMED',
   // A confirmed note has the same amount and date, or the same number and
   // taker. The app shows it and resends with allowDuplicate.
   'SERVICE_INVOICE_POSSIBLE_DUPLICATE',
@@ -179,6 +185,11 @@ export const ERROR_CODES = [
   // `from` is after `to`: the period is empty by construction, so resending
   // the same dates will never work and the app has to fix the range.
   'REPORT_PERIOD_INVALID',
+  // tax package (US32): a period with no confirmed document that has its file
+  // in storage. Choosing another period is the only way out.
+  'TAX_PACKAGE_EMPTY',
+  // more documents or bytes than one package holds: a shorter period fits.
+  'TAX_PACKAGE_TOO_LARGE',
   // The general report (US29) was asked with no section at all. The app
   // blocks this before sending, so it only happens on a bug.
   'REPORT_SECTIONS_EMPTY',

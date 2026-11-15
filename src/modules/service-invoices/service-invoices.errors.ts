@@ -87,6 +87,25 @@ export function fileDuplicated(serviceInvoiceId?: string): DomainError {
   );
 }
 
+/** Missing, not yours, or never uploaded: the app does the same for all three. */
+export function fileNotFound(id: string): DomainError {
+  return new DomainError(
+    'NOT_FOUND',
+    'SERVICE_INVOICE_FILE_NOT_FOUND',
+    'This service invoice has no file to download',
+    { id },
+  );
+}
+
+export function notConfirmed(invoice: ServiceInvoice): DomainError {
+  return new DomainError(
+    'CONFLICT',
+    'SERVICE_INVOICE_NOT_CONFIRMED',
+    'The service invoice is not confirmed yet',
+    { id: invoice.id, status: invoice.status },
+  );
+}
+
 export function uploadNotFinished(id: string): DomainError {
   return new DomainError(
     'CONFLICT',

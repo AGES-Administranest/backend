@@ -4,6 +4,7 @@ import {
   DocumentStorage,
   PresignedGet,
   PresignedPost,
+  PutDocumentRequest,
   StoredDocument,
 } from './document-storage';
 import { DeclaredFile, UploadPolicy } from './upload-policy';
@@ -81,11 +82,30 @@ export class DocumentUploads {
     return { status: 'stored', document: stored };
   }
 
-  createDownloadUrl(key: string, fileName?: string): Promise<PresignedGet> {
+  /** The bytes of a stored document, or `null` when nothing is at the key. */
+  readDocument(key: string): Promise<Uint8Array | null> {
+    return this.storage.getDocument(key);
+  }
+
+  /** For files the API generates, such as a zip of documents. */
+  putDocumentStream(request: PutDocumentRequest): Promise<void> {
+    return this.storage.putDocumentStream(request);
+  }
+
+  createDownloadUrl(
+    key: string,
+    fileName?: string,
+    contentType?: string,
+  ): Promise<PresignedGet> {
     return this.storage.createPresignedGet({
       key,
       expiresInMs: DOWNLOAD_TTL_MS,
       ...(fileName && { fileName }),
+      ...(contentType && { contentType }),
     });
+  }
+
+  deleteDocument(key: string): Promise<void> {
+    return this.storage.deleteDocument(key);
   }
 }

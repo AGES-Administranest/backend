@@ -55,6 +55,18 @@ describe('S3DocumentStorage presigned download', () => {
     );
   });
 
+  it('pins the content type of the download', async () => {
+    const { url } = await storage.createPresignedGet({
+      key: KEY,
+      expiresInMs: 60_000,
+      contentType: 'application/pdf',
+    });
+
+    expect(new URL(url).searchParams.get('response-content-type')).toBe(
+      'application/pdf',
+    );
+  });
+
   it('deletes the object at the key', async () => {
     const send = jest.fn().mockResolvedValue({});
     Object.assign(storage, { client: { send } });

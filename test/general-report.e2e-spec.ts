@@ -66,6 +66,10 @@ class MemoryStorage extends DocumentStorage {
     return Promise.resolve();
   }
 
+  putDocumentStream(): Promise<void> {
+    return Promise.reject(new Error('putDocumentStream is not used here'));
+  }
+
   deleteDocument(key: string): Promise<void> {
     this.objects.delete(key);
     return Promise.resolve();

@@ -80,6 +80,11 @@ Creates or updates the stack `administranest-prod-storage` and prints `S3_BUCKET
   - `s3:ListBucket` on the bucket: without it, `HeadObject` on a missing key answers
     `403` instead of `404`, and the API would read "the upload never arrived" as a
     failure. No `s3:prefix` condition, since S3 sends none for that check.
+  - `s3:PutObject` / `s3:GetObject` / `s3:AbortMultipartUpload` under `exports/*`:
+    the files the API generates, such as the tax package zip.
+- **Generated files expire.** A lifecycle rule deletes everything under `exports/`
+  one day after it was written, and drops incomplete multipart uploads there after a
+  day. Only that prefix: the documents users send live under `users/` and are kept.
 - **CORS** is off: the native app doesn't need it. A hosted web build that uploads
   from the browser needs its origin added once:
   `CORS_ALLOWED_ORIGINS=https://... scripts/deploy-storage.sh`.

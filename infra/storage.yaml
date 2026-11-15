@@ -33,6 +33,19 @@ Resources:
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
+      # Files the API generates (tax package zips) are only fetched through a
+      # 5-minute presigned URL; keeping them past a day is cost and fiscal data
+      # nobody needs. The originals live under `users/` and no rule touches them.
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireGeneratedExports
+            Status: Enabled
+            Prefix: exports/
+            ExpirationInDays: 1
+            # A zip whose build failed midway leaves multipart parts behind,
+            # billed but invisible in a listing.
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -93,6 +106,15 @@ Resources:
               - s3:GetObject
               - s3:DeleteObject
             Resource: !Sub '${DocumentsBucket.Arn}/users/*'
+          # The tax package is streamed up as a multipart upload and read back
+          # through a presigned GET.
+          - Sid: WriteAndReadGeneratedExports
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:AbortMultipartUpload
+            Resource: !Sub '${DocumentsBucket.Arn}/exports/*'
           # Without ListBucket, HeadObject on a missing key answers 403 instead
           # of 404, and the API reads "the upload never arrived" as a failure.
           - Sid: TellMissingFromForbidden

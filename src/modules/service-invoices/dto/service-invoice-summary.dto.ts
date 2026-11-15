@@ -1,50 +1,43 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  ExtractionFailureReason,
-  ExtractionStatus,
-  ServiceInvoiceStatus,
-} from '@prisma/client';
+import { ApiProperty } from '@nestjs/swagger';
+
+export class ServiceInvoiceClientRefDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'HospVet Sul' })
+  name!: string;
+}
 
 export class ServiceInvoiceSummaryDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ enum: ServiceInvoiceStatus })
-  status!: ServiceInvoiceStatus;
+  @ApiProperty({ type: String, nullable: true, example: '000458' })
+  number!: string | null;
 
-  @ApiPropertyOptional({ example: 'nfse-1287.pdf' })
-  fileName?: string;
+  @ApiProperty({ example: '2026-04-22', format: 'date' })
+  issueDate!: string;
 
-  @ApiPropertyOptional({ example: '1287' })
-  number?: string;
+  @ApiProperty({ example: 1284.5 })
+  amount!: number;
 
-  @ApiPropertyOptional({ example: '2026-10-13', format: 'date' })
-  issueDate?: string;
+  @ApiProperty({ type: ServiceInvoiceClientRefDto })
+  client!: ServiceInvoiceClientRefDto;
 
-  @ApiPropertyOptional({ example: 1500 })
-  amount?: number;
+  @ApiProperty({ type: String, nullable: true, example: 'São Paulo, SP' })
+  location!: string | null;
 
-  @ApiPropertyOptional({
-    example: 'CLINICA VETERINARIA EXEMPLO LTDA',
-    description: 'The taker as printed on the note',
+  @ApiProperty({ description: 'The original PDF was uploaded and is kept' })
+  hasFile!: boolean;
+}
+
+export class ServiceInvoicePageDto {
+  @ApiProperty({ type: [ServiceInvoiceSummaryDto] })
+  items!: ServiceInvoiceSummaryDto[];
+
+  @ApiProperty({
+    example: 37,
+    description: 'Every note that matches the filters, not just this page',
   })
-  takerName?: string;
-
-  @ApiPropertyOptional({ format: 'uuid' })
-  clientId?: string;
-
-  @ApiProperty({ enum: ExtractionStatus })
-  extractionStatus!: ExtractionStatus;
-
-  @ApiPropertyOptional({ enum: ExtractionFailureReason })
-  failureReason?: ExtractionFailureReason;
-
-  @ApiPropertyOptional({
-    format: 'date-time',
-    description: 'Absent while the upload never arrived',
-  })
-  uploadedAt?: string;
-
-  @ApiProperty({ format: 'date-time' })
-  createdAt!: string;
+  total!: number;
 }

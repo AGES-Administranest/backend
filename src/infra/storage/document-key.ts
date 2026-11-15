@@ -14,9 +14,24 @@ export function documentKey(
 }
 
 /**
- * Everything stored for one user. The layout above is the only one the API
- * writes, so removing this prefix removes every file the account ever uploaded,
- * including objects whose row is already gone.
+ * Something the API generates for the user (a zip of documents), as opposed to
+ * a document the user sent. At the root, outside `users/`: a lifecycle rule
+ * filters by a fixed prefix, so this is what lets `exports/` expire every
+ * generated file without touching the originals (infra/storage.yaml).
+ */
+export function exportKey(
+  userId: string,
+  kind: 'tax-package',
+  fileName: string,
+): string {
+  return `exports/users/${userId}/${kind}/${fileName}`;
+}
+
+/**
+ * Every document one user sent or the API archived for them. Removing this
+ * prefix removes every file the account ever uploaded, including objects whose
+ * row is already gone. Generated exports (`exportKey`) live outside it and are
+ * left to the lifecycle rule, which expires them in a day (ADR-15).
  */
 export function userDocumentsPrefix(userId: string): string {
   return `users/${userId}/`;

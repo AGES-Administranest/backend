@@ -1,3 +1,5 @@
+import type { Readable } from 'node:stream';
+
 /**
  * Abstract class and not an interface: Nest injects by token, and an interface
  * leaves nothing behind at runtime.
@@ -46,9 +48,23 @@ export abstract class DocumentStorage {
    */
   abstract deletePrefix(prefix: string): Promise<number>;
 
+  /**
+   * Writes a stream of unknown length as the object at `key`, without holding
+   * it whole in memory (multipart). Aborting `signal` cancels the upload and
+   * leaves no object behind: the promise then rejects.
+   */
+  abstract putDocumentStream(request: PutDocumentRequest): Promise<void>;
+
   /** Idempotent: nothing at the key is not an error, so a retry is safe. */
   abstract deleteDocument(key: string): Promise<void>;
 }
+
+export type PutDocumentRequest = {
+  key: string;
+  body: Readable;
+  contentType: string;
+  signal?: AbortSignal;
+};
 
 export type PresignedPostRequest = {
   key: string;
@@ -69,6 +85,8 @@ export type PresignedGetRequest = {
   expiresInMs: number;
   /** The key has no extension, so without this the file saves as `original`. */
   fileName?: string;
+  /** Pinned in the signature, so the browser does not sniff the type. */
+  contentType?: string;
 };
 
 export type PresignedGet = {
